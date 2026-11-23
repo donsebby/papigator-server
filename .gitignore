@@ -1,0 +1,15 @@
+# Local Docker Compose setup
+.env
+data/
+backup/
+ollama/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+test-results/
+.DS_Store
+*.db
+demo/tokens.json
+demo/papigator-demo/

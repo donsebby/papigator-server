@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Papigator</title>
+<!-- Erscheinungsbild (bl.theme) und Farbthema (bl.color) vor dem ersten Bild setzen, damit nichts aufblitzt -->
+<script>(function(){var h=document.documentElement,t="system",c="wiese";try{t=localStorage.getItem("bl.theme")||t;var s=localStorage.getItem("bl.color");if(/^(wiese|sonne|ozean|lavendel|bonbon|schlicht)$/.test(s))c=s}catch(e){}h.dataset.theme=t;h.dataset.color=c})();</script>
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Login -->
+<section id="login" class="screen hidden">
+  <form id="login-form" class="login-box">
+    <img class="login-gator" src="mascot.png" alt="">
+    <h1>Papigator</h1>
+    <input id="login-user" placeholder="Benutzername" autocomplete="username" required>
+    <input id="login-pass" type="password" placeholder="Passwort" autocomplete="current-password" required>
+    <button type="submit" class="primary">Anmelden</button>
+    <p id="login-error" class="error hidden"></p>
+    <a href="#" id="to-setup" class="muted small">Ersteinrichtung</a>
+  </form>
+</section>
+
+<!-- Einladung annehmen: /app/#invite=<token> -->
+<section id="invite" class="screen hidden">
+  <form id="invite-form" class="login-box">
+    <h1 id="inv-title">Einladung</h1>
+    <p id="inv-sub" class="muted small"></p>
+    <div id="inv-fields" class="hidden">
+      <input id="inv-user" placeholder="Benutzername" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64" required>
+      <input id="inv-pass" type="password" placeholder="Passwort (mindestens 8 Zeichen)" autocomplete="new-password" minlength="8" required>
+      <button type="submit" class="primary">Konto anlegen</button>
+    </div>
+    <p id="inv-error" class="error hidden"></p>
+    <a href="#" id="inv-to-login" class="muted small">Ich habe schon ein Konto</a>
+  </form>
+</section>
+
+<!-- Ersteinrichtung -->
+<section id="setup" class="screen hidden">
+  <form id="setup-form" class="login-box">
+    <h1>Ersteinrichtung</h1>
+    <p class="muted small">Ersten Nutzer (Admin) anlegen. Der Bootstrap-Token ist <code>PAPIGATOR_TOKEN</code> aus der Server-Konfiguration.</p>
+    <input id="setup-token" type="password" placeholder="Bootstrap-Token" required>
+    <input id="setup-user" placeholder="Benutzername" autocomplete="username" required>
+    <input id="setup-name" placeholder="Anzeigename">
+    <input id="setup-pass" type="password" placeholder="Passwort" autocomplete="new-password" required>
+    <button type="submit" class="primary">Anlegen</button>
+    <p id="setup-error" class="error hidden"></p>
+    <a href="#" id="to-login" class="muted small">Zum Login</a>
+  </form>
+</section>
+
+<!-- Hauptansicht -->
+<section id="main" class="screen hidden">
+  <header class="topbar">
+    <div class="brand"><img class="logo" src="icon.png" alt=""><span>Papigator</span></div>
+    <div class="search">
+      <svg viewBox="0 0 24 24" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="2" d="M21 21l-4.3-4.3M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"/></svg>
+      <input id="search" type="search" placeholder="Suchen …" autocomplete="off" title="Minus vor einem Wort schließt es aus, z. B. „sam -alex“">
+    </div>
+    <div id="scopebar" class="hidden"><div class="segmented" id="scope-seg"></div></div>
+    <button id="ask-btn" class="btn" title="Dokumente fragen"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" fill="currentColor"/></svg><span class="ask-label">Fragen</span></button>
+    <label class="btn primary" for="file-input"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>Hochladen</label>
+    <input id="file-input" type="file" accept="application/pdf" multiple hidden>
+    <button id="settings-btn" class="btn icon-btn" aria-label="Einstellungen"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"/></svg></button>
+  </header>
+  <!-- Öffentliche Demo (Server mit PAPIGATOR_DEMO=1, /auth/me → demo) -->
+  <p id="demo-banner" class="demo-banner hidden" role="note">Demo mit erfundenen Daten – wird täglich zurückgesetzt</p>
+  <!-- Suche in Sätzen: erkannte Filter als Chips (app.js → renderSmartBar) -->
+  <!-- Begrüßung (app.js → renderHello): „Guten Abend, Alex“ mit Datum und dem kleinen Alligator -->
+  <div id="hello" class="hello">
+    <img class="hello-gator" src="mascot.png" alt="">
+    <div class="hello-text"><div id="hello-date" class="hello-date"></div><h1 id="hello-title" class="hello-title"></h1></div>
+    <!-- Umschalter neben der Begrüßung (18.11.2026): steht so in jeder Ansicht an derselben Stelle, auch wenn
+         Heute und Geld die Leisten für Dokumente nicht brauchen -->
+    <div class="segmented" id="mode-seg" aria-label="Ansicht">
+      <button data-mode="today" title="Fristen, Familie und das Neueste auf einen Blick"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Heute</span></button>
+      <button data-mode="tiles" title="Alle Dokumente als Kacheln"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Kacheln</span></button>
+      <button data-mode="folders" title="Tags als Ordner durchblättern"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Ordner</span></button>
+      <button data-mode="money" title="Kontoumsätze: wofür das Geld ging"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Geld</span></button>
+    </div>
+  </div>
+  <div id="smartbar" class="tagbar filterbar smartbar hidden" aria-live="polite"></div>
+  <!-- Treffer im Konto zur Suche (Server: /bank/search) – Klick öffnet sie in „Geld“ -->
+  <button id="bank-hint" class="bank-hint hidden" type="button"></button>
+
+  <div id="ask-panel" class="ask-panel hidden">
+    <form id="ask-form" class="ask-form">
+      <input id="ask-input" placeholder="z. B. Wie lautet meine Steuer-ID? · Welche Lohnsteuer stand 2025 auf der Bescheinigung?" autocomplete="off">
+      <button type="submit" class="primary" id="ask-submit">Fragen</button>
+      <button type="button" class="btn ghost" id="ask-close" aria-label="Schließen">✕</button>
+    </form>
+    <div id="ask-status" class="muted small hidden"></div>
+    <div id="ask-answer" class="ask-answer hidden"></div>
+    <div id="ask-sources" class="ask-sources hidden"></div>
+    <p class="muted small" style="margin:6px 0 0">Antworten kommen vom lokalen LLM aus deinen Dokumenten – immer anhand der Quelle prüfen.</p>
+  </div>
+
+  <div id="progress" class="progress hidden">
+    <div class="progress-text"><span id="progress-label"></span><span id="progress-eta" class="muted"></span></div>
+    <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+  </div>
+
+  <div id="tagbar" class="tagbar filterbar"></div>
+  <div id="popover" class="popover hidden" role="dialog"></div>
+  <div class="viewbar">
+    <label class="inline"><span class="bar-label">Sortierung</span>
+      <select id="sort-select">
+        <option value="date">Dokumentdatum</option>
+        <option value="added">Hinzugefügt</option>
+        <option value="title">Titel</option>
+        <option value="sender">Absender</option>
+        <option value="amount">Betrag</option>
+      </select>
+    </label>
+    <button id="dir-btn" class="btn icon-btn" aria-label="Sortierrichtung umschalten" title="Richtung">
+      <svg id="dir-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="spacer"></div>
+    <div class="segmented" id="size-seg" aria-label="Kachelgröße">
+      <button data-size="s" title="Klein"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h4v4H3zM10 3h4v4h-4zM17 3h4v4h-4zM3 10h4v4H3zM10 10h4v4h-4zM17 10h4v4h-4zM3 17h4v4H3zM10 17h4v4h-4zM17 17h4v4h-4z" fill="currentColor"/></svg></button>
+      <button data-size="m" title="Mittel"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" fill="currentColor"/></svg></button>
+      <button data-size="l" title="Groß"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h18v18H3z" fill="currentColor"/></svg></button>
+    </div>
+  </div>
+
+  <div id="trash-bar" class="selection-bar hidden">
+    <span id="trash-info"></span>
+    <div class="spacer"></div>
+    <button id="trash-empty-btn" class="btn danger">Papierkorb leeren</button>
+  </div>
+  <div id="selection-bar" class="selection-bar hidden">
+    <span id="selection-count"></span>
+    <button id="select-all-btn" class="btn ghost">Alle auswählen</button>
+    <select id="assign-select" class="hidden" title="Ausgewählte Dokumente einem Nutzer zuordnen"></select>
+    <button id="download-selected-btn" class="btn" title="Ausgewählte PDFs herunterladen (mehrere als ZIP)">Herunterladen</button>
+    <button id="share-selected-btn" class="btn" title="Ausgewählte PDFs teilen – direkt als Dateien oder als Freigabe-Link">Teilen</button>
+    <button id="merge-btn" class="btn">Zusammenführen</button>
+    <button id="nodate-selected-btn" class="btn hidden" title="Ausgewählte Dokumente ohne Datum bestätigen – sie stehen dann nicht mehr unter „Zu prüfen“">Hat kein Datum</button>
+    <button id="restore-selected-btn" class="btn hidden">Wiederherstellen</button>
+    <button id="delete-selected-btn" class="btn danger">Löschen</button>
+    <button id="clear-selection-btn" class="btn ghost">Abbrechen</button>
+  </div>
+
+  <!-- Heute (app.js → renderToday): Fristen | Zum Prüfen + Familie, darunter das Neueste – wie der Start-Tab der App -->
+  <div id="todayview" class="todayview hidden"></div>
+  <!-- Geld (app.js → renderMoney): Kontoumsätze aus CSV, Kategorien, Einsortieren -->
+  <div id="moneyview" class="moneyview hidden"></div>
+  <div id="folderview" class="folderview hidden"></div>
+  <main id="grid" class="grid"></main>
+  <!-- Leere Ansicht: Titel und Satz je nach Lage (app.js → renderEmpty) -->
+  <div id="empty" class="empty-state hidden">
+    <div class="gator-glow" aria-hidden="true"><span class="dot1"></span><span class="dot2"></span><img src="mascot.png" alt=""></div>
+    <h2 id="empty-title">Keine Dokumente</h2>
+    <p id="empty-text"></p>
+    <label id="empty-upload" class="btn primary hidden" for="file-input"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>Dokument hochladen</label>
+  </div>
+  <p class="center"><button id="more-btn" class="btn hidden">Mehr laden</button></p>
+  <div id="dropzone" class="dropzone hidden">PDFs hier ablegen</div>
+</section>
+
+<!-- Detail -->
+<section id="detail" class="screen hidden">
+  <header class="topbar">
+    <button id="back-btn" class="btn"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Übersicht</button>
+    <div class="spacer"></div>
+    <button id="share-btn" class="btn" title="Freigabe-Link für Leute ohne Konto"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Teilen</button>
+    <a id="download-btn" class="btn" download><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0l-4-4m4 4l4-4M5 20h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>PDF</a>
+    <button id="reprocess-btn" class="btn icon-btn" aria-label="Erneut analysieren"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button id="delete-btn" class="btn danger"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Löschen</button>
+  </header>
+  <div class="detail-body">
+    <div class="pdf-wrap"><iframe id="pdf-view" title="Dokument"></iframe></div>
+    <aside class="meta">
+      <p id="m-owner" class="muted small hidden" style="margin:0"></p>
+      <p id="m-persons" class="persons-row hidden"></p>
+      <p id="m-reasons" class="reasons hidden" style="margin:0"></p>
+      <div id="m-ext" class="ext-note hidden">
+        <p><b>Von außen eingeworfen</b> <span id="m-ext-from"></span></p>
+        <p class="muted small">Kam über einen Briefkasten-Link. Erst ansehen, dann übernehmen – bis dahin bleibt es unter „Prüfen“ und erscheint in keiner Freigabe.</p>
+        <div class="row"><button id="m-ext-accept" class="btn primary">Übernehmen</button><button id="m-ext-delete" class="btn ghost danger">In den Papierkorb</button></div>
+      </div>
+      <label><span class="k">Titel</span><input id="m-title" class="title-input"></label>
+      <p id="m-summary" class="summary hidden"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8zM5 15l.8 2.2L8 18l-2.2.8L5 21l-.8-2.2L2 18l2.2-.8z" fill="var(--accent)"/></svg><span id="m-summary-text"></span></p>
+      <div class="row">
+        <label><span class="k">Datum</span><span class="datefield"><input id="m-date" class="dmy" inputmode="numeric" placeholder="TT.MM.JJJJ" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></label>
+        <label><span class="k">Betrag</span><input id="m-amount" type="number" step="0.01"></label>
+      </div>
+      <p id="m-date-hint" class="muted small hidden" style="margin:-4px 0 0"><span id="m-date-hint-text">Kein Datum erkannt – bitte eintragen</span> <button type="button" id="m-no-date" class="nodate-btn"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 10h17M8 3v4M16 3v4M9 15.5h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Hat kein Datum</button></p>
+      <div class="row">
+        <label style="flex:3"><span class="k">Absender</span><input id="m-sender"></label>
+        <label style="flex:1"><span class="k">Währung</span><input id="m-currency" maxlength="3"></label>
+      </div>
+      <!-- Richtung des Betrags: zählt in Summen als Ausgabe, Einnahme oder gar nicht (Vertrag, Mahnung zu einer Rechnung) -->
+      <label><span class="k">Betrag ist</span><select id="m-direction">
+        <option value="">– noch nicht erkannt –</option>
+        <option value="out">eine Ausgabe</option>
+        <option value="in">eine Einnahme (Gehalt, Erstattung, Guthaben)</option>
+        <option value="none">keine Zahlung (Vertrag, Mahnung, Info)</option>
+      </select></label>
+      <!-- Frist und „erledigt“ in einer Zeile, „Wofür“ darunter: neben dem Datumsfeld wurde es sonst zu schmal („Zah…“) -->
+      <div class="row">
+        <label style="flex:1"><span class="k">Frist</span><span class="datefield"><input id="m-due" class="dmy" inputmode="numeric" placeholder="TT.MM.JJJJ" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></label>
+        <label class="toggle" style="flex:0 0 auto; align-self:flex-end; padding-bottom:10px"><input type="checkbox" id="m-due-done"> erledigt</label>
+      </div>
+      <label><span class="k">Wofür</span><input id="m-due-note" placeholder="Zahlungsziel, Kündigungsfrist …"></label>
+      <!-- Wiederkehrend (beim Erledigen gleich der nächste Termin) und wer sich kümmert (nur, wer das Dokument sieht) -->
+      <div class="row">
+        <label><span class="k">Wiederholen</span><select id="m-due-repeat">
+          <option value="">Nie</option><option value="monthly">Monatlich</option><option value="quarterly">Vierteljährlich</option><option value="yearly">Jährlich</option>
+        </select></label>
+        <label id="m-due-assignee-row" class="hidden"><span class="k">Wer kümmert sich?</span><select id="m-due-assignee"></select></label>
+      </div>
+      <a id="m-due-ics" class="small hidden" href="#" download>Zum Kalender (.ics)</a>
+      <!-- Gewährleistung/Garantie (Kaufbelege): Dauer ab Belegdatum, das Ende steht darunter -->
+      <label><span class="k">Gewährleistung / Garantie</span><select id="m-warranty">
+        <option value="" disabled>nicht festgelegt</option>
+        <option value="0">keine</option>
+        <option value="24:legal">2 Jahre Gewährleistung (gesetzlich)</option>
+        <option value="12:garantie">1 Jahr Garantie</option>
+        <option value="24:garantie">2 Jahre Garantie</option>
+        <option value="36:garantie">3 Jahre Garantie</option>
+        <option value="60:garantie">5 Jahre Garantie</option>
+        <option value="120:garantie">10 Jahre Garantie</option>
+      </select></label>
+      <p id="m-warranty-hint" class="muted small hidden" style="margin:-4px 0 0"></p>
+      <!-- Im Blick (nur, wenn erkannt): Ausweis/Karte gültig bis, nächste Prüfung/Wartung, Erstattung bei Arztrechnungen -->
+      <div class="row">
+        <label id="m-expires-row" class="hidden" style="flex:1"><span class="k" id="m-expires-k">Gültig bis</span><span class="datefield"><input id="m-expires" class="dmy" inputmode="numeric" placeholder="TT.MM.JJJJ" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></label>
+        <label id="m-service-row" class="hidden" style="flex:1"><span class="k" id="m-service-k">Nächster Termin</span><span class="datefield"><input id="m-service" class="dmy" inputmode="numeric" placeholder="TT.MM.JJJJ" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></label>
+      </div>
+      <label id="m-refund-row" class="hidden"><span class="k">Erstattung</span><select id="m-refund">
+        <option value="open">offen – noch nicht erstattet</option><option value="done">erstattet</option><option value="none">nicht einreichen</option>
+      </select></label>
+      <label id="m-owner-row" class="hidden"><span class="k">Gehört</span><select id="m-owner-select"></select></label>
+      <label><span class="k">Tags</span>
+        <div id="m-tags" class="chips"></div>
+        <input id="m-tag-input" placeholder="Tag hinzufügen, Enter" list="tag-list">
+        <datalist id="tag-list"></datalist>
+      </label>
+      <p id="m-llm-hint" class="llm-hint hidden" style="margin:0">Tags vom LLM vorgeschlagen – noch nicht bestätigt</p>
+      <div class="spacer"></div>
+      <button id="save-btn" class="primary">Speichern</button>
+      <p id="m-info" class="muted small" style="margin:0"></p>
+      <p id="save-state" class="muted small" style="margin:0"></p>
+    </aside>
+  </div>
+</section>
+
+<!-- Einstellungen -->
+<section id="settings" class="screen hidden">
+  <header class="topbar">
+    <button id="settings-back" class="btn"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Übersicht</button>
+    <div class="spacer"></div>
+    <button id="logout-btn" class="btn ghost">Abmelden</button>
+  </header>
+  <div class="settings-body">
+    <h2 id="s-hello"></h2>
+    <!-- Breite Fenster: zwei Spalten (für dich & Dokumente | Ordnung & Server); schmal untereinander -->
+    <div class="settings-cols">
+    <div class="scol">
+
+    <div class="sgroup">
+      <h3 class="sgroup-h">Konto &amp; Teilen</h3>
+      <div class="sgroup-body">
+      <details class="sect">
+        <summary>Konto &amp; Geräte</summary>
+        <div class="sect-body">
+          <p id="s-demo-account" class="muted small hidden">In der Demo teilen sich alle dieses Konto – Name, Passwort und Geräte lassen sich hier nicht ändern.</p>
+          <div id="s-account-edit">
+          <label><span class="k">Anzeigename</span><input id="s-name"></label>
+          <label id="s-pass-old-row"><span class="k">Aktuelles Passwort (nur zum Ändern)</span><input id="s-pass-old" type="password" autocomplete="current-password"></label>
+          <label><span class="k">Neues Passwort</span><input id="s-pass" type="password" autocomplete="new-password" placeholder="leer lassen = unverändert, mindestens 8 Zeichen"></label>
+          <button id="s-save" class="primary">Speichern</button>
+          </div>
+          <p class="muted small" style="margin-top:12px">Angemeldete Geräte</p>
+          <div id="s-sessions"></div>
+          <button id="s-sessions-revoke" class="btn">Alle anderen Geräte abmelden</button>
+          <details id="s-delete" class="s-delete">
+            <summary>Konto löschen …</summary>
+            <p class="muted small">Löscht dein Konto mit allen deinen Dokumenten, Kontoumsätzen und Regeln endgültig – auch
+              von diesem Server. Was andere dir freigegeben haben, bleibt bei ihnen.</p>
+            <label><span class="k">Passwort zur Bestätigung</span><input id="s-delete-pass" type="password" autocomplete="current-password"></label>
+            <button id="s-delete-me" class="btn danger">Konto endgültig löschen</button>
+          </details>
+        </div>
+      </details>
+      <details class="sect">
+        <summary>Freigabe</summary>
+        <div class="sect-body">
+          <p class="muted small">Wer darf meine Dokumente sehen?</p>
+          <div id="s-shares"></div>
+          <div class="row" id="s-share-add-row">
+            <select id="s-share-user"></select>
+            <label class="toggle small"><input type="checkbox" id="s-share-edit" checked> darf bearbeiten</label>
+            <button id="s-share-add" class="btn">Freigeben</button>
+          </div>
+          <p class="muted small" style="margin-top:10px">Für mich freigegeben:</p>
+          <div id="s-shared-with-me" class="muted"></div>
+        </div>
+      </details>
+      <details class="sect" id="s-links-sect">
+        <summary>Freigabe-Links</summary>
+        <div class="sect-body">
+          <p class="muted small">Links für Leute ohne Konto – erstellt über „Teilen“ an einem Dokument, einer Auswahl, einem Ordner oder einer gespeicherten Suche. Ordner und Suchen zeigen auch später hinzugekommene Dokumente.</p>
+          <div id="s-links"></div>
+          <div class="row"><button id="s-upload-new" class="btn">Briefkasten-Link erstellen …</button></div>
+          <p class="muted small" style="margin-top:-4px">Umgekehrt: Wer einen Briefkasten-Link hat, kann dir Dokumente einwerfen (z. B. Steuerberater, Handwerker), sieht aber nichts. Eingeworfenes landet unter „Prüfen“.</p>
+          <div id="s-public-row" class="hidden">
+            <label><span class="k">Öffentliche Adresse (Admin)</span>
+              <div class="row"><input id="s-public-url" placeholder="https://papigator.example.de"><button id="s-public-save" class="btn">Speichern</button></div>
+            </label>
+            <p class="muted small">Unter dieser Adresse muss der Server von außen erreichbar sein. Es reicht, im Reverse-Proxy nur die Pfade <code>/s/…</code> freizugeben.</p>
+          </div>
+        </div>
+      </details>
+      </div>
+    </div>
+
+    <div class="sgroup">
+      <h3 class="sgroup-h">Dokumente</h3>
+      <div class="sgroup-body">
+      <details class="sect" id="s-dups">
+        <summary>Doppelte Dokumente</summary>
+        <div class="sect-body">
+          <p class="muted small">Findet inhaltlich gleiche Dokumente, z. B. dasselbe Papier zweimal gescannt. Behalten übernimmt Tags und leere Felder des anderen und legt das andere in den Papierkorb.</p>
+          <div class="row"><button id="s-dups-run" class="btn">Suchen</button><span id="s-dups-state" class="muted small"></span></div>
+          <div id="s-dups-list"></div>
+        </div>
+      </details>
+      <details class="sect">
+        <summary>Scanner-Eingang</summary>
+        <div class="sect-body">
+          <div id="s-inbox"></div>
+          <p class="muted small">Scanner per FTP oder SMB auf den Eingangsordner zeigen (<code>inbox/&lt;Benutzername&gt;/</code>). Dateien werden alle paar Sekunden importiert; fehlgeschlagene landen in <code>_fehler/</code>.</p>
+        </div>
+      </details>
+      <details class="sect">
+        <summary>Export</summary>
+        <div class="sect-body">
+          <p class="muted small">Alle Dokumente als ZIP: PDFs mit Titel im Dateinamen plus <code>metadata.json</code> (Datum, Absender, Betrag, Tags). Damit kommst du jederzeit ohne Papigator an alles ran.</p>
+          <div class="row">
+            <a id="s-export-mine" class="btn" href="/export.zip?scope=mine" download>Meine Dokumente exportieren</a>
+            <a id="s-export-all" class="btn hidden" href="/export.zip?scope=all" download>Alle Nutzer exportieren</a>
+          </div>
+          <label class="toggle small"><input type="checkbox" id="s-export-folders"> Als Ordnerstruktur (Ordner/Jahr/Datum Titel.pdf)</label>
+          <h3>Steuer-Paket</h3>
+          <p class="muted small">Dokumente eines Jahres (optional nur bestimmte Tags oder ein Absender) als ZIP: PDFs mit Datum und Absender im Namen, ein Gesamt-PDF mit Inhaltsverzeichnis und Lesezeichen, eine CSV-Übersicht und Summen je Tag und Absender.</p>
+          <div class="row">
+            <label style="flex:1"><span class="k">Jahr</span><select id="s-pkg-year"></select></label>
+            <label style="flex:2"><span class="k">Tags (kommagetrennt, leer = alle)</span><input id="s-pkg-tags" placeholder="Steuer, Spende"></label>
+            <label style="flex:2"><span class="k">Absender (optional)</span><input id="s-pkg-sender" list="s-pkg-senders"><datalist id="s-pkg-senders"></datalist></label>
+          </div>
+          <div class="row"><button id="s-pkg-btn" class="btn">Steuer-Paket herunterladen</button></div>
+        </div>
+      </details>
+      <details class="sect">
+        <summary>Verträge &amp; Abos</summary>
+        <div class="sect-body">
+          <p class="muted small">Aus den Dokumenten abgeleitet: ein Vertrag oder Bescheid mit regelmäßiger Zahlung (Kita, Kredit, Rundfunkbeitrag) oder mindestens drei Belege desselben Absenders mit ähnlichem Betrag in regelmäßigem Abstand. Gehalt und andere Einnahmen zählen nicht, gekündigte Verträge fallen weg. Zeigt Rhythmus, Kosten pro Monat, nächste Zahlung und die nächste Kündigungsfrist.</p>
+          <div id="s-contracts"></div>
+        </div>
+      </details>
+      </div>
+    </div>
+
+    <div class="sgroup">
+      <h3 class="sgroup-h">Familie</h3>
+      <div class="sgroup-body">
+      <details class="sect" id="s-persons-sect">
+        <summary>Personen</summary>
+        <div class="sect-body">
+          <p class="muted small">Für Kinder und alle ohne eigenes Konto: Jede Person bekommt einen Ordner, und jedes Dokument, in dem ihr Vorname als ganzes Wort steht, landet darin – auch die schon vorhandenen. Wirkt nur auf Dokumente, die du bearbeiten darfst.</p>
+          <div id="s-persons"></div>
+          <div class="row"><input id="s-person-name" maxlength="40" placeholder="Vorname, z. B. Mia" autocomplete="off"><button id="s-person-add" class="btn">Person hinzufügen</button></div>
+        </div>
+      </details>
+      <details class="sect" id="s-emergency-sect">
+        <summary>Notfallmappe</summary>
+        <div class="sect-body">
+          <p class="muted small">Alles, was deine Angehörigen im Ernstfall brauchen: Vollmachten, Patientenverfügung, Versicherungen, wichtige Kontakte. Leg die Dokumente hier hinein und teile die Mappe per Link – der zeigt nur deine eigenen Dokumente.</p>
+          <div id="s-emergency"></div>
+          <div class="row"><input id="s-emergency-q" placeholder="Dokument hinzufügen – suchen, z. B. Vollmacht" autocomplete="off"><button id="s-emergency-search" class="btn">Suchen</button></div>
+          <div id="s-emergency-results"></div>
+          <div class="row"><button id="s-emergency-share" class="btn">Mit Angehörigen teilen …</button></div>
+          <p id="s-emergency-note" class="muted small"></p>
+        </div>
+      </details>
+      <details class="sect" id="s-cleanup-sect">
+        <summary>Aufräumen</summary>
+        <div class="sect-body">
+          <p class="muted small">Vorschläge, was nach den üblichen Aufbewahrungsfristen weg darf. Gelöscht wird nichts von selbst – „In den Papierkorb“ legt nur dorthin, von wo du es zurückholen kannst. Gehalt, Abrechnungen, Verträge, Versicherungen, Zeugnisse, Urkunden und Gesundheit werden nie vorgeschlagen.</p>
+          <div class="row"><button id="s-cleanup-run" class="btn">Vorschläge ansehen</button><span id="s-cleanup-state" class="muted small"></span></div>
+          <div id="s-cleanup-list"></div>
+          <div id="s-cleanup-admin" class="hidden">
+            <p class="muted small" style="margin-top:12px">Fristen pro Ordner (Admin) – gelten vor den Vorgaben:</p>
+            <div id="s-cleanup-rules"></div>
+            <div class="row">
+              <input id="s-ret-tag" list="s-ret-tags" placeholder="Ordner, z. B. Handwerker"><datalist id="s-ret-tags"></datalist>
+              <select id="s-ret-years" style="width:auto"><option value="never">nie vorschlagen</option><option value="1">1 Jahr</option><option value="2">2 Jahre</option><option value="3">3 Jahre</option><option value="5">5 Jahre</option><option value="6">6 Jahre</option><option value="10">10 Jahre</option><option value="15">15 Jahre</option><option value="30">30 Jahre</option></select>
+              <button id="s-ret-save" class="btn">Speichern</button>
+            </div>
+          </div>
+        </div>
+      </details>
+      </div>
+    </div>
+
+    <div class="sgroup">
+      <h3 class="sgroup-h">Darstellung <span>· auf diesem Gerät</span></h3>
+      <div class="sgroup-body">
+      <details class="sect" open>
+        <summary>Darstellung</summary>
+        <div class="sect-body">
+          <div class="field-row"><span>Erscheinungsbild</span>
+            <div class="segmented" id="theme-seg"><button data-theme="system">System</button><button data-theme="light">Hell</button><button data-theme="dark">Dunkel</button></div>
+          </div>
+          <div class="palette-row"><span>Farben</span>
+            <div class="palette" id="color-picker" role="radiogroup" aria-label="Farben">
+              <button type="button" class="sw" role="radio" data-color="wiese"><span class="dot"><i></i></span>Wiese</button>
+              <button type="button" class="sw" role="radio" data-color="sonne"><span class="dot"><i></i></span>Sonne</button>
+              <button type="button" class="sw" role="radio" data-color="ozean"><span class="dot"><i></i></span>Ozean</button>
+              <button type="button" class="sw" role="radio" data-color="lavendel"><span class="dot"><i></i></span>Lavendel</button>
+              <button type="button" class="sw" role="radio" data-color="bonbon"><span class="dot"><i></i></span>Bonbon</button>
+              <button type="button" class="sw" role="radio" data-color="schlicht"><span class="dot"><i></i></span>Schlicht</button>
+            </div>
+            <p class="muted small" style="margin:0">Hintergrund und Akzentfarbe der ganzen App. Jeder in der Familie wählt auf seinem Gerät selbst – gilt für diesen Browser.</p>
+          </div>
+          <div class="field-row"><span>Startansicht</span>
+            <div class="segmented" id="start-seg"><button data-start="last">Zuletzt benutzt</button><button data-start="today">Heute</button><button data-start="tiles">Kacheln</button><button data-start="folders">Ordner</button><button data-start="money">Geld</button></div>
+          </div>
+          <div class="field-row"><span>Datumsformat</span>
+            <select id="s-date-fmt">
+              <option value="auto">Automatisch</option>
+              <option value="dmy.">TT.MM.JJJJ</option>
+              <option value="dmy/">DD/MM/YYYY</option>
+              <option value="mdy/">MM/DD/YYYY</option>
+              <option value="ymd-">JJJJ-MM-TT</option>
+            </select>
+          </div>
+          <p class="muted small" style="margin-top:-4px">Gilt für diesen Browser. „Automatisch“ richtet sich nach der bevorzugten Sprache.</p>
+          <label class="toggle"><input type="checkbox" id="s-show-partner"> Partner-Dokumente in meiner Übersicht anzeigen</label>
+          <p class="muted small">Aus: Partner-Dokumente nur über den Bereich „Partner". An: alles in einer Übersicht, mit Filter.</p>
+        </div>
+      </details>
+      </div>
+    </div>
+
+    <div class="sgroup s-about">
+      <div class="sgroup-body">
+      <details class="sect">
+        <summary>Über Papigator <span id="s-version" class="muted small"></span></summary>
+        <div class="sect-body">
+          <p class="small">Der Papigator-Server ist freie Software unter der GNU AGPL 3.0 – Quellcode: <a href="https://github.com/donsebby/papigator-server" target="_blank" rel="noopener">github.com/donsebby/papigator-server</a>.</p>
+          <p class="small">Danke an die Open-Source-Projekte, ohne die es Papigator nicht gäbe. Sie laufen unverändert als eigenständige Programme und Bibliotheken; die Lizenztexte liegen den Paketen bei, eine Übersicht steht in <code>THIRD_PARTY.md</code>.</p>
+          <ul class="thanks">
+            <li><a href="https://github.com/tesseract-ocr/tesseract" target="_blank" rel="noopener">Tesseract OCR</a> – Texterkennung <span class="muted small">Apache 2.0</span></li>
+            <li><a href="https://github.com/ocrmypdf/OCRmyPDF" target="_blank" rel="noopener">OCRmyPDF</a> – durchsuchbare PDFs <span class="muted small">MPL 2.0</span></li>
+            <li><a href="https://www.ghostscript.com" target="_blank" rel="noopener">Ghostscript</a> – PDF-Verarbeitung <span class="muted small">AGPL 3.0</span></li>
+            <li><a href="https://github.com/qpdf/qpdf" target="_blank" rel="noopener">qpdf</a>, <a href="https://poppler.freedesktop.org" target="_blank" rel="noopener">Poppler</a>, <a href="https://github.com/unpaper/unpaper" target="_blank" rel="noopener">unpaper</a>, <a href="https://pngquant.org" target="_blank" rel="noopener">pngquant</a> – PDF- und Bildwerkzeuge <span class="muted small">Apache 2.0 · GPL 2.0 · GPL 2.0 · GPL 3.0</span></li>
+            <li><a href="https://github.com/py-pdf/pypdf" target="_blank" rel="noopener">pypdf</a>, <a href="https://python-pillow.org" target="_blank" rel="noopener">Pillow</a> – PDFs und Bilder in Python <span class="muted small">BSD · MIT-CMU</span></li>
+            <li><a href="https://fastapi.tiangolo.com" target="_blank" rel="noopener">FastAPI</a>, <a href="https://www.uvicorn.org" target="_blank" rel="noopener">Uvicorn</a>, <a href="https://docs.pydantic.dev" target="_blank" rel="noopener">Pydantic</a>, <a href="https://www.python-httpx.org" target="_blank" rel="noopener">httpx</a>, <a href="https://github.com/pyca/bcrypt" target="_blank" rel="noopener">bcrypt</a> – Server <span class="muted small">MIT · BSD · MIT · BSD · Apache 2.0</span></li>
+            <li><a href="https://sqlite.org" target="_blank" rel="noopener">SQLite</a> mit FTS5 – Datenbank und Volltextsuche <span class="muted small">Public Domain</span></li>
+            <li><a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> und <a href="https://ai.google.dev/gemma" target="_blank" rel="noopener">Gemma</a> – KI-Tags und Fragen <span class="muted small">MIT · Gemma Terms of Use</span></li>
+          </ul>
+        </div>
+      </details>
+      </div>
+    </div>
+    </div>
+    <div class="scol">
+    <div class="sgroup">
+      <h3 class="sgroup-h">Ordnung <span>· nur Admins</span></h3>
+      <div class="sgroup-body">
+      <details class="sect" id="s-sect-tags">
+        <summary>Tags</summary>
+        <div class="sect-body">
+          <p class="muted small">Tag anklicken wählt ihn aus – dann umbenennen, zusammenführen, in einen Ordner verschieben oder löschen (mehrere: weitere anklicken). Einen Tag auf einen anderen ziehen legt ihn dort als Unterordner ab, auf die freie Fläche ziehen holt ihn nach oben.</p>
+          <div id="s-tags" class="chips"></div>
+          <div class="row"><input id="s-tag-new" maxlength="60" placeholder="Neuer Ordner (= Tag)"><select id="s-tag-new-parent" style="width:auto" aria-label="Liegt in"></select><button id="s-tag-new-btn" class="btn">Anlegen</button></div>
+          <div id="s-tag-merge" class="row hidden">
+            <span class="muted small"><span id="s-tag-merge-count"></span> ausgewählt →</span>
+            <button id="s-tag-rename-btn" class="btn">Umbenennen</button>
+            <select id="s-tag-merge-target"></select>
+            <button id="s-tag-merge-btn" class="btn">Zusammenführen</button>
+            <span class="muted small">oder in Ordner</span>
+            <select id="s-tag-move-target"></select>
+            <button id="s-tag-move-btn" class="btn">Verschieben</button>
+            <button id="s-tag-delete-btn" class="btn danger">Löschen</button>
+            <button id="s-tag-merge-cancel" class="btn ghost">Abbrechen</button>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button id="s-tag-suggest" class="btn">Ähnliche Tags finden (KI)</button>
+            <span id="s-tag-suggest-status" class="muted small"></span>
+          </div>
+          <div id="s-tag-suggestions"></div>
+          <p class="muted small">Das LLM gruppiert Tags, die dasselbe meinen (Plural, Schreibweise, Abkürzung), und schlägt ein Ziel vor. Zusammengeführt wird erst auf Klick.</p>
+        </div>
+      </details>
+      <details class="sect" id="s-sect-senders">
+        <summary>Absender</summary>
+        <div class="sect-body">
+          <p class="muted small">Schreibweisen desselben Absenders zusammenführen („Telekom“, „Telekom Deutschland GmbH“). Mehrere anklicken, Ziel wählen, zusammenführen.</p>
+          <div id="s-senders" class="chips"></div>
+          <div id="s-sender-merge" class="row hidden">
+            <span class="muted small"><span id="s-sender-merge-count"></span> ausgewählt →</span>
+            <select id="s-sender-merge-target"></select>
+            <button id="s-sender-merge-btn" class="btn">Zusammenführen</button>
+            <button id="s-sender-merge-cancel" class="btn ghost">Abbrechen</button>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button id="s-sender-suggest" class="btn">Gleiche Absender finden (KI)</button>
+            <span id="s-sender-suggest-status" class="muted small"></span>
+          </div>
+          <div id="s-sender-suggestions"></div>
+        </div>
+      </details>
+      <details class="sect" id="s-sect-rules">
+        <summary>Schlagwort-Regeln</summary>
+        <div class="sect-body">
+          <p class="muted small">Steht das Schlagwort irgendwo im Text eines Dokuments (Groß-/Kleinschreibung egal, auch mitten im Wort), bekommt es den Tag – automatisch bei jedem neuen Dokument. Die Zahl zeigt, wie viele vorhandene Dokumente es enthalten: „Steuer“ steckt z. B. in jeder Lohnsteuer, „Bank“ in jeder Bankverbindung – lieber den Absender nehmen.</p>
+          <div id="s-rules"></div>
+          <div class="row">
+            <input id="s-rule-pattern" placeholder="Schlagwort im Text, z. B. Allianz">
+            <input id="s-rule-tag" list="s-rule-tags" placeholder="Tag, z. B. Versicherung"><datalist id="s-rule-tags"></datalist>
+            <button id="s-rule-add" class="btn">Regel anlegen</button>
+          </div>
+          <p id="s-rule-preview" class="muted small"></p>
+          <div class="row" style="margin-top:10px">
+            <button id="s-rules-apply" class="btn">Auf vorhandene Dokumente anwenden</button>
+          </div>
+        </div>
+      </details>
+      </div>
+    </div>
+
+    <div class="sgroup">
+      <h3 class="sgroup-h">Server <span>· nur Admins</span></h3>
+      <div class="sgroup-body">
+      <details class="sect hidden" id="s-admin">
+        <summary>Nutzer</summary>
+        <div class="sect-body">
+          <div id="s-users"></div>
+          <div class="row">
+            <input id="s-new-user" placeholder="Benutzername">
+            <input id="s-new-name" placeholder="Anzeigename">
+            <input id="s-new-pass" type="password" placeholder="Passwort">
+            <button id="s-new-add" class="btn">Anlegen</button>
+          </div>
+          <label><span class="k">Einladen – ohne Passwort und Server-Adresse abzutippen</span>
+            <div class="row">
+              <input id="s-inv-name" placeholder="Name, z. B. Sam" maxlength="80">
+              <select id="s-inv-share" title="Darf die neue Person deine Dokumente sehen?">
+                <option value="none">Ohne Freigabe</option>
+                <option value="read">Sieht meine Dokumente</option>
+                <option value="edit">Darf meine Dokumente bearbeiten</option>
+              </select>
+              <label class="small" style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" id="s-inv-admin"> Admin</label>
+              <button id="s-inv-add" class="btn primary">Einladen</button>
+            </div>
+          </label>
+          <p class="muted small" style="margin-top:-4px">Ergibt einen Link und QR-Code, 7 Tage gültig und nur einmal nutzbar. Die eingeladene Person wählt Benutzername und Passwort selbst. Ohne Freigabe sieht sie nur ihre eigenen Dokumente.</p>
+          <div id="s-invites"></div>
+          <p class="muted small">Scanner-Eingang: pro Nutzer ein Ordner <code>inbox/&lt;benutzername&gt;</code> auf dem Server (FTP-Profil im Scanner).</p>
+        </div>
+      </details>
+      <details class="sect" id="s-storage">
+        <summary>Ablage</summary>
+        <div class="sect-body">
+          <div class="field-row"><span>Papierkorb endgültig leeren nach</span>
+            <select id="s-trash-days" style="width:auto"><option value="7">7 Tagen</option><option value="30">30 Tagen</option><option value="90">90 Tagen</option><option value="365">1 Jahr</option></select>
+          </div>
+          <div class="field-row"><span>Identisches PDF nochmal hochladen</span>
+            <select id="s-dup" style="width:auto"><option value="reject">ablehnen (Standard)</option><option value="allow">trotzdem anlegen</option></select>
+          </div>
+          <div class="field-row"><span>Vorschaubild-Breite (neue Dokumente)</span>
+            <select id="s-thumb" style="width:auto"><option value="300">300 px</option><option value="400">400 px</option><option value="600">600 px</option><option value="800">800 px</option></select>
+          </div>
+          <h3>Sicherung</h3>
+          <p class="muted small">Täglich ein vollständiger Snapshot (Datenbank, PDFs, Vorschaubilder) in einen Ordner auf dem Server; unveränderte Dateien werden verlinkt statt kopiert. Bei Docker ein eingehängtes Volume, z. B. <code>/backup</code>. Leer = aus.</p>
+          <label><span class="k">Zielordner</span><input id="s-bk-dir" placeholder="/backup"></label>
+          <div class="row">
+            <label style="flex:1"><span class="k">Täglich um</span><select id="s-bk-hour"></select></label>
+            <label style="flex:1"><span class="k">Tage behalten</span><input id="s-bk-days" type="number" min="1" max="3650"></label>
+            <label style="flex:1"><span class="k">Wochen behalten</span><input id="s-bk-weeks" type="number" min="0" max="520"></label>
+          </div>
+          <p id="s-bk-status" class="small muted"></p>
+          <div class="row">
+            <button id="s-storage-save" class="primary">Speichern</button>
+            <button id="s-bk-run" class="btn">Jetzt sichern</button>
+          </div>
+          <div id="s-bk-list"></div>
+        </div>
+      </details>
+      <details class="sect" id="s-mail">
+        <summary>E-Mail-Eingang</summary>
+        <div class="sect-body">
+          <p class="muted small">Ein IMAP-Postfach wird regelmäßig abgeholt: PDF- und Bildanhänge ungelesener Mails landen in der Ablage, Mails ohne Anhang optional als Text-PDF. Am besten ein eigenes Postfach oder ein Ordner, in den du Rechnungsmails verschiebst.</p>
+          <label class="toggle"><input type="checkbox" id="s-mail-enabled"> E-Mail-Eingang aktiv</label>
+          <div class="row">
+            <label style="flex:3"><span class="k">IMAP-Server</span><input id="s-mail-host" placeholder="imap.example.de"></label>
+            <label style="flex:1"><span class="k">Port</span><input id="s-mail-port" type="number" placeholder="993"></label>
+          </div>
+          <div class="row">
+            <label style="flex:1"><span class="k">Benutzer</span><input id="s-mail-user" autocomplete="off"></label>
+            <label style="flex:1"><span class="k">Passwort</span><input id="s-mail-password" type="password" autocomplete="new-password" placeholder="••••••"></label>
+          </div>
+          <div class="row">
+            <label style="flex:1"><span class="k">Ordner</span><input id="s-mail-folder" list="s-mail-folders" placeholder="INBOX"><datalist id="s-mail-folders"></datalist></label>
+            <label style="flex:1"><span class="k">Nach dem Import verschieben nach (leer = nur als gelesen markieren)</span><input id="s-mail-done" list="s-mail-folders" placeholder="Papigator"></label>
+          </div>
+          <div class="row">
+            <label style="flex:1"><span class="k">Dokumente gehören</span><select id="s-mail-owner"></select></label>
+            <label style="flex:1"><span class="k">Abruf alle</span><select id="s-mail-poll"><option value="120">2 Minuten</option><option value="300">5 Minuten</option><option value="900">15 Minuten</option><option value="3600">1 Stunde</option></select></label>
+          </div>
+          <label class="toggle"><input type="checkbox" id="s-mail-body"> Mails ohne Anhang als Text-PDF ablegen</label>
+          <p id="s-mail-status" class="small muted"></p>
+          <div class="row">
+            <button id="s-mail-test" class="btn">Verbindung testen</button>
+            <button id="s-mail-save" class="primary">Speichern</button>
+            <button id="s-mail-check" class="btn">Jetzt abholen</button>
+          </div>
+        </div>
+      </details>
+      <details class="sect" id="s-ai" >
+        <summary>KI-Erkennung</summary>
+        <div class="sect-body">
+          <label class="toggle"><input type="checkbox" id="s-llm-enabled"> Automatische Erkennung von Titel, Datum, Absender, Betrag, Fristen und Tags</label>
+          <!-- Pause: nichts wird übersprungen, die Dokumente warten; Fragen an die Dokumente gehen weiter -->
+          <div class="row llm-pause" style="align-items:center; gap:8px; flex-wrap:wrap">
+            <span id="s-llm-pause-status" class="small"></span>
+            <select id="s-llm-pause-for" aria-label="Pausieren für">
+              <option value="60">1 Stunde</option>
+              <option value="evening">bis heute 22 Uhr</option>
+              <option value="morning">bis morgen 7 Uhr</option>
+              <option value="forever">bis ich fortsetze</option>
+            </select>
+            <button type="button" class="btn" id="s-llm-pause-btn">Pausieren</button>
+            <button type="button" class="btn hidden" id="s-llm-resume-btn">Fortsetzen</button>
+          </div>
+          <p class="muted small">Pausieren hält die Erkennung an, ohne etwas zu überspringen: Neue Dokumente warten und werden danach erkannt. Suche und „Frag Papigator“ gehen weiter.</p>
+          <div class="llm-server">
+            <div class="row">
+              <label style="flex:1"><span class="k">Server</span>
+                <select id="s-llm-preset" class="llm-preset">
+                  <option value="local">Eigener Server im Heimnetz (Ollama, LM Studio …)</option>
+                  <option value="anthropic">Anthropic (Claude) · Cloud</option>
+                  <option value="openai">OpenAI (ChatGPT) · Cloud</option>
+                  <option value="mistral">Mistral (EU) · Cloud</option>
+                  <option value="openrouter">OpenRouter · Cloud</option>
+                </select>
+              </label>
+            </div>
+            <label><span class="k">Adresse (OpenAI-kompatible API)</span><input id="s-llm-url" placeholder="http://192.168.1.50:11434/v1"></label>
+            <label class="llm-key"><span class="k">API-Schlüssel <span id="s-llm-key-state" class="muted"></span></span>
+              <span class="row"><input id="s-llm-key" type="password" autocomplete="new-password" spellcheck="false" placeholder="nur für Cloud-Anbieter nötig">
+              <button type="button" id="s-llm-key-del" class="btn ghost small hidden">Entfernen</button></span></label>
+            <p id="s-llm-cloudnote" class="warn small hidden"></p>
+            <div class="row">
+              <label style="flex:1"><span class="k">Modell</span><input id="s-llm-model" list="s-llm-models" placeholder="gemma4:12b-mlx"><datalist id="s-llm-models"></datalist></label>
+              <button id="s-llm-test" class="btn" style="align-self:flex-end">Verbindung testen</button>
+            </div>
+            <p id="s-llm-result" class="small hidden"></p>
+            <label><span class="k">Modell fürs Fragen (schneller antworten mit einem kleineren Modell)</span><input id="s-llm-askmodel" list="s-llm-models" placeholder="z. B. gemma4:e4b – leer = dasselbe Modell"></label>
+          </div>
+          <div class="llm-server">
+            <div class="row">
+              <label style="flex:1"><span class="k">Ersatz-Server (springt ein, wenn der erste nicht erreichbar ist – leer lassen, wenn es keinen gibt)</span>
+                <select id="s-llm-preset2" class="llm-preset">
+                  <option value="local">Eigener Server im Heimnetz (Ollama, LM Studio …)</option>
+                  <option value="anthropic">Anthropic (Claude) · Cloud</option>
+                  <option value="openai">OpenAI (ChatGPT) · Cloud</option>
+                  <option value="mistral">Mistral (EU) · Cloud</option>
+                  <option value="openrouter">OpenRouter · Cloud</option>
+                </select>
+              </label>
+            </div>
+            <label><span class="k">Adresse (OpenAI-kompatible API)</span><input id="s-llm-url2" placeholder="http://192.168.1.51:11434/v1"></label>
+            <label class="llm-key"><span class="k">API-Schlüssel <span id="s-llm-key2-state" class="muted"></span></span>
+              <span class="row"><input id="s-llm-key2" type="password" autocomplete="new-password" spellcheck="false" placeholder="nur für Cloud-Anbieter nötig">
+              <button type="button" id="s-llm-key2-del" class="btn ghost small hidden">Entfernen</button></span></label>
+            <p id="s-llm-cloudnote2" class="warn small hidden"></p>
+            <div class="row">
+              <label style="flex:1"><span class="k">Ersatz-Modell</span><input id="s-llm-model2" list="s-llm-models2" placeholder="gemma4:e4b"><datalist id="s-llm-models2"></datalist></label>
+              <button id="s-llm-test2" class="btn" style="align-self:flex-end">Verbindung testen</button>
+            </div>
+            <p id="s-llm-result2" class="small hidden"></p>
+            <label><span class="k">Modell fürs Fragen (schneller antworten mit einem kleineren Modell)</span><input id="s-llm-askmodel2" list="s-llm-models2" placeholder="leer = dasselbe Modell"></label>
+          </div>
+          <div id="s-llm-cloud" class="llm-cloud hidden">
+            <b>☁️ Cloud-KI ist eingetragen</b>
+            <p class="small">Für die Aufgaben unten geht der Text deiner Dokumente an <span id="s-llm-cloud-hosts"></span>. Papigator schickt nur den erkannten Text – keine PDFs, keine Bilder.</p>
+            <label class="toggle"><input type="checkbox" id="s-llm-cloud-tag"> Fürs Erkennen nutzen (Titel, Absender, Tags, Fristen)</label>
+            <label class="toggle"><input type="checkbox" id="s-llm-cloud-ask"> Fürs Fragen nutzen („Frag Papigator“)</label>
+            <p class="muted small">Ausgeschaltet nutzt Papigator für diese Aufgabe nur Server im Heimnetz – gibt es keinen, ruht sie.</p>
+          </div>
+          <label class="toggle"><input type="checkbox" id="s-llm-restricted"> LLM darf nur vorhandene Tags vergeben</label>
+          <label class="toggle"><input type="checkbox" id="s-return-window"> Rücksendefrist bei Online-Käufen merken (14 Tage ab Rechnung, als Frist)</label>
+          <p class="muted small">An: keine neuen Tags mehr durch die Erkennung. Aus: das LLM darf neue Tags anlegen.</p>
+          <label><span class="k">OCR-Sprachen (Tesseract)</span><input id="s-ocr-langs" placeholder="deu+eng"></label>
+          <div class="row">
+            <button id="s-ai-save" class="primary">Speichern</button>
+            <button id="s-retag-failed" class="btn">Fehlgeschlagene nachtaggen</button>
+            <button id="s-retag-all" class="btn">Alle neu taggen</button>
+          </div>
+        </div>
+      </details>
+      </div>
+    </div>
+    </div>
+    </div>
+  </div>
+</section>
+
+<div id="toast" class="toast hidden"></div>
+<dialog id="bank-dialog" class="share-dialog bank-dialog">
+  <form method="dialog" class="share-form">
+    <h3>Kontoumsätze importieren</h3>
+    <p class="muted small" style="margin-top:-6px">CSV-Export der Umsätze aus dem Online-Banking. Kein Bank-Login – die Datei bleibt auf eurem Server.</p>
+    <label><span class="k">Datei</span><input type="file" id="bk-file" accept=".csv,text/csv,text/plain"></label>
+    <div id="bk-preview" class="hidden"></div>
+    <div id="bk-target" class="hidden">
+      <label><span class="k">Konto</span><select id="bk-account"></select></label>
+      <label id="bk-name-row"><span class="k">Name des Kontos</span><input id="bk-name" maxlength="80" placeholder="z. B. C24 Girokonto"></label>
+      <div id="bk-people-row"><span class="k">Geteilte Konten sehen außer dir</span><div id="bk-people" class="bk-people"></div></div>
+    </div>
+    <p id="bk-error" class="warn small hidden"></p>
+    <div class="row" style="justify-content:flex-end">
+      <button value="cancel" class="btn ghost">Abbrechen</button>
+      <button type="button" id="bk-go" class="btn primary" disabled>Importieren</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="share-dialog" class="share-dialog">
+  <form method="dialog" class="share-form">
+    <h3 id="sh-title">Freigabe-Link</h3>
+    <p id="sh-what" class="muted small" style="margin-top:-6px"></p>
+    <div id="sh-files" class="hidden">
+      <button type="button" class="btn primary" id="sh-files-btn">Als PDFs teilen …</button>
+      <p id="sh-files-note" class="muted small">Öffnet das Teilen-Menü des Geräts (Nachrichten, Mail, AirDrop …). Die Dateien gehen direkt an den Empfänger, ohne Link.</p>
+      <div class="k" style="margin-top:6px">Oder als Freigabe-Link</div>
+    </div>
+    <div id="sh-setup">
+      <label><span class="k">Gültig</span>
+        <select id="sh-expiry">
+          <option value="7">7 Tage</option>
+          <option value="30" selected>30 Tage</option>
+          <option value="90">90 Tage</option>
+          <option value="365">1 Jahr</option>
+          <option value="0">unbefristet</option>
+        </select>
+      </label>
+      <label id="sh-name-row" class="hidden"><span class="k">Name (sieht auch der Empfänger)</span><input id="sh-name" maxlength="120" placeholder="z. B. Steuerberater 2026"></label>
+      <label id="sh-folder-row" class="hidden"><span class="k">In Ordner (optional)</span><select id="sh-folder"></select></label>
+      <label><span class="k">Passwort (optional)</span><input id="sh-password" type="text" autocomplete="off" placeholder="leer = ohne Passwort"></label>
+      <p id="sh-note" class="muted small">Wer den Link hat, kann die Dokumente ansehen und herunterladen – sonst nichts. Du kannst ihn jederzeit unter Einstellungen → Freigabe-Links zurückziehen.</p>
+    </div>
+    <div id="sh-result" class="hidden">
+      <div class="row"><input id="sh-url" readonly><button type="button" id="sh-copy" class="btn primary">Kopieren</button></div>
+      <p id="sh-warn" class="warn small hidden"></p>
+    </div>
+    <div class="row" style="justify-content:flex-end">
+      <button value="cancel" class="btn ghost" id="sh-close">Schließen</button>
+      <button type="button" class="btn primary" id="sh-create">Link erstellen</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="invite-dialog" class="share-dialog">
+  <form method="dialog" class="share-form">
+    <h3 id="iv-title">Einladung</h3>
+    <p class="muted small" style="margin-top:-6px">Mit der Papigator-App scannen („Mit Einladung beitreten“) oder den Link schicken. Er gilt 7 Tage, nur einmal, und wird nur jetzt angezeigt.</p>
+    <div id="iv-qr" class="qr"></div>
+    <div class="row"><input id="iv-url" readonly><button type="button" id="iv-copy" class="btn primary">Kopieren</button></div>
+    <p id="iv-warn" class="warn small hidden"></p>
+    <div class="row" style="justify-content:flex-end">
+      <button value="cancel" class="btn ghost" id="iv-close">Schließen</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="cloud-dialog" class="share-dialog">
+  <form method="dialog" class="share-form">
+    <h3>☁️ Dokumente an einen Cloud-Anbieter schicken?</h3>
+    <p class="small">Du hast einen KI-Server außerhalb deines Heimnetzes eingetragen: <b id="cd-hosts"></b>.</p>
+    <p class="small">Dann geht der erkannte Text deiner Dokumente – auch Kontoauszüge, Steuerbescheide oder Arztbriefe – zu diesem Anbieter. Was er damit macht, regeln seine Bedingungen: Wie lange er Daten aufbewahrt und ob er damit trainiert, ist je nach Anbieter verschieden.</p>
+    <p class="muted small">Du kannst es jederzeit wieder auf einen Server im Heimnetz umstellen oder für einzelne Aufgaben abschalten.</p>
+    <div class="row" style="justify-content:flex-end">
+      <button value="cancel" class="btn ghost">Abbrechen</button>
+      <button value="ok" class="btn primary" id="cd-ok">Ja, Cloud nutzen</button>
+    </div>
+  </form>
+</dialog>
+<script src="qr.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

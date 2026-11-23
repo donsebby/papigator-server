@@ -1,0 +1,29 @@
+# Demoserver mit erfundenen Daten (für die App-Prüfung bei Apple). Wird täglich zurückgesetzt.
+#   (im Server-Ordner) docker build -t papigator-server:local .
+#   cd demo && cp .env.example .env   # Werte eintragen
+#   docker compose up -d --build
+# Nur Port 8000 (Web-App + API); der Freigabe-Dienst läuft hier nicht. Ohne Sprachmodell: eigene Scans
+# landen unerkannt unter „Zu prüfen“, „Frag Papigator“ meldet, dass keine KI erreichbar ist.
+services:
+  papigator-demo:
+    build:
+      context: ..
+      dockerfile: demo/Dockerfile
+    image: papigator-demo:local
+    container_name: papigator-demo
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PAPIGATOR_DATA: /data
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - demo-data:/data          # wird bei jedem Zurücksetzen geleert
+    ports:
+      - "${DEMO_PORT:-8000}:8000"
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits: { memory: 1g }
+volumes:
+  demo-data:

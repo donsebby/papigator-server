@@ -1,0 +1,22 @@
+# Only app/, requirements.txt, the entrypoint and the license files go into the image
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.venv
+venv
+tests
+e2e
+demo
+deploy
+data
+backup
+backups
+*.db
+*.db-*
+.env
+.env.*
+!.env.example
+.deploy.log
+.DS_Store
+docker-compose*.yml
+ci

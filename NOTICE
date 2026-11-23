@@ -1,0 +1,18 @@
+Papigator server
+Copyright (C) 2026 The Papigator authors
+
+The Papigator server (the backend and the bundled web app in app/static/) is free software:
+you can redistribute it and/or modify it under the terms of the GNU Affero General Public License
+as published by the Free Software Foundation, version 3 (AGPL-3.0-only). See LICENSE.
+
+It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero
+General Public License for more details.
+
+If you run a modified version of this server for other people over a network, the AGPL asks you to
+offer them the corresponding source code (section 13).
+
+The Papigator iPhone/iPad app is a separate program that talks to this server over its HTTP API.
+It is not part of this source release and not covered by this license.
+
+Third-party components and their licenses: THIRD_PARTY.md.
