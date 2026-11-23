@@ -221,7 +221,7 @@ Tests: `pip install -r requirements-dev.txt && python -m pytest` (browser tests:
 ## iPhone and iPad app
 
 There is a companion app for iPhone and iPad (scanning with on-device OCR, search, deadlines widget,
-Siri), available on the App Store. It is a separate, closed-source program that talks to this server
+Siri), coming to the App Store. It is a separate, closed-source program that talks to this server
 over its HTTP API; the server is fully usable without it through the web app.
 
 ## License
