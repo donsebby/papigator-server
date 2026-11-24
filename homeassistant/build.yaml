@@ -1,0 +1,4 @@
+# Baut auf dem fertigen Papigator-Image auf (amd64 + arm64); das Add-on legt nur das Startskript dazu.
+build_from:
+  aarch64: ghcr.io/donsebby/papigator:latest
+  amd64: ghcr.io/donsebby/papigator:latest

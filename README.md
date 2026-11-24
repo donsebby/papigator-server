@@ -113,6 +113,18 @@ App data lives in `/mnt/user/appdata/papigator`, nightly backups in `/mnt/user/b
 server runs as `nobody:users` (99:100). For AI recognition point *AI server URL* (advanced view) or
 *Settings → AI recognition* at an Ollama container, e.g. `http://<unraid-ip>:11434/v1`.
 
+## Home Assistant
+
+Papigator also runs as a **Home Assistant add-on** (Home Assistant OS / Supervised; aarch64 and amd64 – e.g. Home
+Assistant Green, Raspberry Pi, a VM). One container: web app, API, OCR, scanner inbox, backups – no public share pages.
+
+1. *Settings → Add-ons → Add-on Store → ⋮ → Repositories* → add `https://github.com/donsebby/papigator-server`.
+2. Install **Papigator**, fill in **Setup token** (and ideally **Secret key**), start it.
+3. *Open Web UI* (`http://<home-assistant>:8000/app`), click **Ersteinrichtung**, enter the token, create the first admin.
+
+Data lives in the add-on (included in Home Assistant backups); the scanner inbox and Papigator's own nightly backup
+default to `/share/papigator/…`, reachable through the Samba add-on. Details: [`homeassistant/DOCS.md`](homeassistant/DOCS.md).
+
 ## Configuration
 
 Environment variables are read at start. Values marked *starting value* can later be changed in the

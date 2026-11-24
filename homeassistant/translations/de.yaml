@@ -1,0 +1,21 @@
+configuration:
+  setup_token:
+    name: Einrichtungs-Token
+    description: Pflicht. Eine beliebige lange Zufallsfolge. Einmal in der Weboberfläche unter „Ersteinrichtung“ eingeben, um den ersten Admin anzulegen; danach ist er wirkungslos.
+  secret_key:
+    name: Hauptschlüssel
+    description: Empfohlen (z. B. openssl rand -base64 32), zusätzlich im Passwort-Manager ablegen – eine zurückgespielte Sicherung braucht denselben Schlüssel. Leer – Papigator legt selbst einen in den Add-on-Daten an. Später nicht ändern.
+  inbox_dir:
+    name: Scanner-Eingang
+    description: Ordner, aus dem Papigator Scans übernimmt – je Person ein Unterordner (Benutzername klein). Unter /share über das Samba-Add-on erreichbar.
+  backup_dir:
+    name: Sicherungsordner
+    description: Nächtliche Sicherung (03:00). Leer schaltet Papigators eigene Sicherung ab; die Add-on-Daten stecken ohnehin in den Home-Assistant-Backups.
+  llm_url:
+    name: KI-Server
+    description: Optional, OpenAI-kompatible Schnittstelle, z. B. Ollama unter http://192.0.2.10:11434/v1. Leer – ohne KI. Lässt sich auch später in der Weboberfläche eintragen.
+  llm_model:
+    name: KI-Modell
+    description: Name des Modells auf dem KI-Server.
+network:
+  8000/tcp: Weboberfläche und Schnittstelle (auch für die iPhone-/iPad-App)
