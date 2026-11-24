@@ -35,7 +35,48 @@ const json = (method, body, extra = {}) =>
 // ---------- Screens ----------
 function show(id) {
   for (const s of document.querySelectorAll(".screen")) s.classList.add("hidden");
-  $(id).classList.remove("hidden");
+  const el = $(id);
+  const was = el.classList.contains("hidden");
+  el.classList.remove("hidden");
+  if (was) replay(el, "screen-in");
+}
+// Eine Einblend-Animation (erneut) abspielen – Klasse kurz weg, Layout erzwingen, wieder dran
+function replay(el, cls) {
+  if (!el) return;
+  el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
+  el.addEventListener("animationend", () => el.classList.remove(cls), { once: true });
+}
+// Gleitender Umschalter: ein Hintergrund, der zur aktiven Taste gleitet, statt hart umzuspringen.
+// Beobachtet die Klassen der Tasten – wer „active“ setzt, muss nichts weiter tun.
+const segLast = {};   // letzte Lage je Umschalter (id oder aria-label) – neu gezeichnete gleiten von dort weiter
+function segKnob(seg) {
+  if (!seg || seg._knob) return;
+  const key = seg.id || seg.getAttribute("aria-label") || "";
+  const k = document.createElement("span");
+  k.className = "seg-knob"; k.setAttribute("aria-hidden", "true");
+  seg.prepend(k); seg._knob = k; seg.classList.add("has-knob");
+  const sync = (animate = true) => {
+    if (!seg.contains(k)) seg.prepend(k);      // innerHTML neu gesetzt (z. B. Meine/Partner): Gleiter wieder rein
+    const b = seg.querySelector("button.active");
+    if (!b || !b.offsetWidth) { k.style.opacity = "0"; return; }
+    const first = k.style.opacity !== "1";
+    const old = first && key ? segLast[key] : null;
+    const prev = old && (old.x !== b.offsetLeft || old.w !== b.offsetWidth) ? old : null;
+    if (prev) {
+      // neu gezeichnet (z. B. Zeitraum in Geld): erst an die alte Stelle, dann hingleiten
+      k.style.transition = "none"; k.style.opacity = "1";
+      k.style.width = prev.w + "px"; k.style.transform = `translateX(${prev.x}px)`;
+      void k.offsetWidth; k.style.transition = "";
+    } else if (!animate || first) k.style.transition = "none";
+    k.style.opacity = "1";
+    k.style.width = b.offsetWidth + "px";
+    k.style.transform = `translateX(${b.offsetLeft}px)`;
+    if (key) segLast[key] = { x: b.offsetLeft, w: b.offsetWidth };
+    if ((!animate || first) && !prev) { void k.offsetWidth; k.style.transition = ""; }
+  };
+  new MutationObserver(() => sync()).observe(seg, { subtree: true, attributes: true, attributeFilter: ["class"], childList: true });
+  if (window.ResizeObserver) new ResizeObserver(() => sync()).observe(seg);   // fette aktive Taste ändert die Breite – mitgleiten
+  sync(false);
 }
 function showLogin() { layers.length = 0; show("#login"); $("#login-user").focus(); }
 
@@ -502,6 +543,14 @@ function folderBrowsing() {
 function applyMode() {
   for (const b of document.querySelectorAll("#mode-seg button")) b.classList.toggle("active", b.dataset.mode === state.mode);
 }
+for (const seg of document.querySelectorAll(".segmented")) segKnob(seg);
+// Umschalter, die später gezeichnet werden (Geld: Zeitraum; Einstellungen …), bekommen den Gleiter auch
+let segPending = false;
+new MutationObserver(() => {
+  if (segPending) return;
+  segPending = true;
+  requestAnimationFrame(() => { segPending = false; for (const seg of document.querySelectorAll(".segmented:not(.has-knob)")) segKnob(seg); });
+}).observe(document.body, { childList: true, subtree: true });
 for (const b of document.querySelectorAll("#mode-seg button"))
   b.onclick = () => {
     const leaving = state.mode;
@@ -517,7 +566,13 @@ for (const b of document.querySelectorAll("#mode-seg button"))
     if (state.mode !== "tiles") { state.year = null; state.due = false; state.warranty = false; state.sender = null; }
     if (state.mode === "today" || state.mode === "money") state.review = false;   // „Zu prüfen“ bleibt in den Ordnern ein Ort, in „Heute“ ist es die Karte
     state.searchAll = false;
-    loadDocs();
+    const views = ["#todayview", "#moneyview", "#folderview", "#grid", "#tagbar", ".viewbar", "#empty"];
+    Promise.resolve(loadDocs()).catch(() => {}).finally(() => {
+      for (const sel of views) {
+        const el = document.querySelector(sel);
+        if (el && !el.classList.contains("hidden") && el.offsetParent !== null) replay(el, "view-in");
+      }
+    });
   };
 function tagChildren() {
   const kids = new Map();

@@ -28,7 +28,8 @@ Regeln:
 
 - Heute ist der {today}.{range_note}
 - Für Fragen nach Fristen, fälligen Zahlungen, Kündigungen, laufenden Verträgen, Garantie/Gewährleistung, Ablaufdaten,
-  Prüfungen/Wartungen, Erstattungen, Preiserhöhungen und Ausgaben nach Kategorie (Kontoumsätze) gilt die „Übersicht aus der Ablage“
+  Prüfungen/Wartungen, Erstattungen, Preiserhöhungen, Ausgaben nach Kategorie (Kontoumsätze), jährliche Kosten und den
+  Rücklagen-Topf gilt die „Übersicht aus der Ablage“
   (aus der Datenbank, verlässlich); gib dort als Quelle [Übersicht] an. Für alles andere die Dokumente.
 - Widersprechen sich Dokumente, gilt das jüngste (Datum steht hinter dem Titel): Ein Gehalt im Arbeitsvertrag oder ein Preis
   im Vertrag ist der Stand bei Abschluss; spätere Gehaltsabrechnungen und Rechnungen zeigen den aktuellen. Nenne den aktuellen
@@ -704,7 +705,8 @@ _WARRANTY_Q = re.compile(r"garantie|gewährleist|gewaehrleist|warranty", re.I)
 _OVERVIEW_Q = re.compile(r"frist|fällig|zahlen|bezahl|kündig|vertr[aä]g|abo|monatlich|laufend|überweis|rechnung|garantie|"
                          r"gewährleist|gewaehrleist|ausweis|reisepass|pass\b|führerschein|karte|gültig|abl[aä]uf|tüv|"
                          r"hauptuntersuchung|\bhu\b|wartung|schornstein|erstatt|teurer|preiserhöh|ausgegeben|ausgaben|gekostet|"
-                         r"einnahmen|kleidung|lebensmittel|wofür", re.I)
+                         r"einnahmen|kleidung|lebensmittel|wofür|jährlich|jaehrlich|rücklage|ruecklage|\btopf\b|vorjahr|"
+                         r"zurück ?legen|sparrate", re.I)
 
 _MONEY = re.compile(r"(?<![\d.,])(\d{1,3}(?:\.\d{3})+|\d+),(\d{2})(?!\d|,\d)")
 

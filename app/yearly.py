@@ -35,6 +35,8 @@ LOOKBACK_DAYS = 3 * 366 + 31     # drei Jahre reichen für Vorjahr, Vorvorjahr u
 YEAR_MIN, YEAR_MAX = 330, 400    # Abstand einer Jahresabbuchung (Wochenende, Monatsanfang, späte Lastschrift)
 BAND = 0.25                      # ähnlicher Betrag: Preiserhöhung ja, ein anderes Produkt nein
 ACTIVE_DAYS = 400                # länger keine Abbuchung: weggefallen
+# Einkäufe: zwei ähnliche Beträge im Jahresabstand sind hier Zufall (Kleiderladen, Supermarkt) – nur von Hand jährlich
+SHOPPING = {"Lebensmittel", "Kleidung", "Haushalt", "Freizeit & Ausgehen", "Online-Shopping", "Bargeld"}
 POT_NAME = re.compile(r"j(?:ä|ae|a)hrlich|rücklage|ruecklage", re.I)   # nicht „Jahresurlaub“
 
 
@@ -189,7 +191,7 @@ def overview(con, user: User, year: Optional[int] = None, today: Optional[dt.dat
         for key, krows in by_key.items():
             no = [m["cents"] for m in marklist if m["mkey"] == key and not m["yearly"]]
             yes = [m["cents"] for m in marklist if m["mkey"] == key and m["yearly"]]
-            series = [(c, "bank") for c in _chains(krows) if not _too_frequent(c, krows)]
+            series = [(c, "bank") for c in _chains(krows) if not _too_frequent(c, krows) and c[-1]["category"] not in SHOPPING]
             used = {r["id"] for c, _ in series for r in c}
             for cents in yes:      # von Hand: alles im Band, auch nach nur einer Abbuchung
                 band = [r for r in krows if _close(-r["cents"], cents) and r["id"] not in used]
@@ -368,6 +370,44 @@ def _item(con, user: User, key: str, chain: list[dict], source: str, year: int, 
         "_docs": docs, "_all": [{"id": r["id"], "booked": r["booked"][:10], "cents": -r["cents"]} for r in chain],
         "from_pot": False,
     }
+
+
+# ---------- Frag Papigator ----------
+
+_ASK_Q = re.compile(r"jährlich|jaehrlich|jahresbeitr|jahresabo|jahreskosten|jährliche|im jahr\b|pro jahr|vorjahr|letzte[ns]? jahr|"
+                    r"rücklage|ruecklage|\btopf\b|pocket|zurück ?legen|zuruecklegen|beiseite|sparrate|monatsrate|versicherung", re.I)
+
+
+def ask_facts(user: User, question: str) -> str:
+    """Jährliche Kosten für Frag Papigator – fertig gerechnet (Summe, Monatsrate, Topf, Vorjahr), nicht vom Sprachmodell.
+    Nur bei Fragen danach („Wie viel müssen wir monatlich auf Jährlich legen?“, „Versicherungen im Vergleich zum Vorjahr“)."""
+    if user.id == 0 or not _ASK_Q.search(question):
+        return ""
+    with connect() as con:
+        y = overview(con, user)
+    live = [i for i in y["items"] if i["in_sum"] and i["active"]]
+    if not live and not y["pot"]:
+        return ""
+    eur = lambda c: f"{c / 100:.2f} €".replace(".", ",")
+    t, yr = y["totals"], y["year"]
+    lines = ["Jährliche Kosten (Jahresposten aus Abbuchungen und dem Rücklagen-Topf, aus der Datenbank gerechnet – "
+             "verlässlich, Quelle [Übersicht]):",
+             f"- pro Jahr aktuell: {eur(t['per_year'])} (je Posten der jüngste Betrag) – nötig im Monat: {eur(t['monthly_needed'])}",
+             f"- abgebucht im Kalenderjahr {yr - 1}: {eur(t['last'])}, {yr} bisher: {eur(t['this'])}"]
+    pot = y["pot"]
+    if pot:
+        diff = t["monthly_needed"] - pot["monthly"]
+        state = "passt" if abs(diff) < 100 else (f"{eur(diff)} zu wenig im Monat" if diff > 0 else f"{eur(-diff)} mehr als nötig")
+        lines.append(f"- Rücklagen-Topf „{pot['name']}“: monatlich eingezahlt {eur(pot['monthly'])} – {state}")
+    for i in live[:25]:
+        hist = ", ".join(f"{k}: {eur(v)}" for k, v in sorted(i["years"].items()) if k in (str(yr - 1), str(yr)))
+        change = f", {'+' if i['change_pct'] > 0 else ''}{i['change_pct']} % zum Vorjahr" if i.get("change_pct") else ""
+        nxt = f", nächste Abbuchung {i['next'][5:7]}/{i['next'][:4]}" if i.get("next") else ""
+        lines.append(f"- {i['label'] or i['name']}: {eur(i['per_year'])} im Jahr" + (f" ({hist}{change})" if hist or change else "") + nxt)
+    gone = [i for i in y["items"] if i["in_sum"] and not i["active"]]
+    if gone:
+        lines.append("- weggefallen: " + ", ".join(i["label"] or i["name"] for i in gone[:10]))
+    return "\n".join(lines) + "\n"
 
 
 # ---------- Endpunkte ----------

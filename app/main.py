@@ -671,7 +671,8 @@ def ask_documents(body: AskIn, user: User = Depends(current_user)):
         scope = body.scope if body.scope in ("mine", "partner", "all") else ("all" if user.show_partner_in_overview else "mine")
         owners = auth.visible_owner_ids(con, user, scope) if user.id != 0 else []
     with worker.interactive_llm():
-        return askmod.ask(q, owners, extra_facts=(lambda span: bank.ask_facts(user, q, span)) if user.id != 0 else None)
+        return askmod.ask(q, owners, extra_facts=(lambda span: bank.ask_facts(user, q, span) + yearly.ask_facts(user, q))
+                          if user.id != 0 else None)
 
 
 def assignable_users(con, user: User) -> list[dict]:

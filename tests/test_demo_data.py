@@ -30,7 +30,7 @@ def test_demo_bank_data_reads_well_every_day(admin, today):
             for m in META]
     data = make_bank.exports(today, docs)["alex"]
     pre = admin.post("/bank/import", files={"file": ("demo.csv", data, "text/csv")}, data={"preview": "true"}).json()
-    assert {a["name"] for a in pre["accounts"]} == {"Gemeinschaftskonto", "Urlaub", "Sparkonto Alex"}
+    assert {a["name"] for a in pre["accounts"]} == {"Gemeinschaftskonto", "Urlaub", "Jährlich", "Sparkonto Alex"}
     r = admin.post("/bank/import", files={"file": ("demo.csv", data, "text/csv")},
                    data={"preview": "false", "shares": json.dumps({a["key"]: False for a in pre["accounts"]})})
     assert r.status_code == 200, r.text
@@ -40,3 +40,27 @@ def test_demo_bank_data_reads_well_every_day(admin, today):
     assert found == {("price", "klangwerk music")}, found
     to_sort = len(admin.get("/bank/to_sort").json()["transactions"])
     assert 1 <= to_sort <= 15, to_sort
+
+
+
+@pytest.mark.parametrize("today", DAYS[::3], ids=str)
+def test_demo_yearly_costs(admin, today):
+    """Jährliche Kosten im Demo-Haushalt: genau die erfundenen Jahresposten (Kfz, Haftpflicht, Autoclub, Kfz-Steuer,
+    Pixelplay, Domain aus dem Topf), der Topf „Jährlich“ wird erkannt, keine Scheinposten aus Monatlichem oder Einkäufen."""
+    from app import yearly
+    days = (today - shift.BASE).days
+    docs = [{"file": m["file"], "amount": m.get("amount"), "date": shift.shift_date(m.get("document_date"), days)}
+            for m in META]
+    data = make_bank.exports(today, docs)["alex"]
+    pre = admin.post("/bank/import", files={"file": ("demo.csv", data, "text/csv")}, data={"preview": "true"}).json()
+    admin.post("/bank/import", files={"file": ("demo.csv", data, "text/csv")},
+               data={"preview": "false", "shares": json.dumps({a["key"]: False for a in pre["accounts"]})})
+    with connect() as con:
+        user = User.from_row(con.execute("SELECT * FROM users WHERE id=?", (admin.id,)).fetchone())
+        y = yearly.overview(con, user, today=today)
+    names = {(i["label"] or i["name"]).lower() for i in y["items"] if i["in_sum"] and i["active"]}
+    want = ["hanse", "lindwurm", "autoclub", "kfz-steuer", "pixelplay", "domain"]
+    for w in want:
+        assert any(w in n for n in names), (w, names)
+    assert len(names) == len(want), names
+    assert y["pot"] and y["pot"]["name"] == "Jährlich" and y["pot"]["monthly"] == 8500

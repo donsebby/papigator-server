@@ -2,7 +2,7 @@
 C24-Exports (alle Konten in einer Datei, Buchungsart vorne, Kategorie der Bank hinten).
 
 Zwei Exporte wie im echten Leben:
-- Alex: Gemeinschaftskonto, Pocket „Urlaub“ (beide sehen es) und das eigene Sparkonto (privat)
+- Alex: Gemeinschaftskonto, Pockets „Urlaub“ und „Jährlich“ (beide sehen sie) und das eigene Sparkonto (privat)
 - Sam: dasselbe Gemeinschaftskonto der letzten Monate (läuft ohne Doppelte zusammen) und das eigene Sparkonto (privat)
 
 Buchungen zu Belegen im Demo-Archiv (Funkwerk, Marktplatz24, Werkstatt, HanseKraft …) tragen Betrag und Datum des Belegs, damit
@@ -22,6 +22,7 @@ HEAD = ("Transaktionstyp;Buchungsdatum;Wertstellung;Betrag;Zahlungsempfänger;IB
         "Kontoinhaber;Kontonummer;Kontoname;Kategorie;Unterkategorie")
 GIRO = ("1000000001", "Gemeinschaftskonto")
 URLAUB = ("1000000002", "Urlaub")
+JAEHRLICH = ("1000000005", "Jährlich")   # Rücklagen-Topf für Versicherungen, Jahresabos, Beiträge
 SPAR_A = ("3000000003", "Sparkonto Alex")
 SPAR_S = ("4000000004", "Sparkonto Sam")
 MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November",
@@ -48,7 +49,7 @@ def exports(today: date, docs: list[dict]) -> dict[str, bytes]:
     from shift import BASE
     rnd = random.Random(11)
     shift = today - BASE   # feste Termine der Demo-Texte wandern mit
-    start = _day(today.year - 1, today.month, 1) - timedelta(days=31)   # gut 13 Monate
+    start = _day(today.year - 2, today.month, 1) - timedelta(days=31)   # gut zwei Jahre (Jährliche Kosten: Vorjahr)
     rows: list[tuple] = []   # (Konto, Datum, Cent, Art, Gegenüber, Zweck, Bankkategorie)
 
     def add(acc, when: date, cents: int, kind: str, who: str, purpose: str, cat: str = ""):
@@ -76,6 +77,7 @@ def exports(today: date, docs: list[dict]) -> dict[str, bytes]:
         pocket(GIRO, URLAUB, _day(y, m, 2), 15000, "Urlaubskasse")
         pocket(GIRO, SPAR_A, _day(y, m, 2), 20000, "Sparplan Alex")
         pocket(GIRO, SPAR_S, _day(y, m, 2), 10000, "Sparen Sam")
+        pocket(GIRO, JAEHRLICH, _day(y, m, 2), 8500, "Rücklage Jährliches")
         if _day(y, m, 15) < date(2025, 12, 31) + shift:   # Fitnessstudio bis zur Kündigung (wandert mit)
             add(GIRO, _day(y, m, 15), -2499, "Lastschrift", "FitPunkt Studios GmbH", "Mitgliedsbeitrag", "Freizeit / Sport")
         if m % 3 == 1:
@@ -131,6 +133,25 @@ def exports(today: date, docs: list[dict]) -> dict[str, bytes]:
             add(GIRO, date.fromisoformat(x["date"]) + timedelta(days=1), int(round(x["amount"] * 100)), "Gutschrift",
                 "MARKTPLATZ 24 GMBH", "Erstattung Rücksendung", "Online-Shopping / Versand")
 
+    # --- Jährliches: vom Giro abgebucht und aus dem Topf „Jährlich“ ausgeglichen; die Domain läuft über ein Konto,
+    # das Papigator nicht kennt – dafür gibt es nur die Entnahme aus dem Topf
+    yearly = [   # (Monat, Tag, Gegenüber, Zweck, Cent je Jahr ab vorletztem Jahr, Bankkategorie)
+        (1, 14, "Autoclub Süd e.V.", "Mitgliedsbeitrag Plus", (8900, 9400, 9400), "Mobilität / Verein"),
+        (6, 3, "Bundeskasse Kfz-Steuer", "Kfz-Steuer KA-AM 512", (12000, 12000, 12000), ""),
+        (9, 21, "Pixelplay Network Ltd", "Pixelplay Plus Jahresabo", (5999, 6999, 6999), "Abos / Spiele"),
+    ]
+    for mon, d, who, purpose, prices, cat in yearly:
+        for k, cents in enumerate(prices):
+            when = _day(today.year - 2 + k, mon, d) + shift
+            add(GIRO, when, -cents, "Lastschrift", who, purpose, cat)
+            pocket(JAEHRLICH, GIRO, when - timedelta(days=1), cents, purpose.split(" ")[0])
+    for k, cents in enumerate((3600, 3600, 3900)):
+        pocket(JAEHRLICH, GIRO, _day(today.year - 2 + k, 4, 8) + shift, cents, "Domain und Webspace")
+    for x in docs:   # Kfz- und Haftpflicht-Beitrag (Belege im Archiv) ebenfalls aus dem Topf
+        if x.get("amount") and x.get("date") and x["file"].startswith(("HanseKraft_Beitragsrechnung_", "Haftpflicht_")):
+            pocket(JAEHRLICH, GIRO, date.fromisoformat(x["date"]) + timedelta(days=10), int(round(x["amount"] * 100)),
+                   "Kfz-Versicherung" if x["file"].startswith("Hanse") else "Haftpflicht")
+
     # --- Urlaub im Sommer: aus der Urlaubskasse bezahlt
     summer = date(today.year if today.month > 8 else today.year - 1, 8, 4)
     pocket(URLAUB, GIRO, summer - timedelta(days=3), 120000, "Sommerurlaub")
@@ -160,5 +181,5 @@ def exports(today: date, docs: list[dict]) -> dict[str, bytes]:
                                  acc[0], acc[1], main, sub]))
         return ("\n".join(out) + "\n").encode()
 
-    return {"alex": csv({GIRO, URLAUB, SPAR_A}),
-            "sam": csv({GIRO, URLAUB, SPAR_S}, since=today - timedelta(days=75))}
+    return {"alex": csv({GIRO, URLAUB, JAEHRLICH, SPAR_A}),
+            "sam": csv({GIRO, URLAUB, JAEHRLICH, SPAR_S}, since=today - timedelta(days=75))}

@@ -224,3 +224,14 @@ def test_pot_spellings_and_double_withdrawal_count_once(admin):
     r = admin.get("/bank/yearly").json()
     ps = [i for i in r["items"] if "plus" in i["name"].lower()]
     assert len(ps) == 1 and ps[0]["previous"] == 12599 and r["totals"]["per_year"] == 12599
+
+
+def test_ask_facts_only_for_yearly_questions(admin):
+    from app import yearly
+    from app.auth import User
+    _imp(admin, GIRO, "Girokonto")
+    me = User(admin.get("/auth/me").json()["id"], "alex", "Alex", True, False)
+    f = yearly.ask_facts(me, "Wie viel müssen wir monatlich auf die Seite legen für jährliche Sachen?")
+    assert "pro Jahr aktuell: 855,29 €" in f and "nötig im Monat: 71,27 €" in f
+    assert "+7 % zum Vorjahr" in f and "[Übersicht]" in f
+    assert yearly.ask_facts(me, "Wann war ich beim Zahnarzt?") == ""
