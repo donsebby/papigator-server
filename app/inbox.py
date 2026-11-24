@@ -54,6 +54,8 @@ def _files(user_dir: Path, recursive: bool):
         for f in d.iterdir():
             if f.name.startswith(".") or f.name.startswith("_"):
                 continue
+            if f.is_symlink():      # nie Verweisen folgen: der Dienst liest sonst Dateien außerhalb des Eingangs (Add-on: als root)
+                continue
             if f.is_dir():
                 if recursive:
                     stack.append((f, [*parts, f.name]))

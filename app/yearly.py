@@ -4,8 +4,9 @@ aktuellem Preis und der Monatsrate für einen Rücklagen-Topf („Jährlich“-P
 Quellen, in dieser Reihenfolge:
 1. Kontoumsätze: eine Abbuchung, zu der es beim selben Händler etwa ein Jahr vorher (330–400 Tage) eine mit
    ähnlichem Betrag (±25 %) gibt. Mehrere Verträge beim selben Versicherer (Kfz im November, Haftpflicht im Februar)
-   werden so getrennte Reihen. Kommen im Betragsband drei oder mehr Abbuchungen in einem Jahr, ist es kein
-   Jahresposten (Abo, Einkäufe) – zwei im Jahr bleiben (halbjährlich oder zwei Verträge, die Summe stimmt beidesmal).
+   werden so getrennte Reihen. Kommen im Betragsband drei oder mehr Abbuchungen in weniger als 330 Tagen, ist es kein
+   Jahresposten (Abo, Einkäufe) – zwei im Jahr bleiben (halbjährlich oder zwei Verträge, die Summe stimmt beidesmal;
+   halbjährlich sind das zwei Reihen, auch wenn die dritte Zahlung ein paar Tage früher kommt).
 2. Von Hand: „jährlich“ an einer Buchung (auch nach nur einer Abbuchung) – oder „nicht jährlich“ für Fehltreffer.
    Gilt für Händler + Betragsband, je Person (bank_yearly_marks).
 3. Belege: Verträge aus der Ablage mit jährlichem Rhythmus (extras.contracts). Ist einer davon mit einer Abbuchung
@@ -87,12 +88,13 @@ def _chains(rows: list[dict]) -> list[list[dict]]:
 
 
 def _too_frequent(chain: list[dict], rows: list[dict]) -> bool:
-    """Drei oder mehr Abbuchungen im Betragsband innerhalb eines Jahres: Abo oder Einkäufe, kein Jahresposten."""
+    """Drei oder mehr Abbuchungen im Betragsband in weniger als YEAR_MIN Tagen: Abo oder Einkäufe, kein Jahresposten.
+    Nicht „in einem Jahr“: halbjährlich (1.1., 1.7., wegen des Wochenendes schon am 30.12.) wären sonst drei."""
     last = chain[-1]
     band = [r for r in rows if _close(-r["cents"], -last["cents"])]
     for r in band:
         start = _d(r["booked"])
-        if sum(1 for x in band if 0 <= (_d(x["booked"]) - start).days < 365) >= 3:
+        if sum(1 for x in band if 0 <= (_d(x["booked"]) - start).days < YEAR_MIN) >= 3:
             return True
     return False
 
@@ -112,9 +114,12 @@ def _visible_doc(con, user: User, doc_id: Optional[int]) -> Optional[dict]:
 
 
 def pot_account(con, user: User, accounts: list[int]):
-    """→ (Konto, selbst gewählt?) – gewählt (bank_pot) oder nach Namen vorgeschlagen; (None, False) ohne Topf."""
+    """→ (Konto, selbst gewählt?) – gewählt (bank_pot) oder nach Namen vorgeschlagen; (None, False) ohne Topf –
+    auch, wenn die Person „kein Topf“ gewählt hat (bank_pot_off), obwohl ein Konto „Jährlich“ heißt."""
     if not accounts:
         return None, False
+    if con.execute("SELECT 1 FROM bank_pot_off WHERE user_id=?", (user.id,)).fetchone():
+        return None, True
     chosen = con.execute("SELECT account_id FROM bank_pot WHERE user_id=?", (user.id,)).fetchone()
     if chosen and chosen[0] in accounts:
         return con.execute("SELECT id, name FROM bank_accounts WHERE id=?", (chosen[0],)).fetchone(), True
@@ -279,12 +284,11 @@ def _pot_items(con, user: User, accounts: list[int], items: list[dict], marklist
     groups: dict[str, list[dict]] = {}
     for w in rest:
         groups.setdefault(pot_key(w["purpose"], w["counterparty"]), []).append(w)
-    # Schreibweisen zusammen: „Sony PsPlus“ und „Ps plus“ sind dasselbe (ohne Leerzeichen steckt eins im anderen)
+    # Schreibweisen zusammen: „Sony PsPlus“ und „Ps plus“ sind dasselbe – ohne Leerzeichen ist die eine ganze Wörter
+    # der anderen. Nur ganze Wörter: „Steuer“ und „Kfz-Steuer“ bleiben getrennt.
     merged: dict[str, list[str]] = {}
     for key in sorted(groups, key=len):
-        flat = re.sub(r"[^a-z0-9äöüß]", "", key[len("topf:"):])
-        home = next((h for h in merged if len(flat) >= 4 and (lambda hf: hf and (hf in flat or flat in hf))(
-            re.sub(r"[^a-z0-9äöüß]", "", h[len("topf:"):]))), None)
+        home = next((h for h in merged if _same_spelling(h, key)), None)
         merged.setdefault(home or key, []).append(key)
     for home, keys in merged.items():
         grows = sorted((w for k in keys for w in groups[k]), key=lambda w: (w["booked"], w["id"]))
@@ -296,6 +300,20 @@ def _pot_items(con, user: User, accounts: list[int], items: list[dict], marklist
                 continue
             dedup.append(w)
         _pot_series(con, user, pot, home, keys, dedup, marklist, items, year, today)
+
+
+def _runs(key: str) -> set[str]:
+    """Alle zusammenhängenden Wortfolgen eines Topf-Schlüssels, ohne Leer- und Sonderzeichen."""
+    words = key[len("topf:"):].split()
+    flat = lambda ws: re.sub(r"[^a-z0-9äöüß]", "", "".join(ws))
+    return {flat(words[i:j]) for i in range(len(words)) for j in range(i + 1, len(words) + 1)}
+
+
+def _same_spelling(a: str, b: str) -> bool:
+    fa, fb = re.sub(r"[^a-z0-9äöüß]", "", a[len("topf:"):]), re.sub(r"[^a-z0-9äöüß]", "", b[len("topf:"):])
+    if len(fa) < 4 or len(fb) < 4:
+        return False
+    return fa in _runs(b) or fb in _runs(a)
 
 
 def _pot_series(con, user: User, pot, key: str, keys: list[str], grows: list[dict], marklist: list[dict],
@@ -359,7 +377,8 @@ def _item(con, user: User, key: str, chain: list[dict], source: str, year: int, 
         # mehrere Reihen beim selben Händler (Kfz und Haftpflicht beim selben Versicherer): Zweck unterscheidet
         label = re.sub(r"\s+", " ", (last["purpose"] or "")).strip()[:60] or None
     return {
-        "key": f"{key}|{amount}", "mkey": key, "name": _name(last["counterparty"], key), "label": label,
+        # eindeutig, auch bei zwei Reihen mit gleichem Betrag beim selben Händler (halbjährlich, zwei Mitgliedschaften)
+        "key": f"{key}|{amount}|{last['id']}", "mkey": key, "name": _name(last["counterparty"], key), "label": label,
         "category": last["category"], "amount": amount, "per_year": per_year,
         "previous": -prev["cents"] if prev else None,
         "change_pct": round((amount / -prev["cents"] - 1) * 100) if prev and prev["cents"] else None,
@@ -424,15 +443,19 @@ class PotIn(BaseModel):
 
 @router.put("/pot")
 def set_pot(body: PotIn, user: User = Depends(current_user)):
-    """Rücklagen-Topf wählen (null: keiner, dann wieder der Vorschlag nach Namen)."""
+    """Rücklagen-Topf wählen; null: ausdrücklich keiner (auch kein Vorschlag nach Namen mehr)."""
     from . import bank
     if user.id == 0:
         raise HTTPException(400, "Erst anmelden")
     with connect() as con:
-        con.execute("DELETE FROM bank_pot WHERE user_id=?", (user.id,))
         if body.account_id is not None:
             bank._account(con, user, body.account_id)      # 404, wenn nicht sichtbar
+        con.execute("DELETE FROM bank_pot WHERE user_id=?", (user.id,))
+        con.execute("DELETE FROM bank_pot_off WHERE user_id=?", (user.id,))
+        if body.account_id is not None:
             con.execute("INSERT INTO bank_pot(user_id, account_id) VALUES (?, ?)", (user.id, body.account_id))
+        else:
+            con.execute("INSERT INTO bank_pot_off(user_id) VALUES (?)", (user.id,))
         return {"ok": True}
 
 
@@ -455,7 +478,10 @@ def mark(body: MarkIn, user: User = Depends(current_user)):
         if r["cents"] >= 0:
             raise HTTPException(400, "Nur Abbuchungen können jährlich sein")
         pot, _ = pot_account(con, user, bank.visible_accounts(con, user))
-        key = pot_key(r["purpose"], r["counterparty"]) if pot and r["account_id"] == pot["id"] else bank.merchant_key(r["counterparty"], r["purpose"])
+        # wie in der Übersicht: im Topf sind nur Umbuchungen und Unsortiertes Entnahmen (pot_key), Buchungen mit
+        # Kategorie dort echte Händler-Abbuchungen (merchant_key)
+        withdrawal = pot and r["account_id"] == pot["id"] and (r["category"] or "") in ("", "Umbuchung")
+        key = pot_key(r["purpose"], r["counterparty"]) if withdrawal else bank.merchant_key(r["counterparty"], r["purpose"])
         if not key:
             raise HTTPException(400, "Für diese Buchung lässt sich kein Händler erkennen")
         cents = -r["cents"]

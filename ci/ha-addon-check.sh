@@ -34,6 +34,12 @@ for k in "name: Papigator" "slug: papigator" "version:" "aarch64" "amd64" "8000/
   grep -q -- "$k" homeassistant/config.yaml || fail "config.yaml ohne „$k“"
 done
 grep -q "build_from" homeassistant/build.yaml || fail "build.yaml ohne build_from"
+VER=$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' homeassistant/config.yaml)
+[ -n "$VER" ] || fail "config.yaml: version nicht lesbar"
+for a in aarch64 amd64; do
+  grep -q "^  $a: ghcr.io/donsebby/papigator:$VER\$" homeassistant/build.yaml || fail "build.yaml: $a nicht auf :$VER (version aus config.yaml)"
+done
+grep -q "^backup: cold" homeassistant/config.yaml || fail "config.yaml ohne backup: cold"
 [ -f repository.yaml ] || fail "repository.yaml fehlt im Repo-Wurzelordner"
 
 step "Add-on bauen (auf $BASE)"
@@ -63,6 +69,12 @@ AUTH="Authorization: Bearer $(curl -fsS -X POST "$B/auth/login" -H 'Content-Type
   -d "{\"username\":\"check\",\"password\":\"$PW\"}" | jq -r .token)"
 docker exec "$NAME" test -s /data/papigator/papigator.db || fail "keine Datenbank in /data/papigator"
 docker exec "$NAME" test -d /share/papigator/backup || fail "Sicherungsordner fehlt"
+
+step "zu allgemeiner Ordner (/share) wird abgelehnt"
+printf '{"setup_token": "x", "secret_key": "", "inbox_dir": "/share/papigator/inbox", "backup_dir": "/share", "llm_url": "", "llm_model": ""}' > "$WORK/opt2.json"
+mkdir -p "$WORK/data2" && cp "$WORK/opt2.json" "$WORK/data2/options.json"
+if docker run --rm -v "$WORK/data2:/data" -v "$WORK/share:/share" "$ADDON" > "$WORK/out2.txt" 2>&1; then fail "startet mit backup_dir=/share"; fi
+grep -q "zu allgemein" "$WORK/out2.txt" || fail "kein Hinweis bei /share: $(cat "$WORK/out2.txt")"
 
 step "Scan über /share/papigator/inbox (als root abgelegt, wie per Samba)"
 docker exec -i "$NAME" python - > "$WORK/scan.pdf" <<'PY'

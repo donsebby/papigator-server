@@ -37,7 +37,7 @@ serves. Everything stays on your machine; nothing is sent anywhere unless you co
 ## Quick start (Docker Compose)
 
 Requirements: a Linux host (or any machine with Docker), Docker Engine with the Compose plugin,
-about 1 GB RAM plus whatever your AI model needs.
+about 1 GB RAM (2 GB is comfortable for OCR) plus whatever your AI model needs.
 
 ```bash
 # 1. Get the source onto your host, then:
@@ -122,8 +122,8 @@ Assistant Green, Raspberry Pi, a VM). One container: web app, API, OCR, scanner 
 2. Install **Papigator**, fill in **Setup token** (and ideally **Secret key**), start it.
 3. *Open Web UI* (`http://<home-assistant>:8000/app`), click **Ersteinrichtung**, enter the token, create the first admin.
 
-Data lives in the add-on (included in Home Assistant backups); the scanner inbox and Papigator's own nightly backup
-default to `/share/papigator/…`, reachable through the Samba add-on. Details: [`homeassistant/DOCS.md`](homeassistant/DOCS.md).
+Data lives in the add-on and is part of Home Assistant backups (taken with the add-on paused); the scanner inbox is
+`/share/papigator/inbox`, reachable through the Samba add-on. Papigator's own nightly backup is off by default. Details: [`homeassistant/DOCS.md`](homeassistant/DOCS.md).
 
 ## Configuration
 
@@ -289,8 +289,9 @@ python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 PAPIGATOR_DATA=/var/lib/papigator PAPIGATOR_TOKEN=… PAPIGATOR_SECRET_KEY=… \
   uvicorn app.main:app --host 0.0.0.0 --port 8000
-# public share pages, optional:
-uvicorn app.share_app:app --host 0.0.0.0 --port 8001
+# public share pages, optional – same data folder and secret key as the main service:
+PAPIGATOR_DATA=/var/lib/papigator PAPIGATOR_SECRET_KEY=… \
+  uvicorn app.share_app:app --host 0.0.0.0 --port 8001
 ```
 
 Run both under a process manager of your choice (e.g. two systemd units).

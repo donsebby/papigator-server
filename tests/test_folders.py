@@ -83,6 +83,12 @@ def test_scanner_subfolders_become_tags(admin, monkeypatch):
     (d / "scan.pdf").write_bytes(make_pdf("Scanner Strom"))
     (config.INBOX_DIR / "alex" / "_fehler").mkdir()
     (config.INBOX_DIR / "alex" / "_fehler" / "kaputt.pdf").write_bytes(b"x")
+    # Verweise auf Dateien/Ordner außerhalb des Eingangs werden nie gelesen
+    outside = config.INBOX_DIR.parent / "draussen"
+    outside.mkdir(exist_ok=True)
+    (outside / "geheim.pdf").write_bytes(make_pdf("Geheim"))
+    (config.INBOX_DIR / "alex" / "link.pdf").symlink_to(outside / "geheim.pdf")
+    (config.INBOX_DIR / "alex" / "Linkordner").symlink_to(outside, target_is_directory=True)
     files = list(inbox._files(config.INBOX_DIR / "alex", True))
     assert [(f.name, parts) for f, parts in files] == [("scan.pdf", ["Haus", "Strom"])]
     for f, parts in files:

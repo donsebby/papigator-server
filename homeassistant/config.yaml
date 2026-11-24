@@ -1,7 +1,9 @@
 # Home Assistant add-on: Papigator server (one container – web app, API, OCR, scanner inbox, backups).
 # Version erhöhen, wenn ein neuer Server-Stand ausgeliefert werden soll – HA baut das Add-on erst dann neu.
+# Dieselbe Version steht in build.yaml als Image-Tag (die öffentliche Action taggt das Image damit; ci/ha-addon-check.sh
+# prüft, dass beide gleich sind).
 name: Papigator
-version: "2026.11.24"
+version: "2026.11.25"
 slug: papigator
 description: Self-hosted document archive – OCR, full-text search, deadlines, optional local AI
 url: https://github.com/donsebby/papigator-server
@@ -11,6 +13,9 @@ arch:
 init: false
 startup: application
 boot: auto
+# HA hält das Add-on fürs Backup kurz an: eine SQLite-Datenbank im laufenden Betrieb zu kopieren kann eine kaputte
+# Sicherung ergeben (WAL)
+backup: cold
 ports:
   8000/tcp: 8000
 ports_description:
@@ -23,7 +28,7 @@ options:
   setup_token: ""
   secret_key: ""
   inbox_dir: /share/papigator/inbox
-  backup_dir: /share/papigator/backup
+  backup_dir: ""
   llm_url: ""
   llm_model: gemma4:e4b
 schema:

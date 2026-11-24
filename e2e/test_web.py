@@ -1145,12 +1145,38 @@ def test_money_yearly_costs_layer_mark_and_pot(page):
     mv.locator('[data-mact="yearly"]').click()
     mv.locator('[data-mact="closeyearly"]').click()            # ‹ Geld
     expect(mv).to_contain_text("Wofür")
-    mv.locator('[data-mact="undo"]').click()
-    # Logo oben links: aus jeder Ebene zurück zu „Heute“
-    mv.locator('[data-mact="yearly"]').count()
+    # Esc unter den Einstellungen lässt die Ebenen in Ruhe; Zurück schließt erst die Einstellungen, dann die Ebene
+    mv.locator('[data-mact="yearly"]').click()
+    page.click("#settings-btn")
+    shown(page, "#settings")
+    page.keyboard.press("Escape")
+    shown(page, "#settings")
+    page.go_back()
+    hidden(page, "#settings")
+    expect(mv.locator(".m-layer")).to_contain_text("Jährliche Kosten")
+    # Suche bei offener Ebene: die Ebene geht zu, die Treffer kommen
+    page.fill("#search", "ADAC")
+    expect(mv.locator(".m-tx", has_text="ADAC")).to_be_visible()
+    expect(mv.locator(".m-layer")).to_have_count(0)
+    page.fill("#search", "")
+    # Logo oben links: aus der Ebene zurück zu „Heute“
+    mv.locator('[data-mact="yearly"]').click()
+    expect(mv.locator(".m-layer")).to_contain_text("Jährliche Kosten")
     page.click("#brand-home")
     hidden(page, "#moneyview")
     expect(page.locator('#mode-seg button[data-mode="today"]')).to_have_class(re.compile("active"))
+    # … und aus dem Papierkorb
+    page.click('#mode-seg button[data-mode="folders"]')
+    page.locator(".folder", has_text="Haus").click()
+    page.locator(".chip", has_text="Papierkorb").click()
+    shown(page, "#trash-bar")
+    page.click("#brand-home")
+    hidden(page, "#trash-bar")
+    expect(page.locator('#mode-seg button[data-mode="today"]')).to_have_class(re.compile("active"))
+    # Import zurücknehmen (die anderen Tests sehen kein Konto)
+    page.click('#mode-seg button[data-mode="money"]')
+    mv.locator('[data-mact="undo"]').click()
+    expect(mv).to_contain_text("Noch kein Konto")
 
 
 def test_delete_own_account(page, browser, server):

@@ -44,7 +44,12 @@ function show(id) {
 function replay(el, cls) {
   if (!el) return;
   el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
-  el.addEventListener("animationend", () => el.classList.remove(cls), { once: true });
+  // ein Lauscher je Element und Klasse (bei „Bewegung reduzieren“ endet keine Animation – sonst sammeln sie sich);
+  // nur die eigene Animation zählt, nicht die eines Kindes (Ebene in Geld), die hochblubbert
+  const k = "_replay_" + cls;
+  if (el[k]) el.removeEventListener("animationend", el[k]);
+  el[k] = (e) => { if (e.target !== el) return; el.classList.remove(cls); el.removeEventListener("animationend", el[k]); el[k] = null; };
+  el.addEventListener("animationend", el[k]);
 }
 // Gleitender Umschalter: ein Hintergrund, der zur aktiven Taste gleitet, statt hart umzuspringen.
 // Beobachtet die Klassen der Tasten – wer „active“ setzt, muss nichts weiter tun.
@@ -562,6 +567,7 @@ for (const b of document.querySelectorAll("#mode-seg button"))
     } else if (leaving === "money" && state.mode !== "money" && money.q) {
       money.q = ""; $("#search").value = "";
     }
+    if (leaving === "money" && state.mode !== "money") { closeMoneyLayers(); money.jump = null; }
     state.tag = null;   // der geöffnete Ordner gehört zur Ordner-Ansicht, nicht als Filter in die Kacheln
     if (state.mode !== "tiles") { state.year = null; state.due = false; state.warranty = false; state.sender = null; }
     if (state.mode === "today" || state.mode === "money") state.review = false;   // „Zu prüfen“ bleibt in den Ordnern ein Ort, in „Heute“ ist es die Karte
@@ -1414,7 +1420,7 @@ function drawMoneyYearly() {
     return `<div class="m-yrow${i.active && i.in_sum ? "" : " dim"}"><span class="w"><b>${esc(i.label || i.name)}</b><small>${i.label ? esc(i.name) + " · " : ""}${state}${i.source === "marked" ? " · von Hand" : ""}${i.source === "pot" ? " · aus dem Topf genommen" : i.from_pot ? " · aus dem Topf bezahlt" : ""}</small></span>
       <span class="v">${yv(Y - 1)}</span><span class="v">${yv(Y)}</span><span class="v strong">${eurC(i.per_year)}${ch}</span><span class="acts">${doc}${act}</span></div>`;
   };
-  const head = `<div class="m-yrow head"><span class="w">Posten</span><span class="v">${Y - 1}</span><span class="v">${Y}</span><span class="v">pro Jahr</span><span class="acts"></span></div>`;
+  const head = `<div class="m-yrow head"><span class="w">Posten</span><span class="v">${Y - 1}</span><span class="v">${Y}</span><span class="v per">pro Jahr</span><span class="acts"></span></div>`;
   const sched = y.schedule.length ? `<section class="tcard"><div class="t-head"><h2>Die nächsten 12 Monate</h2></div>${y.schedule.map((m) =>
     `<div class="m-tx"><span class="d" style="flex-basis:120px">${fmtMonth(m.month)}</span><span class="w"><b>${m.items.map((x) => esc(x.name)).join(", ")}</b></span><span class="a">${eurC(m.cents)}</span></div>`).join("")}</section>` : "";
   return `<div class="m-layer"><div class="t-head m-layer-h"><button class="m-back" data-mact="closeyearly" aria-label="Zurück zu Geld">‹ Geld</button><h2>Jährliche Kosten</h2></div>${short}${kpis}
@@ -1490,6 +1496,10 @@ $("#moneyview").addEventListener("change", async (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || !moneyBrowsing() || document.querySelector("dialog[open]")) return;
+  // nur, wenn die Geld-Ebene oben liegt – nicht unter einem Dokument, den Einstellungen oder „Fragen“
+  const top = layers.length ? layers[layers.length - 1].name : "";
+  if (!$("#detail").classList.contains("hidden") || !$("#settings").classList.contains("hidden")) return;
+  if (top !== "money-yearly" && top !== "money-sort") return;
   if (money.yearlyOpen) { money.yearlyOpen = false; closeLayer("money-yearly"); renderMoney(); }
   else if (money.sorting) { money.sorting = false; closeLayer("money-sort"); renderMoney(); }
 });
@@ -1693,7 +1703,13 @@ function clearSearch() {
   plainSearch("");
 }
 // Im Reiter „Geld“ sucht das Feld oben in den Buchungen (nicht in den Dokumenten)
-function moneySearch(text) { money.q = text; money.search = null; money.cat = null; renderMoney(); }
+function moneySearch(text) { if (text) closeMoneyLayers(); money.q = text; money.search = null; money.cat = null; renderMoney(); }
+// Kategorie, Einsortieren und Jährliche Kosten schließen (Suche, Wechsel der Ansicht) – samt Verlaufseinträgen
+function closeMoneyLayers() {
+  const i = layers.findIndex((l) => l.name.startsWith("money-"));
+  money.cat = null; money.sorting = false; money.yearlyOpen = false;
+  if (i >= 0) closeLayer(layers[i].name);
+}
 $("#search").addEventListener("input", (e) => {
   clearTimeout(searchTimer);
   const text = e.target.value.trim();
@@ -2147,7 +2163,11 @@ $("#brand-home").addEventListener("click", async () => {
   if (location.hash.startsWith("#doc-")) await closeDetail(true);
   const n = layers.length;
   while (layers.length) layers.pop().close();
-  if (n) { skipLayerPops++; history.go(-n); }
+  // Papierkorb: ein eigener Verlaufseintrag unter den Ebenen – mit zurück, ohne dass popstate ihn neu öffnet
+  const trashEntry = state.trash && history.state && history.state.trash ? 1 : 0;
+  if (state.trash) openTrash(false, true);
+  if (n) { skipLayerPops++; }
+  if (n + trashEntry) { if (trashEntry) skipTrashPop = true; history.go(-(n + trashEntry)); }
   if ($("#search").value || state.q || money.q) {
     $("#search").value = ""; state.q = ""; state.smart = null; money.q = ""; money.search = null; smartSeq++; renderSmartBar();
   }

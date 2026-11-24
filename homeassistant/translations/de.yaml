@@ -10,7 +10,7 @@ configuration:
     description: Ordner, aus dem Papigator Scans übernimmt – je Person ein Unterordner (Benutzername klein). Unter /share über das Samba-Add-on erreichbar.
   backup_dir:
     name: Sicherungsordner
-    description: Nächtliche Sicherung (03:00). Leer schaltet Papigators eigene Sicherung ab; die Add-on-Daten stecken ohnehin in den Home-Assistant-Backups.
+    description: Optional, z. B. /share/papigator/backup – nächtliche Sicherung (03:00), unverschlüsselt und über Samba lesbar. Leer (Standard) – keine eigene Sicherung; die Add-on-Daten stecken in den Home-Assistant-Backups.
   llm_url:
     name: KI-Server
     description: Optional, OpenAI-kompatible Schnittstelle, z. B. Ollama unter http://192.0.2.10:11434/v1. Leer – ohne KI. Lässt sich auch später in der Weboberfläche eintragen.

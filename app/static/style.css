@@ -576,11 +576,10 @@ a { color: var(--link); }
 .hello #mode-seg { flex: none; }
 /* Heute und Geld brauchen keine Sortier-/Größen-Leiste; Geld auch nicht die Dokument-Filter („Zu prüfen“, Papierkorb) */
 .today-on .viewbar, .money-on .viewbar, .money-on #tagbar { display: none; }
-.hello-gator { flex: none; width: 52px; height: 52px; border-radius: 50%; background: var(--surface-solid); object-fit: cover;
   box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 24%, transparent); }
 .hello-date { font-size: 13px; font-weight: 600; color: var(--muted); }
 .hello-title { margin: 0; font-size: 27px; font-weight: 800; letter-spacing: -.02em; line-height: 1.15; }
-@media (max-width: 600px) { .hello { padding-top: 14px; } .hello-gator { width: 42px; height: 42px; } .hello-title { font-size: 22px; } }
+@media (max-width: 600px) { .hello { padding-top: 14px; } .hello-title { font-size: 22px; } }
 
 /* Leere Ansichten: der Alligator im weichen Schein mit zwei bunten Punkten, fetter Titel, warmer Satz.
    Hell mit weißem Kern, dunkel nur der getönte Schein (--glow-core, --dot-a/b in den Grundfarben). */
@@ -691,12 +690,12 @@ html[data-theme="light"] .sw.active .dot { outline-color: var(--acc-l); }
 .m-yrow .v.strong { font-weight: 700; }
 .m-yrow .acts { display: flex; gap: 6px; justify-content: flex-end; }
 .m-yrow.dim { opacity: .6; }
-.m-chg { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--surface-2, rgba(0,0,0,.05)); color: var(--muted); }
-.m-chg.up { color: #b45309; background: rgba(245, 158, 11, .15); }
+.m-chg { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--surface-border); color: var(--muted); }
+.m-chg.up { color: var(--amber-text); background: rgba(245, 158, 11, .15); }
 #m-pot { margin-top: 4px; max-width: 100%; }
 @media (max-width: 700px) {
   .m-yrow { grid-template-columns: minmax(0, 1fr) auto; }
-  .m-yrow .v:not(.strong) { display: none; }
+  .m-yrow .v:not(.strong):not(.per) { display: none; }
   .m-yrow .acts { grid-column: 1 / -1; justify-content: flex-start; }
 }
 .m-tx .d { flex: 0 0 52px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }

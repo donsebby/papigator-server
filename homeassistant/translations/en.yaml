@@ -10,7 +10,7 @@ configuration:
     description: Folder Papigator imports from – one subfolder per user (lower-case username). Under /share it is reachable via the Samba add-on.
   backup_dir:
     name: Backup folder
-    description: Nightly snapshots (03:00). Empty disables Papigator's own backup; the add-on data is part of Home Assistant backups anyway.
+    description: Optional, e.g. /share/papigator/backup – nightly snapshots (03:00), unencrypted and readable via Samba. Empty (default) – no extra backup; the add-on data is part of Home Assistant backups.
   llm_url:
     name: AI server URL
     description: Optional, OpenAI-compatible API, e.g. Ollama at http://192.0.2.10:11434/v1. Empty – no AI. Can also be set later in the web app.

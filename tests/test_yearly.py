@@ -235,3 +235,48 @@ def test_ask_facts_only_for_yearly_questions(admin):
     assert "pro Jahr aktuell: 855,29 €" in f and "nötig im Monat: 71,27 €" in f
     assert "+7 % zum Vorjahr" in f and "[Übersicht]" in f
     assert yearly.ask_facts(me, "Wann war ich beim Zahnarzt?") == ""
+
+
+def test_not_yearly_on_categorized_debit_from_the_pot(admin):
+    """Versicherung direkt vom Jährlich-Konto abgebucht (mit Kategorie): „nicht jährlich“ blendet sie aus – derselbe
+    Schlüssel wie in der Übersicht (Händler, nicht Topf-Entnahme)."""
+    _imp(admin, [(40 + 365, "Hanse Kraft Versicherung AG", "Kfz-Versicherung Beitrag", -65580),
+                 (40, "Hanse Kraft Versicherung AG", "Kfz-Versicherung Beitrag", -70120),
+                 *[(30 * k + 2, "Alex Muster", "Umbuchung Jährlich", 9000) for k in range(1, 14)]], "Jährlich")
+    with connect() as con:
+        tx, cat = con.execute("SELECT id, category FROM bank_tx WHERE cents=-70120").fetchone()
+    assert cat                                       # eingebauter Händler: Versicherung
+    r = admin.get("/bank/yearly").json()
+    assert any(i["amount"] == 70120 and i["source"] == "bank" for i in r["items"])
+    assert admin.put("/bank/yearly/mark", json={"tx_id": tx, "yearly": False}).status_code == 200
+    assert not any(i["amount"] == 70120 for i in admin.get("/bank/yearly").json()["items"])
+
+
+def test_half_yearly_with_an_early_debit_stays(admin):
+    """Halbjährlich, die dritte Zahlung wegen des Wochenendes zwei Tage früher (363 Tage nach der ersten): zwei Reihen,
+    zusammen der Jahresbetrag – und zwei verschiedene Schlüssel, obwohl Händler und Betrag gleich sind."""
+    _imp(admin, [(10 + 363, "Wohngebäude Nord VVaG", "Beitrag Wohngebäude", -24000),
+                 (10 + 182, "Wohngebäude Nord VVaG", "Beitrag Wohngebäude", -24000),
+                 (10, "Wohngebäude Nord VVaG", "Beitrag Wohngebäude", -24000),
+                 (10 + 547, "Wohngebäude Nord VVaG", "Beitrag Wohngebäude", -24000)], "Girokonto")
+    items = [i for i in admin.get("/bank/yearly").json()["items"] if "Wohngebäude" in i["name"]]
+    assert len(items) == 2 and len({i["key"] for i in items}) == 2
+    assert sum(i["per_year"] for i in items) == 48000
+
+
+def test_no_pot_stays_off_despite_the_name(admin):
+    """„kein Topf“ gewählt: auch ein Konto namens „Jährlich“ wird nicht wieder vorgeschlagen; ein Konto wählen hebt es auf."""
+    pot = _imp(admin, [*[(30 * k + 2, "Alex Muster", "Umbuchung Jährlich", 9000) for k in range(1, 8)]], "Jährlich")
+    assert admin.get("/bank/yearly").json()["pot"]["id"] == pot
+    assert admin.put("/bank/yearly/pot", json={"account_id": None}).status_code == 200
+    assert admin.get("/bank/yearly").json()["pot"] is None
+    assert admin.put("/bank/yearly/pot", json={"account_id": pot}).status_code == 200
+    assert admin.get("/bank/yearly").json()["pot"]["chosen"]
+
+
+def test_pot_spellings_only_whole_words(admin):
+    """„Steuer“ und „Kfz-Steuer“ aus dem Topf sind zwei Posten, „Ps plus“ und „Sony PsPlus“ einer."""
+    from app.yearly import _same_spelling
+    assert not _same_spelling("topf:steuer", "topf:kfz-steuer")
+    assert _same_spelling("topf:ps plus", "topf:sony psplus")
+    assert not _same_spelling("topf:", "topf:sony")

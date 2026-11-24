@@ -289,6 +289,9 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS bank_pot (
                 user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
                 account_id INTEGER NOT NULL REFERENCES bank_accounts(id) ON DELETE CASCADE);
+            -- „kein Topf“ ausdrücklich gewählt (24.11.2026): sonst schlüge ein Konto namens „Jährlich“ wieder vor
+            CREATE TABLE IF NOT EXISTS bank_pot_off (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS bank_yearly_marks (
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 mkey TEXT NOT NULL, cents INTEGER NOT NULL, yearly INTEGER NOT NULL,

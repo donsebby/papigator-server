@@ -19,7 +19,8 @@ titles, senders, dates and tags. The web app's interface is currently in German.
 |---|---|
 | Database, PDFs, thumbnails | add-on data – included in Home Assistant backups |
 | Scanner inbox | `/share/papigator/inbox/<username>/` – via the Samba add-on: `\\<home-assistant>\share\papigator\inbox` |
-| Papigator's nightly backup | `/share/papigator/backup` (empty *Backup folder* turns it off) |
+| Backups | Home Assistant backups (the add-on pauses for a moment so the database copy is consistent) |
+| Papigator's own nightly backup | off by default – set *Backup folder*, e.g. `/share/papigator/backup` (unencrypted, readable via Samba) |
 
 Files dropped into the inbox are imported for that user and then removed; files that fail move to `_fehler/`.
 
@@ -29,6 +30,7 @@ Files dropped into the inbox are imported for that user and then removed; files 
 - Small devices (e.g. Home Assistant Green, Raspberry Pi) handle the archive and OCR fine; a local AI model needs a
   bigger machine – point *AI server URL* at one in your network, or leave it empty.
 - Public share links (`/s/…`) need the separate share service, which this add-on does not run.
+- Inbox and backup folder must be subfolders (e.g. `/share/papigator/…`), never `/share` itself.
 - Updates arrive as new add-on versions. Take a Home Assistant backup first; database migrations run on start.
 
 More: https://github.com/donsebby/papigator-server

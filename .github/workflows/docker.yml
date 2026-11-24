@@ -74,12 +74,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The Home Assistant add-on builds on the image tagged with its version (homeassistant/build.yaml)
+      - name: Add-on version
+        id: addon
+        run: |
+          v=$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' homeassistant/config.yaml)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
       - id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.name.outputs.image }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.addon.outputs.version }},enable=${{ github.ref == 'refs/heads/main' && steps.addon.outputs.version != '' }}
             type=sha,prefix=sha-
 
       - uses: docker/build-push-action@v6
