@@ -1106,6 +1106,53 @@ def test_money_search_and_hint_from_document_search(page):
     mv.locator('[data-mact="undo"]').click()
 
 
+def test_money_yearly_costs_layer_mark_and_pot(page):
+    """Jährliche Kosten: Karte in Geld, eigene Ebene (Browser-Zurück), Buchung über die Suche als jährlich markieren,
+    Topf wählen."""
+    import datetime as _dt
+    t = _dt.date.today()
+    ago = lambda n: (t - _dt.timedelta(days=n)).strftime("%d.%m.%Y")
+    csv_ = ("Buchungsdatum;Zahlungsempfänger;Verwendungszweck;Betrag\n"
+            f"{ago(405)};Hanse Kraft Versicherung AG;Kfz-Versicherung;-655,80\n"
+            f"{ago(40)};Hanse Kraft Versicherung AG;Kfz-Versicherung;-701,20\n"
+            f"{ago(20)};ADAC e.V.;Mitgliedsbeitrag;-94,00\n")
+    page.click('#mode-seg button[data-mode="money"]')
+    page.locator('#moneyview [data-mact="import"]').first.click()
+    page.set_input_files("#bk-file", files=[{"name": "giro.csv", "mimeType": "text/csv", "buffer": csv_.encode()}])
+    expect(page.locator("#bk-preview")).to_contain_text("3 Umsätze")
+    page.fill("#bk-name", "Giro")
+    page.click("#bk-go")
+    expect(page.locator("#bank-dialog")).not_to_be_visible()
+    mv = page.locator("#moneyview")
+    expect(mv).to_contain_text("Jährliche Kosten")
+    expect(mv).to_contain_text("701,20")
+    mv.locator('[data-mact="yearly"]').click()
+    expect(mv.locator(".m-yrow", has_text="Hanse Kraft")).to_contain_text("+7 %")
+    mv.locator("#m-pot").select_option(label="Giro")
+    expect(mv.locator("#m-pot option:checked")).to_have_text("Giro")
+    mv.locator("#m-pot").select_option(label="kein Topf")        # das Giro ist kein Topf
+    expect(mv.locator("#m-pot option:checked")).to_have_text("kein Topf")
+    page.go_back()                                             # Browser-Zurück schließt die Ebene
+    expect(mv).to_contain_text("Wofür")
+    # nur einmal abgebucht: über die Suche als jährlich markieren
+    page.fill("#search", "ADAC")
+    mv.locator(".m-tx", has_text="ADAC").locator("[data-myear]").click()
+    mv.locator('[data-mact="clearsearch"]').click()
+    mv.locator('[data-mact="yearly"]').click()
+    expect(mv.locator(".m-yrow", has_text="ADAC")).to_contain_text("von Hand")
+    page.keyboard.press("Escape")                              # Escape schließt die Ebene
+    expect(mv).to_contain_text("Wofür")
+    mv.locator('[data-mact="yearly"]').click()
+    mv.locator('[data-mact="closeyearly"]').click()            # ‹ Geld
+    expect(mv).to_contain_text("Wofür")
+    mv.locator('[data-mact="undo"]').click()
+    # Logo oben links: aus jeder Ebene zurück zu „Heute“
+    mv.locator('[data-mact="yearly"]').count()
+    page.click("#brand-home")
+    hidden(page, "#moneyview")
+    expect(page.locator('#mode-seg button[data-mode="today"]')).to_have_class(re.compile("active"))
+
+
 def test_delete_own_account(page, browser, server):
     """Einstellungen → Konto & Geräte → Konto löschen: mit Passwort, danach zurück zur Anmeldung, Anmelden geht nicht mehr."""
     import httpx

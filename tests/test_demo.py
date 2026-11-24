@@ -247,6 +247,7 @@ REVIEWED_ALLOWED = {
     ("POST", "/bank/import"),                 # in der Demo bis 1 MB je Datei und bank.DEMO_MAX_TX Buchungen insgesamt
     ("PATCH", "/bank/accounts/{account_id}"),  # Name, wer mitsieht – lässt sich zurückstellen
     ("PATCH", "/bank/tx/{tx_id}"), ("DELETE", "/bank/rules/{rule_id}"),
+    ("PUT", "/bank/yearly/pot"), ("PUT", "/bank/yearly/mark"),   # nur eigene Einstellungen, zurückstellbar
 }
 
 

@@ -1173,7 +1173,7 @@ $("#todayview").addEventListener("click", async (e) => {
 // Eigene Ansicht wie „Heute“: Zeitraum, Kacheln, „Wofür“ als Balken, eine Kategorie im Detail mit Monaten und Buchungen,
 // „Einsortieren“ für offene Buchungen (Regel „immer so“), Import als Dialog mit Vorschau. Kategorie und Einsortieren
 // sind Ebenen – Browser-Zurück führt zur Übersicht.
-const money = { q: "", search: null, period: "6m", account: "", cat: null, sorting: false, data: null, cats: null, sort: null, accounts: null, seq: 0, lastImport: null };
+const money = { yearly: null, yearlyOpen: false, q: "", search: null, period: "6m", account: "", cat: null, sorting: false, data: null, cats: null, sort: null, accounts: null, seq: 0, lastImport: null };
 function moneyBrowsing() { return state.mode === "money" && !state.trash && !state.review && !state.due && !state.warranty; }
 const eurC = (c) => (c / 100).toLocaleString("de-DE", { style: "currency", currency: "EUR" });
 function moneyRange() {
@@ -1196,7 +1196,7 @@ async function renderMoney() {
   if (!on) { money.lastKey = null; return; }
   if (money.data && appearing) drawMoney();
   const seq = ++money.seq;
-  const [acc, sum, cat, srt, ins, rules, found] = await Promise.all([
+  const [acc, sum, cat, srt, ins, rules, found, yearly] = await Promise.all([
     api("/bank/accounts").catch(() => null),
     api("/bank/summary?" + moneyQuery()).catch(() => null),
     money.cat ? api("/bank/category?" + moneyQuery({ name: money.cat })).catch(() => null) : null,
@@ -1204,14 +1204,15 @@ async function renderMoney() {
     api("/bank/insights").catch(() => null),
     api("/bank/rules").catch(() => []),
     money.q ? api("/bank/search?" + new URLSearchParams({ q: money.q })).catch(() => null) : null,
+    api("/bank/yearly").catch(() => null),   // ältere Server ohne /bank/yearly: einfach keine Karte
   ]);
   if (seq !== money.seq || !moneyBrowsing()) return;
   // Das Nachladen im Hintergrund (Verarbeitung läuft) ruft hier alle paar Sekunden an: nur neu zeichnen, wenn sich
   // etwas geändert hat – sonst klappen offene Auswahlen zu und die Seite springt
-  const key = JSON.stringify([acc, sum, cat, srt, ins, rules, found, money.cat, money.sorting, money.period, money.account, money.q]);
+  const key = JSON.stringify([acc, sum, cat, srt, ins, rules, found, yearly, money.cat, money.sorting, money.yearlyOpen, money.period, money.account, money.q]);
   if (key === money.lastKey && !appearing) return;
   money.lastKey = key;
-  money.accounts = acc; money.data = sum; money.catData = cat; money.sort = srt; money.insights = ins ? ins.items : []; money.rules = rules || []; money.search = found;
+  money.accounts = acc; money.data = sum; money.catData = cat; money.sort = srt; money.insights = ins ? ins.items : []; money.rules = rules || []; money.search = found; money.yearly = yearly;
   drawMoney();
 }
 function moneyTxRow(t, edit = false) {
@@ -1224,7 +1225,8 @@ function moneyTxRow(t, edit = false) {
   const sel = edit ? `<select data-mrecat="${t.id}" data-key="${esc(t.key || "")}" aria-label="Kategorie von ${esc(who)}" class="m-recat${t.category ? "" : " empty"}">${
     t.category ? "" : `<option value="" selected disabled>Kategorie wählen …</option>`}${cats.map((c) =>
     `<option${c === t.category ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>` : "";
-  return `<div class="m-tx"><span class="d">${d}.${m}.</span><span class="w"><b>${esc(who)}</b><small>${esc(t.purpose || "")}</small></span>${sel}${doc}
+  const year = edit && t.cents < 0 && money.yearly ? `<button class="m-pill" data-myear="${t.id}" data-val="true" title="Kommt einmal im Jahr – zu den jährlichen Kosten">Jährlich</button>` : "";
+  return `<div class="m-tx"><span class="d">${d}.${m}.</span><span class="w"><b>${esc(who)}</b><small>${esc(t.purpose || "")}</small></span>${sel}${doc}${year}
     <span class="a${t.cents > 0 ? " plus" : ""}">${t.cents > 0 ? "+" : ""}${eurC(t.cents)}</span></div>`;
 }
 function drawMoney() {
@@ -1256,6 +1258,7 @@ function drawMoney() {
   }
   if (!s) { box.innerHTML = head + `<p class="muted">Umsätze ließen sich gerade nicht laden.</p>`; return; }
   if (money.sorting) { box.innerHTML = head + drawMoneySort(); return; }
+  if (money.yearlyOpen) { box.innerHTML = head + drawMoneyYearly(); return; }
   if (money.q) { box.innerHTML = head + drawMoneySearch(); return; }
   const cats = s.categories || [];
   const max = Math.max(1, ...cats.map((c) => c.cents));
@@ -1283,6 +1286,7 @@ function drawMoney() {
   })() : "";
   const side = `<div class="t-side">${s.to_sort ? `<button class="m-sortbtn" data-mact="sort"><span style="flex:1"><b>${s.to_sort === 1 ? "1 Buchung" : `${s.to_sort} Buchungen`} einsortieren</b>
       <small>Unbekannte Händler, PayPal, Amazon – einmal zugeordnet, merkt Papigator sich das</small></span><span aria-hidden="true">›</span></button>` : ""}
+    ${moneyYearlyCard()}
     ${(money.insights || []).length ? `<section class="tcard"><div class="t-head"><h2>Aus dem Konto erkannt</h2></div>
       <p class="m-note" style="margin:-4px 0 6px">Abbuchungen sind verlässlicher als Rechnungen</p>
       ${money.insights.map((i) => `<div class="m-tx"><span class="w"><b>${esc(i.name)} ${i.type === "price" ? "ist teurer" : "– neue Abbuchung"}</b>
@@ -1313,6 +1317,56 @@ function drawMoney() {
   if (target) target.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 // Suche in „Geld“ (Feld oben): Zeitraum und Suchwörter als Chips, Summe, die Buchungen (umsortierbar)
+// Jährliche Kosten (Server: /bank/yearly): Karte in der Seitenspalte und eigene Ebene mit Vorjahr, Topf und Vorschau
+const fmtMonth = (iso) => new Date(iso.slice(0, 7) + "-01T00:00").toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+function moneyPotLine(y) {
+  const need = y.totals.monthly_needed, pot = y.pot;
+  if (!pot) return `Nötig im Monat: ${eurC(need)}`;
+  const diff = need - pot.monthly;
+  return `${esc(pot.name)}: ${eurC(pot.monthly)} im Monat – ` + (Math.abs(diff) < 100 ? "passt" : diff > 0 ? `${eurC(diff)} zu wenig (nötig ${eurC(need)})` : `${eurC(-diff)} mehr als nötig`);
+}
+function moneyYearlyCard() {
+  const y = money.yearly;
+  if (!y || (!y.items.length && !y.pot)) return "";
+  const top = y.items.filter((i) => i.in_sum && i.active).slice(0, 3);
+  return `<section class="tcard"><div class="t-head"><h2>Jährliche Kosten</h2><span class="t-count">${eurC(y.totals.per_year)} im Jahr</span></div>
+    <p class="m-note" style="margin:-4px 0 6px">${moneyPotLine(y)}</p>
+    ${top.map((i) => `<div class="m-tx"><span class="w"><b>${esc(i.label || i.name)}</b><small>nächste ${fmtMonth(i.next)}</small></span><span class="a">${eurC(i.per_year)}</span></div>`).join("")}
+    <button class="btn" data-mact="yearly" style="margin-top:8px">Alle ${y.items.length} ansehen</button></section>`;
+}
+function drawMoneyYearly() {
+  const y = money.yearly;
+  if (!y) return `<section class="tcard"><p class="muted" style="margin:0">Jährliche Kosten lassen sich gerade nicht laden.</p></section>`;
+  const Y = y.year, pot = y.pot;
+  const potSel = `<select id="m-pot" aria-label="Rücklagen-Topf"><option value="">kein Topf</option>${y.accounts.map((a) =>
+    `<option value="${a.id}"${pot && pot.id === a.id ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>`;
+  const live = y.items.filter((i) => i.in_sum && i.active).length;
+  const kpis = `<div class="m-kpis">
+    <div class="m-kpi"><span class="k">Pro Jahr</span><b>${eurC(y.totals.per_year)}</b><small>${live} Posten, je der aktuelle Betrag</small></div>
+    <div class="m-kpi"><span class="k">Nötig im Monat</span><b>${eurC(y.totals.monthly_needed)}</b><small>Jahressumme ÷ 12</small></div>
+    <div class="m-kpi"><span class="k">Rücklagen-Topf</span><b>${pot ? eurC(pot.monthly) : "–"}</b><small>${pot ? moneyPotLine(y).replace(/^[^:]*: [^–]*– /, "") : "Konto wählen:"} ${potSel}</small></div>
+    <div class="m-kpi"><span class="k">${Y - 1} → ${Y}</span><b>${eurC(y.totals.last)} → ${eurC(y.totals.this)}</b><small>abgebucht im Kalenderjahr</small></div></div>`;
+  const short = y.covered && (new Date(y.today) - new Date(y.covered.first)) / 864e5 < 400
+    ? `<p class="m-warn">Die Umsätze beginnen erst am ${fmtDate(y.covered.first)}. Jahresposten erkennt Papigator an einer Abbuchung gut ein Jahr vorher – oder ihr markiert eine Buchung als „Jährlich“.</p>` : "";
+  const row = (i) => {
+    const ch = i.change_pct ? ` <span class="m-chg${i.change_pct > 0 ? " up" : ""}">${i.change_pct > 0 ? "+" : ""}${i.change_pct} %</span>` : "";
+    const state = !i.in_sum ? "nur Beleg, keine Abbuchung gefunden – zählt nicht mit" : !i.active ? "weggefallen" : `nächste ${fmtMonth(i.next)}`;
+    const doc = i.document_id ? `<button class="m-pill" data-open="${i.document_id}">Beleg</button>` : "";
+    const act = i.source === "document" ? "" : i.source === "marked"
+      ? `<button class="m-pill" data-myear="${i.mark_tx}" data-val="null" title="Markierung zurücknehmen">Markierung weg</button>`
+      : `<button class="m-pill" data-myear="${i.mark_tx}" data-val="false" title="Ist kein Jahresposten – ausblenden">Nicht jährlich</button>`;
+    const yv = (k) => i.years[String(k)] ? eurC(i.years[String(k)]) : "–";
+    return `<div class="m-yrow${i.active && i.in_sum ? "" : " dim"}"><span class="w"><b>${esc(i.label || i.name)}</b><small>${i.label ? esc(i.name) + " · " : ""}${state}${i.source === "marked" ? " · von Hand" : ""}${i.source === "pot" ? " · aus dem Topf genommen" : i.from_pot ? " · aus dem Topf bezahlt" : ""}</small></span>
+      <span class="v">${yv(Y - 1)}</span><span class="v">${yv(Y)}</span><span class="v strong">${eurC(i.per_year)}${ch}</span><span class="acts">${doc}${act}</span></div>`;
+  };
+  const head = `<div class="m-yrow head"><span class="w">Posten</span><span class="v">${Y - 1}</span><span class="v">${Y}</span><span class="v">pro Jahr</span><span class="acts"></span></div>`;
+  const sched = y.schedule.length ? `<section class="tcard"><div class="t-head"><h2>Die nächsten 12 Monate</h2></div>${y.schedule.map((m) =>
+    `<div class="m-tx"><span class="d" style="flex-basis:120px">${fmtMonth(m.month)}</span><span class="w"><b>${m.items.map((x) => esc(x.name)).join(", ")}</b></span><span class="a">${eurC(m.cents)}</span></div>`).join("")}</section>` : "";
+  return `<div class="m-layer"><div class="t-head m-layer-h"><button class="m-back" data-mact="closeyearly" aria-label="Zurück zu Geld">‹ Geld</button><h2>Jährliche Kosten</h2></div>${short}${kpis}
+    <section class="tcard m-ylist">${y.items.length ? head + y.items.map(row).join("") : `<p class="muted" style="margin:0">Noch keine Jahresposten erkannt.</p>`}
+      <p class="m-note">Erkannt an Abbuchungen, die es etwa ein Jahr vorher schon einmal gab. Was erst einmal abgebucht wurde (neues Jahresabo), markiert ihr in einer Kategorie an der Buchung mit „Jährlich“.
+      Was ihr aus dem Rücklagen-Topf herausnehmt, zählt immer mit – auch wenn es von einem anderen Konto bezahlt wird.</p></section>${sched}</div>`;
+}
 function drawMoneySearch() {
   const r = money.search;
   if (!r) return `<section class="tcard"><p class="muted" style="margin:0">Suche läuft …</p></section>`;
@@ -1340,8 +1394,8 @@ function drawMoneySort() {
         <select data-mother aria-label="Andere Kategorie"><option value="">Andere …</option>${all.filter((c) => !quick.includes(c)).map((c) => `<option>${esc(c)}</option>`).join("")}</select>
         ${t.key ? `<label class="toggle" style="margin-left:auto"><input type="checkbox" data-mremember="${esc(t.key)}"${t.counterparty && /paypal|amazon|amzn|klarna/i.test(t.counterparty) && !/paypal/i.test(t.key) ? "" : " checked"}> Immer so für „${esc(t.key)}“</label>` : ""}</div></section>`;
   }).join("");
-  return `<div class="t-head"><h2>Einsortieren</h2><span class="t-count">${list.length} offen</span><button class="t-link" data-mact="closesort">Fertig</button></div>
-    ${cards || `<section class="tcard"><p class="muted" style="margin:0">Alles einsortiert.</p></section>`}`;
+  return `<div class="m-layer"><div class="t-head m-layer-h"><button class="m-back" data-mact="closesort" aria-label="Zurück zu Geld">‹ Geld</button><h2>Einsortieren</h2><span class="t-count">${list.length} offen</span></div>
+    ${cards || `<section class="tcard"><p class="muted" style="margin:0">Alles einsortiert.</p></section>`}</div>`;
 }
 async function moneyPick(card, category) {
   const id = Number(card.dataset.tx), rem = card.querySelector("[data-mremember]"), bk = card.querySelector("[data-mbank]");
@@ -1355,6 +1409,11 @@ async function moneyPick(card, category) {
 }
 $("#moneyview").addEventListener("change", (e) => {
   if (e.target.id === "m-account") { money.account = e.target.value; money.cat = null; renderMoney(); }
+  if (e.target.id === "m-pot") {
+    api("/bank/yearly/pot", json("PUT", { account_id: e.target.value ? Number(e.target.value) : null }))
+      .then(() => { toast(e.target.value ? "Rücklagen-Topf gespeichert" : "Kein Rücklagen-Topf"); renderMoney(); })
+      .catch((err) => toast("Fehler: " + err.message));
+  }
   if (e.target.matches("[data-mother]") && e.target.value) moneyPick(e.target.closest("[data-tx]"), e.target.value);
   if (e.target.id === "m-recat-all") money.recatAll = e.target.checked;
   if (e.target.matches("[data-mrecat]")) {
@@ -1374,10 +1433,24 @@ $("#moneyview").addEventListener("change", async (e) => {
     renderMoney();
   } catch (err) { e.target.checked = !e.target.checked; toast("Fehler: " + err.message); }
 });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !moneyBrowsing() || document.querySelector("dialog[open]")) return;
+  if (money.yearlyOpen) { money.yearlyOpen = false; closeLayer("money-yearly"); renderMoney(); }
+  else if (money.sorting) { money.sorting = false; closeLayer("money-sort"); renderMoney(); }
+});
 $("#moneyview").addEventListener("click", async (e) => {
   const el = e.target.closest("button"); if (!el) return;
   if (el.dataset.open) return openDetail(Number(el.dataset.open));
   if (el.dataset.mperiod) { money.period = el.dataset.mperiod; renderMoney(); return; }
+  if (el.dataset.myear) {
+    const v = el.dataset.val, val = v === "true" ? true : v === "false" ? false : null;
+    try {
+      await api("/bank/yearly/mark", json("PUT", { tx_id: Number(el.dataset.myear), yearly: val }));
+      toast(val === true ? "Zu den jährlichen Kosten genommen" : val === false ? "Ausgeblendet – zählt nicht mehr als jährlich" : "Markierung zurückgenommen");
+      renderMoney();
+    } catch (err) { toast("Fehler: " + err.message); }
+    return;
+  }
   if (el.dataset.mcat) {
     const was = money.cat; money.cat = was === el.dataset.mcat ? null : el.dataset.mcat;
     money.jump = money.cat ? "detail" : "bars";
@@ -1406,6 +1479,8 @@ $("#moneyview").addEventListener("click", async (e) => {
     case "import": openBankImport(); break;
     case "sort": money.sorting = true; openLayer("money-sort", () => { money.sorting = false; renderMoney(); }); renderMoney(); break;
     case "closesort": money.sorting = false; closeLayer("money-sort"); renderMoney(); break;
+    case "yearly": money.yearlyOpen = true; openLayer("money-yearly", () => { money.yearlyOpen = false; renderMoney(); }); renderMoney(); window.scrollTo({ top: 0 }); break;
+    case "closeyearly": money.yearlyOpen = false; closeLayer("money-yearly"); renderMoney(); break;
     case "clearsearch": money.q = ""; money.search = null; $("#search").value = ""; renderMoney(); break;
     case "closecat": money.cat = null; money.jump = "bars"; closeLayer("money-cat"); renderMoney(); break;
     case "undo":
@@ -2010,6 +2085,20 @@ async function closeDetail(pop = true) {
   await Promise.all([loadDocs(), loadTags(), loadYears()]);
   if (pop && location.hash) { skipFolderPop = true; history.back(); }
 }
+
+// Logo oben links: zur Startseite „Heute“ – offene Ebenen (Einstellungen, Kategorie, Jährliche Kosten …), Dokument
+// und Suche schließen wie von Hand
+$("#brand-home").addEventListener("click", async () => {
+  if (location.hash.startsWith("#doc-")) await closeDetail(true);
+  const n = layers.length;
+  while (layers.length) layers.pop().close();
+  if (n) { skipLayerPops++; history.go(-n); }
+  if ($("#search").value || state.q || money.q) {
+    $("#search").value = ""; state.q = ""; state.smart = null; money.q = ""; money.search = null; smartSeq++; renderSmartBar();
+  }
+  $('#mode-seg button[data-mode="today"]').click();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
 
 // ---------- Einstellungen ----------
 $("#settings-btn").onclick = openSettings;

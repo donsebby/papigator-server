@@ -57,6 +57,8 @@ from . import bank  # noqa: E402  Geld: Kontoumsätze aus CSV (/bank)
 app.include_router(bank.router)
 from . import invites  # noqa: E402  Einladungen (/invites) – nur im Hauptdienst, nie in share_app
 app.include_router(invites.router)
+from . import yearly  # noqa: E402  Jährliche Kosten und Rücklagen-Topf (/bank/yearly)
+app.include_router(yearly.router)
 
 
 @app.on_event("startup")

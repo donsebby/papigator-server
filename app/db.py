@@ -284,6 +284,15 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS bank_rules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 pattern TEXT NOT NULL, category TEXT NOT NULL, UNIQUE (created_by, pattern));
+            -- Jährliche Kosten (24.11.2026, app/yearly.py): Rücklagen-Topf je Person und von Hand markierte Posten
+            -- (Händler + Betrag; yearly=1 gehört dazu, 0 nie) – Fremdschlüssel räumen beim Löschen mit auf
+            CREATE TABLE IF NOT EXISTS bank_pot (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                account_id INTEGER NOT NULL REFERENCES bank_accounts(id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS bank_yearly_marks (
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                mkey TEXT NOT NULL, cents INTEGER NOT NULL, yearly INTEGER NOT NULL,
+                PRIMARY KEY (user_id, mkey, cents));
         """)
         # Buchungsart und Kategorie der Bank mitspeichern (18.11.2026) – Pocket-Überträge stehen oft nur dort; Altbestand
         # einmal neu einsortieren (nur, was nicht von Hand oder per Regel sortiert ist)

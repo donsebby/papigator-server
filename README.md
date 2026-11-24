@@ -198,6 +198,51 @@ docker compose pull && docker compose up -d
 
 Database migrations run automatically when the main service starts. Take a backup first.
 
+## Public share links (optional)
+
+Share links and upload boxes (`/s/…`) are served by a separate, small service: **`papigator-share`** on port
+8001 (`app/share_app.py`). It knows nothing but the public share pages – no login, no API, no web app, not even
+with a valid token. That is the only thing that should ever face the internet; the main service on port 8000
+stays in your network (use a VPN to reach it from outside).
+
+1. Pick a hostname that says nothing about the software (e.g. `share.example.com`), point it at your
+   connection and forward port 443 to your reverse proxy.
+2. Let the proxy forward **only `/s/*`** to port 8001 and answer everything else with 404. Allow request bodies
+   of at least 51 MB on that route (upload boxes accept up to 50 MB per request).
+
+   Caddy:
+   ```
+   share.example.com {
+       handle /s/* {
+           reverse_proxy papigator-share:8001 {
+               header_up X-Real-IP {remote_host}
+           }
+       }
+       respond 404
+   }
+   ```
+
+   nginx (also in Nginx Proxy Manager → *Advanced*):
+   ```
+   location / { return 404; }
+   location /s/ {
+       proxy_pass http://papigator-share:8001;
+       proxy_set_header Host $host;
+       proxy_set_header X-Forwarded-Proto $scheme;
+       proxy_set_header X-Forwarded-For $remote_addr;
+       proxy_set_header X-Real-IP $remote_addr;
+       client_max_body_size 51m;
+   }
+   ```
+
+   `papigator-share:8001` works when the proxy runs in the same Docker network; otherwise use
+   `<host>:8001` (`PAPIGATOR_SHARE_PORT`). Without Docker, run the share service next to the main one (see
+   *Running without Docker*) – same data folder, same `PAPIGATOR_SECRET_KEY`.
+3. In the web app, set *Settings → Share links → public address* to `https://share.example.com` (admins only).
+   Every link, including existing ones, then uses this address.
+4. Test from outside (e.g. a phone on mobile data): `https://share.example.com/` and `…/app/` return 404,
+   `…/s/_/ping` returns `{"ok":true}`, and a share link opens.
+
 ## Security notes
 
 - Run Papigator **inside your home network** and reach it from outside via VPN (WireGuard, Tailscale …).
