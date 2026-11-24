@@ -90,6 +90,29 @@ The container starts as root only to make both folders belong to `PUID`/`PGID` (
 runs the server as that unprivileged user. If a network share does not allow changing owners, set
 `PUID`/`PGID` to an account that can write there.
 
+## Unraid
+
+Papigator has a template for Unraid's Docker manager in [`templates/papigator.xml`](templates/papigator.xml)
+(one container: web app, API, OCR, scanner inbox, backups – no public share pages).
+
+1. Install it from **Apps** (Community Applications) by searching for *Papigator*. Without Community
+   Applications, fetch the template in the Unraid terminal and pick *Papigator* under
+   *Docker → Add Container → Template*:
+   ```bash
+   wget -O /boot/config/plugins/dockerMan/templates-user/my-Papigator.xml \
+     https://raw.githubusercontent.com/donsebby/papigator-server/main/templates/papigator.xml
+   ```
+2. Fill in **Setup token** (any long random string, e.g. `openssl rand -hex 24` in the Unraid terminal).
+   **Secret key** is optional but recommended (`openssl rand -base64 32`, keep a copy); leave it empty and
+   Papigator creates one in the app data folder.
+3. Optionally map the share your scanner writes to as **Scanner inbox**, then *Apply*.
+4. Open the WebUI, click **Ersteinrichtung** (first-run setup), enter the setup token and create the
+   first admin.
+
+App data lives in `/mnt/user/appdata/papigator`, nightly backups in `/mnt/user/backups/papigator`, and the
+server runs as `nobody:users` (99:100). For AI recognition point *AI server URL* (advanced view) or
+*Settings → AI recognition* at an Ollama container, e.g. `http://<unraid-ip>:11434/v1`.
+
 ## Configuration
 
 Environment variables are read at start. Values marked *starting value* can later be changed in the

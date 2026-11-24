@@ -1,0 +1,11 @@
+<CommunityApplications>
+  <Profile>
+**Papigator** – a self-hosted document archive for families: scan or upload letters, invoices and contracts,
+get them OCR'd and searchable in seconds, with optional local AI (Ollama or any OpenAI-compatible server) for
+titles, senders, dates, deadlines and tags. Your documents stay on your own server.
+
+This repository ships the Papigator server (AGPL-3.0). Questions and bug reports: GitHub issues.
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/donsebby/papigator-server/main/app/static/icon.png</Icon>
+  <WebPage>https://papigator.app</WebPage>
+</CommunityApplications>

@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Papigator</Name>
+  <Repository>ghcr.io/donsebby/papigator:latest</Repository>
+  <Registry>https://github.com/donsebby/papigator-server/pkgs/container/papigator</Registry>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/donsebby/papigator-server/issues</Support>
+  <Project>https://github.com/donsebby/papigator-server</Project>
+  <ReadMe>https://github.com/donsebby/papigator-server#readme</ReadMe>
+  <Overview>Self-hosted document archive for families. Upload or scan letters, invoices and contracts: Papigator runs OCR, makes everything full-text searchable and can use a local AI (Ollama or any OpenAI-compatible server) for titles, senders, dates, deadlines and tags. Web app in the browser, optional iPhone/iPad app.&#xD;
+&#xD;
+First start: open the web UI, click "Ersteinrichtung" (first-run setup), enter the setup token you chose below and create the first admin. After that the token no longer works; more users are added in the settings.&#xD;
+&#xD;
+Scanner: let your scanner write into inbox/USERNAME/ inside the app data folder, or map a share of your choice to the optional scanner inbox path.</Overview>
+  <Category>Productivity: Tools:Utilities</Category>
+  <WebUI>http://[IP]:[PORT:8000]/app</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/donsebby/papigator-server/main/templates/papigator.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/donsebby/papigator-server/main/app/static/icon.png</Icon>
+  <ExtraParams>--security-opt no-new-privileges:true</ExtraParams>
+  <ExtraSearchTerms>documents paperless ocr archive scanner pdf invoices dms</ExtraSearchTerms>
+  <License>AGPL-3.0</License>
+  <MinVer>6.12.0</MinVer>
+  <Date>2026-11-24</Date>
+  <Changes>Initial release</Changes>
+  <Config Name="Web UI port" Target="8000" Default="8000" Mode="tcp" Description="Web app and API (also used by the iPhone/iPad app)." Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+  <Config Name="App data" Target="/data" Default="/mnt/user/appdata/papigator" Mode="rw" Description="Database, PDFs, thumbnails and the scanner inbox (inbox/USERNAME/)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/papigator</Config>
+  <Config Name="Backups" Target="/backup" Default="/mnt/user/backups/papigator" Mode="rw" Description="Nightly snapshots (03:00). Best on the array or a second disk, not on the same pool as the app data." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/backups/papigator</Config>
+  <Config Name="Setup token" Target="PAPIGATOR_TOKEN" Default="" Mode="" Description="Required. Any long random string (e.g. openssl rand -hex 24). You enter it once in the web UI to create the first admin; it stops working as soon as a user exists." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Secret key" Target="PAPIGATOR_SECRET_KEY" Default="" Mode="" Description="Recommended: openssl rand -base64 32, and keep a copy in your password manager – a restored backup needs the same key for stored mail passwords and share link addresses. Empty: Papigator creates one in the app data folder (.papigator.key). Do not change it later." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="Scanner inbox (optional)" Target="/data/inbox" Default="" Mode="rw" Description="Optional share your scanner writes to. Put each user's scans in a subfolder named like the Papigator username in lower case (e.g. /mnt/user/scans/alex/); scans directly in the share go to the first admin. Empty: inbox/ inside the app data folder." Type="Path" Display="always" Required="false" Mask="false"/>
+  <Config Name="AI server URL" Target="PAPIGATOR_LLM_URL" Default="" Mode="" Description="Optional, OpenAI-compatible API, e.g. Ollama: http://UNRAID-IP:11434/v1. Empty = no AI. Can also be set later in the web app (Settings → AI recognition)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="AI model" Target="PAPIGATOR_LLM_MODEL" Default="gemma4:e4b" Mode="" Description="Model name on the AI server." Type="Variable" Display="advanced" Required="false" Mask="false">gemma4:e4b</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID the server runs as (Unraid: 99 = nobody)." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID the server runs as (Unraid: 100 = users)." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+</Container>
