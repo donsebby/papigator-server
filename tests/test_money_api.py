@@ -545,7 +545,7 @@ def test_overview_lists_deadlines_with_amount_contracts_payslips_35a(admin):
     assert "Beleg in Dollar (Adobe), 14,27 USD" in text
     assert "Stadt („Kita“): 186,00 € monatlich (≈ 186,00 € im Monat)" in text
     assert "Kranich, 31.10.2026 „Gehaltsabrechnung Okt“: 2.930,52 €" in text and "2.900,10" not in text
-    assert "2025: Sanitär 324,87 € – zusammen 324,87 €" in text and "Uralt" not in text
+    assert "- 2025: 1 Beleg, zusammen 324,87 €\n  - Sanitär: 324,87 €" in text and "Uralt" not in text
 
 
 def test_overview_without_money_has_no_money_sections(admin):
@@ -588,3 +588,58 @@ def test_cleanup_respects_money_fields(admin):
     assert by[plain]["label"] == "Rechnungen & Quittungen"
     assert by[work]["label"] == "Steuer" and by[work]["years"] == 10
 
+
+
+def test_overview_answers_future_window_without_overdue(admin):
+    """„Was muss ich in den nächsten zwei Wochen zahlen?“ – fertig ausgezählt, Überfälliges getrennt."""
+    today = date(2026, 11, 24)
+    _doc(admin, "Schornsteinfeger", "T. Ruß", 86.45, "2026-11-05", due_date="2026-11-19", due_note="Zahlungsziel", due_done=0)
+    _doc(admin, "Rundfunkbeitrag", "Beitragsservice", 55.08, "2026-11-10", due_date="2026-11-28", due_note="Zahlungsziel", due_done=0)
+    _doc(admin, "Kfz-Beitrag", "Hanse Kraft", 701.2, "2025-11-18", due_date="2026-12-10", due_note="Kündigungsfrist", due_done=0)
+    window = ask.future_window("Welche Rechnungen muss ich in den nächsten zwei Wochen bezahlen?", today)
+    assert window == (date(2026, 11, 24), date(2026, 12, 8))
+    text = ask.facts([admin.id], today, window=window)
+    block = text.split("Im gefragten Zeitraum 24.11.2026 bis 08.12.2026 fällig:")[1].split("\nÜberfällig")[0]
+    assert "Rundfunkbeitrag" in block and "Schornsteinfeger" not in block and "Kfz-Beitrag" not in block
+    assert "Überfällig – Frist schon vorbei" in text and "19.11.2026 (verpasst)" in text
+    empty = ask.facts([admin.id], today, window=(date(2027, 1, 1), date(2027, 1, 31)))
+    assert "Im gefragten Zeitraum 01.01.2027 bis 31.01.2027 fällig: nichts" in empty
+    assert "Offene Fristen bis" not in ask.facts([admin.id], today)        # gibt ja welche
+
+
+def test_future_window_only_for_upcoming_questions():
+    today = date(2026, 11, 24)
+    fw = ask.future_window
+    assert fw("Was ist nächste Woche fällig?", today) == (date(2026, 11, 30), date(2026, 12, 6))
+    assert fw("Was muss ich bis Ende des Monats zahlen?", today) == (today, date(2026, 11, 30))
+    assert fw("Was ist im Dezember fällig?", today) == (date(2026, 12, 1), date(2026, 12, 31))
+    assert fw("Was haben wir im März bezahlt?", today) is None          # Vergangenes
+    assert fw("Wie viel habe ich in den letzten zwei Wochen ausgegeben?", today) is None
+    assert fw("Welche Rechnungen sind überfällig?", today) is None
+
+
+def test_sender_must_be_named_as_whole_word(admin):
+    _doc(admin, "Rundfunk", "ARD ZDF Deutschlandradio Beitragsservice", 55.08, "2025-03-01", direction="out")
+    _doc(admin, "Kfz", "Hanse Kraft Versicherung AG", 701.2, "2025-11-18", direction="out")
+    named = ask._named_senders([admin.id], ["Beitrag", "Versicherung"])
+    assert named == {"Versicherung": ["Hanse Kraft Versicherung AG"]}
+
+
+def test_sums_per_tag_for_categories(admin, monkeypatch):
+    """„Versicherungen 2025“: alle Belege mit dem Schlagwort, nur das gefragte Jahr, ohne Jahresabrechnungen."""
+    ids = [_doc(admin, t, s, a, d, direction="out") for t, s, a, d in (
+        ("Kfz 2026", "Hanse Kraft Versicherung AG", 701.2, "2025-11-18"),
+        ("Haftpflicht 2025", "Lindwurm Versicherung AG", 68.9, "2025-02-02"),
+        ("Hausrat 2025", "Eule Assekuranz", 120.0, "2025-04-01"),
+        ("Hausrat Scan", "Eule Assekuranz", 120.0, "2025-04-01"),          # zweiter Scan zählt nicht doppelt
+        ("Kfz 2025", "Hanse Kraft Versicherung AG", 655.8, "2024-11-18"))]
+    for i in ids:
+        admin.patch(f"/documents/{i}", json={"tags": ["Versicherung"]})
+    strom = _doc(admin, "Stromabrechnung 2025", "Stadtwerke", 116.58, "2025-02-12", direction="out", doc_kind="abrechnung")
+    admin.patch(f"/documents/{strom}", json={"tags": ["Strom"]})
+    p = _ask_prompt(monkeypatch, admin, "Was haben wir 2025 insgesamt für Versicherungen ausgegeben?")
+    assert "Summen je Schlagwort aus der Datenbank" in p
+    assert "„Versicherung“ 2025: Eule Assekuranz 120,00 €; Hanse Kraft Versicherung AG 701,20 €; Lindwurm Versicherung AG 68,90 € – zusammen Ausgaben 890,10 €" in p
+    assert "„Versicherung“ 2024" not in p
+    assert "Summen je Schlagwort aus der Datenbank" not in _ask_prompt(monkeypatch, admin, "Zeig mir die Versicherungen")   # keine Summenfrage
+    assert "Summen je Schlagwort aus der Datenbank" not in _ask_prompt(monkeypatch, admin, "Wie viel habe ich 2025 für Strom bezahlt?")

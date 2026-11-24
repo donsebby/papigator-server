@@ -34,12 +34,16 @@ Regeln:
   im Vertrag ist der Stand bei Abschluss; spätere Gehaltsabrechnungen und Rechnungen zeigen den aktuellen. Nenne den aktuellen
   Wert mit Datum und erwähne den älteren höchstens als früheren Stand – nie beide gleichrangig.
 - Vergleiche nur Gleichartiges: Brutto mit Brutto, Netto/Auszahlung mit Netto/Auszahlung.
+- Fragt jemand „welche …“, nenne ALLE passenden Zeilen der Übersicht (z. B. jeden Beleg unter dem gefragten Jahr), nicht nur eine.
+- Steht in der Übersicht „Im gefragten Zeitraum … fällig“, ist genau das die Antwort auf die Frage nach diesem Zeitraum.
+  Überfälliges gehört nicht dazu – nenne es höchstens getrennt als „schon überfällig“.
 - Bei Fragen nach mehreren Dokumenten: jedes in eine eigene Zeile, die mit „- “ beginnt (Datum, Titel, Quelle).
   Rechne keine Summen aus, wenn nicht ausdrücklich danach gefragt ist.
 - Fragt jemand ausdrücklich nach einer Summe („insgesamt“, „zusammen“, „Summe“): jeder Wert in eine eigene Zeile, die mit
   „- “ beginnt (Monat oder Datum, Betrag, Quelle), danach eine Zeile „Summe: <Betrag>“. Stehen in der Übersicht
-  „Summen je Absender“, sind das die vollständigen Summen aus allen Belegen: nimm sie als Ergebnis (Quelle [Übersicht])
-  und rechne nicht selbst aus den wenigen Dokumenten unten nach.
+  „Summen je Schlagwort“ oder „Summen je Absender“, sind das die vollständigen Summen aus allen Belegen: nimm sie als
+  Ergebnis (Quelle [Übersicht]) und rechne nicht selbst aus den wenigen Dokumenten unten nach. Passt ein Schlagwort
+  zur Frage (z. B. „Versicherung“ bei Versicherungen), gilt dessen Summe; Absender, die nicht dazu passen, zählen nicht.
 
 Frage: {question}
 {facts}
@@ -193,6 +197,55 @@ def time_range(question: str, today: dt.date | None = None) -> tuple[dt.date, dt
     return None
 
 
+_NEXT = r"(?:nächste[nmrs]?|naechste[nmrs]?|kommende[nmrs]?|folgende[nmrs]?|next|coming|upcoming)"
+# Fragen nach etwas, das noch ansteht (Fristen, Zahlungen, Kündigungen, Abläufe)
+# („bezahlt“/„gezahlt“ fragen nach Vergangenem und zählen nicht)
+_DUE_Q = re.compile(r"fällig|faellig|frist|\bzahlen\b|bezahlen|überweisen|kündig|abl[aä]uf|läuft|\bdue\b|\bpay\b|cancel|expir", re.I)
+
+
+def future_window(question: str, today: dt.date | None = None) -> tuple[dt.date, dt.date] | None:
+    """Zeitraum in der Zukunft für Fristen-Fragen („in den nächsten zwei Wochen“, „nächste Woche“, „diese Woche“,
+    „bis Ende des Monats“, „im Dezember“). Die Übersicht weist dann aus, was genau darin fällig ist – sonst zählt ein
+    kleines Modell Verpasstes oder Späteres mit. Ohne erkennbares Fenster oder ohne Fristen-Bezug None."""
+    today = today or dt.date.today()
+    q = question.lower()
+    m = re.search(r"(?:in\s+den\s+|in\s+)?" + _NEXT + r"\s+" + _NUM + r"\s+" + _UNIT, q) or \
+        (_DUE_Q.search(q) and re.search(r"\bin\s+" + _NUM + r"\s+" + _UNIT, q))
+    if m:
+        n = int(m.group(1)) if m.group(1).isdigit() else _NUMBERS[m.group(1)]
+        unit = _UNITS.get(m.group(2), m.group(2))
+        if unit == "tag":
+            return today, today + dt.timedelta(days=n)
+        if unit == "woche":
+            return today, today + dt.timedelta(weeks=n)
+        return today, _minus_months(today, -n * (12 if unit == "jahr" else 1))
+    if not _DUE_Q.search(q):
+        return None
+    if re.search(_NEXT + r"\s+(?:woche|week\b)", q):
+        start = today + dt.timedelta(days=7 - today.weekday())
+        return start, start + dt.timedelta(days=6)
+    if re.search(r"(?:diese[rn]?|this)\s+(?:woche|week\b)", q):
+        return today, today + dt.timedelta(days=6 - today.weekday())
+    if re.search(_NEXT + r"\s+(?:monat|month\b)", q):
+        first = (today.replace(day=1) + dt.timedelta(days=32)).replace(day=1)
+        return first, first.replace(day=calendar.monthrange(first.year, first.month)[1])
+    if re.search(r"(?:ende\s+(?:des|dieses)\s+monats|monatsende|(?:diese[nm]?|this)\s+monat|end\s+of\s+(?:the|this)\s+month|this\s+month)", q):
+        return today, today.replace(day=calendar.monthrange(today.year, today.month)[1])
+    if re.search(r"(?:ende\s+(?:des|dieses)\s+jahres|jahresende|end\s+of\s+(?:the|this)\s+year)", q):
+        return today, dt.date(today.year, 12, 31)
+    months = {**_MONTHS, **_MONTHS_EN}
+    m = re.search(r"\b(?:im|in|bis|until|by)\s+(" + "|".join(months) + r")\b(?:\s+(\d{4}))?", q)
+    if m:
+        mon = months[m.group(1)]
+        y = int(m.group(2)) if m.group(2) else (today.year if mon >= today.month else today.year + 1)
+        first = dt.date(y, mon, 1)
+        last = first.replace(day=calendar.monthrange(y, mon)[1])
+        if last < today:
+            return None
+        return (today if q.lstrip().startswith("bis") or " bis " in q else max(first, today)), last
+    return None
+
+
 def keywords_for(question: str) -> list[str]:
     words = []
     try:
@@ -298,9 +351,12 @@ def _named_senders(owner_ids: list[int], words: list[str]) -> dict[str, list[str
             like = "%" + w.replace("\\", "").replace("%", "").replace("_", "") + "%"
             rows = con.execute(
                 f"SELECT DISTINCT sender FROM documents WHERE deleted_at IS NULL AND ext_pending=0 AND sender LIKE ? "
-                f"AND owner_id IN ({marks}) LIMIT 4", (like, *owner_ids)).fetchall()
-            if 0 < len(rows) <= 3:
-                out[w] = [r["sender"] for r in rows]
+                f"AND owner_id IN ({marks}) LIMIT 40", (like, *owner_ids)).fetchall()
+            # nur als ganzes Wort: „Beitrag“ meint nicht den „Beitragsservice“, „Telekom“ nicht „Telekommunikation“
+            whole = re.compile(rf"(?<!\w){re.escape(w)}(?!\w)", re.I)
+            hits = [r["sender"] for r in rows if whole.search(r["sender"])]
+            if 0 < len(hits) <= 3:
+                out[w] = hits
     return out
 
 
@@ -351,6 +407,72 @@ def _sender_facts(owner_ids: list[int], named: dict[str, list[str]], span) -> st
     return head + "\n" + "\n".join(lines) + "\n"
 
 
+def _tag_facts(owner_ids: list[int], question: str, span) -> str:
+    """Summen je Schlagwort: „Was haben wir 2025 für Versicherungen ausgegeben?“ – das Schlagwort „Versicherung“ fasst
+    alle Versicherer zusammen, auch wenn es mehr als drei sind (dann trägt _named_senders nichts bei). Nur Dokumente,
+    die der Fragende sieht; Doppelscans zählen einmal; je Jahr die Absender mit ihren Beträgen. Nur Wörter aus der
+    Frage selbst (nicht die Suchbegriffe des Modells – „Vertrag“ als Synonym brächte fremde Summen); nennt die Frage
+    genau ein Jahr, nur dieses."""
+    from .extras import _SQL_IN, _SQL_OUT
+    years_asked = set(re.findall(r"\b(19\d\d|20\d\d)\b", question))
+    only_year = next(iter(years_asked)) if len(years_asked) == 1 and not span else None
+    forms = set()
+    for w in re.findall(r"[A-Za-zÄÖÜäöüß-]{4,}", question):
+        w = w.strip().lower()
+        if len(w) < 4 or " " in w or w in _NOT_KEYWORDS:
+            continue
+        forms.add(w)
+        for suf in ("en", "n", "e", "s"):
+            if w.endswith(suf) and len(w) - len(suf) >= 4:
+                forms.add(w[:-len(suf)])
+    if not forms or not owner_ids:
+        return ""
+    marks = ",".join("?" * len(owner_ids))
+    lines = []
+    with connect() as con:
+        tags = con.execute(f"SELECT id, name FROM tags WHERE lower(name) IN ({','.join('?' * len(forms))}) ORDER BY name",
+                           sorted(forms)).fetchall()
+        for t in tags[:3]:
+            where, args = "", []
+            if span:
+                where, args = " AND d.document_date BETWEEN ? AND ?", [span[0].isoformat(), span[1].isoformat()]
+            rows = con.execute(
+                f"SELECT substr(document_date,1,4) AS y, sender, SUM(CASE WHEN {_SQL_OUT} THEN amount END) AS spent, "
+                f"SUM(CASE WHEN {_SQL_IN} THEN amount END) AS received FROM ("
+                f"  SELECT d.* FROM documents d JOIN document_tags dt ON dt.document_id = d.id WHERE dt.tag_id = ? "
+                f"  AND d.deleted_at IS NULL AND d.ext_pending=0 AND d.document_date IS NOT NULL AND d.amount IS NOT NULL "
+                # Jahresabrechnungen nicht: ihr Betrag ist Nachzahlung oder Guthaben, nicht, was es gekostet hat
+                f"  AND coalesce(d.doc_kind, '') != 'abrechnung' "
+                f"  AND d.owner_id IN ({marks}){where} GROUP BY d.document_date, d.amount, d.direction, d.doc_kind) "
+                f"GROUP BY y, sender ORDER BY y, sender", (t["id"], *owner_ids, *args)).fetchall()
+            years: dict[str, list] = {}
+            for r in rows:
+                if r["spent"] or r["received"]:
+                    years.setdefault(r["y"], []).append(r)
+            for y, items in years.items():
+                if only_year and y != only_year:
+                    continue
+                parts, spent, received = [], 0.0, 0.0
+                for r in items[:10]:
+                    money = []
+                    if r["spent"]:
+                        money.append(_eur_text(r["spent"])); spent += r["spent"]
+                    if r["received"]:
+                        money.append(f"Einnahme {_eur_text(r['received'])}"); received += r["received"]
+                    parts.append(f"{r['sender'] or 'ohne Absender'} {', '.join(money)}")
+                total = []
+                if spent:
+                    total.append(f"Ausgaben {_eur_text(spent)}")
+                if received:
+                    total.append(f"Einnahmen {_eur_text(received)}")
+                lines.append(f"- „{t['name']}“ {y}: " + "; ".join(parts) + f" – zusammen {', '.join(total)}")
+    if not lines:
+        return ""
+    head = "Summen je Schlagwort aus der Datenbank (alle Belege mit diesem Schlagwort außer Jahresabrechnungen, nur Euro" + \
+           (", im gefragten Zeitraum" if span else "") + "; für „insgesamt“/Summen diese Zahlen nehmen, Quelle [Übersicht]):"
+    return head + "\n" + "\n".join(lines) + "\n"
+
+
 SERIES_SPREAD = 5  # Verlauf ohne Zeitraum: so viele Belege einer Reihe, gleichmäßig vom ältesten bis zum jüngsten
 
 
@@ -372,7 +494,8 @@ def _spread_series(docs: list[dict], limit: int) -> list[dict]:
     return (series + [d for d in docs if d["id"] in rest])[:limit]
 
 
-def facts(owner_ids: list[int], today: dt.date, warranty: bool = False) -> str:
+def facts(owner_ids: list[int], today: dt.date, warranty: bool = False,
+          window: tuple[dt.date, dt.date] | None = None) -> str:
     """Übersicht aus der Datenbank: offene Fristen (bald fällig und kürzlich verpasst) und laufende Verträge mit
     Betrag, Rhythmus und nächster Kündigungsfrist. Die Volltextsuche findet so etwas schlecht („was muss ich bald
     zahlen?“ enthält keinen Absender), das LLM soll es aber nicht erraten."""
@@ -385,7 +508,8 @@ def facts(owner_ids: list[int], today: dt.date, warranty: bool = False) -> str:
         rows = con.execute(
             f"SELECT title, sender, amount, currency, due_date, due_note FROM documents WHERE deleted_at IS NULL AND ext_pending=0 "
             f"AND due_date IS NOT NULL AND due_done=0 AND due_date BETWEEN ? AND ? AND owner_id IN ({marks}) ORDER BY due_date LIMIT 25",
-            ((today - dt.timedelta(days=30)).isoformat(), (today + dt.timedelta(days=FACT_DAYS_AHEAD)).isoformat(), *owner_ids)).fetchall()
+            ((today - dt.timedelta(days=30)).isoformat(),
+             max(today + dt.timedelta(days=FACT_DAYS_AHEAD), window[1] if window else today).isoformat(), *owner_ids)).fetchall()
         contracts = extras.contracts(con, owner_ids, today)
         # Worum es beim Vertrag geht, sagt der Absender oft nicht („Lindwurm AG“ → Kfz-Versicherung): Titel des letzten Belegs
         titles = {r["id"]: r["title"] for r in con.execute(
@@ -411,14 +535,26 @@ def facts(owner_ids: list[int], today: dt.date, warranty: bool = False) -> str:
             f"AND ext_pending=0 AND tax_35a > 0 AND document_date >= ? AND owner_id IN ({marks}) "
             f"GROUP BY document_date, tax_35a ORDER BY document_date",
             (f"{today.year - 3}-01-01", *owner_ids)).fetchall()
-    if rows:
-        lines.append(f"Offene Fristen (verpasst seit {_de(today - dt.timedelta(days=30))} oder fällig bis {_de(today + dt.timedelta(days=FACT_DAYS_AHEAD))}):")
-        for r in rows:
-            amt = f", {_eur_text(r['amount'], r['currency'])}" if r["amount"] else ""
-            when = _de(dt.date.fromisoformat(r["due_date"]))
-            past = " (verpasst)" if r["due_date"] < today.isoformat() else ""
-            lines.append(f"- {when}{past}: {r['due_note'] or 'Frist'} – {r['title']}" + (f" ({r['sender']})" if r["sender"] else "") + amt)
-    else:
+    def due_line(r):
+        amt = f", {_eur_text(r['amount'], r['currency'])}" if r["amount"] else ""
+        when = _de(dt.date.fromisoformat(r["due_date"]))
+        past = " (verpasst)" if r["due_date"] < today.isoformat() else ""
+        return f"- {when}{past}: {r['due_note'] or 'Frist'} – {r['title']}" + (f" ({r['sender']})" if r["sender"] else "") + amt
+    if window:
+        # Die Antwort auf „Was ist in den nächsten zwei Wochen fällig?“ – fertig ausgezählt, Verpasstes gehört nicht dazu
+        inside = [r for r in rows if window[0].isoformat() <= r["due_date"] <= window[1].isoformat()]
+        lines.append(f"Im gefragten Zeitraum {_de(window[0])} bis {_de(window[1])} fällig"
+                     + (":" if inside else ": nichts (keine offene Frist in diesem Zeitraum)."))
+        lines += [due_line(r) for r in inside]
+    late = [r for r in rows if r["due_date"] < today.isoformat()]
+    ahead = [r for r in rows if r["due_date"] >= today.isoformat() and r["due_date"] <= (today + dt.timedelta(days=FACT_DAYS_AHEAD)).isoformat()]
+    if late:
+        lines.append(f"Überfällig – Frist schon vorbei (seit {_de(today - dt.timedelta(days=30))}), noch nicht als erledigt markiert:")
+        lines += [due_line(r) for r in late]
+    if ahead:
+        lines.append(f"Offene Fristen ab heute bis {_de(today + dt.timedelta(days=FACT_DAYS_AHEAD))}:")
+        lines += [due_line(r) for r in ahead]
+    if not late and not ahead:
         lines.append(f"Offene Fristen bis {_de(today + dt.timedelta(days=FACT_DAYS_AHEAD))}: keine.")
     if contracts:
         lines.append("Laufende Verträge und regelmäßige Zahlungen:")
@@ -457,11 +593,12 @@ def facts(owner_ids: list[int], today: dt.date, warranty: bool = False) -> str:
                 lines.append(f"- {i['what']}: seit {when} {_eur_text(i['amount'])} statt {_eur_text(i['from'])} (+{i['percent']} %)"
                              + (f", kündbar bis {_de(dt.date.fromisoformat(i['cancel_by']))}" if i.get("cancel_by") else ""))
     if tax:
-        lines.append("Arbeitskosten nach § 35a EStG (Handwerker, haushaltsnahe Dienstleistungen), nach Jahr des Belegs:")
+        lines.append("Arbeitskosten nach § 35a EStG (Handwerker, haushaltsnahe Dienstleistungen), nach Jahr des Belegs – "
+                     "zu einem Jahr gehören alle darunter eingerückten Belege:")
         for y in sorted({r["y"] for r in tax}):
             items = [r for r in tax if r["y"] == y]
-            lines.append(f"- {y}: " + "; ".join(f"{r['title']} {_eur_text(r['tax_35a'])}" for r in items) +
-                         f" – zusammen {_eur_text(sum(r['tax_35a'] for r in items))}")
+            lines.append(f"- {y}: {len(items)} Beleg{'e' if len(items) != 1 else ''}, zusammen {_eur_text(sum(r['tax_35a'] for r in items))}")
+            lines += [f"  - {r['title']}: {_eur_text(r['tax_35a'])}" for r in items]
     return "\nÜbersicht aus der Ablage:\n" + "\n".join(lines) + "\n"
 
 
@@ -521,7 +658,9 @@ def ask(question: str, owner_ids: list[int], limit: int = 8, today: dt.date | No
             else:
                 docs = docs[:limit]
     try:
-        overview = facts(owner_ids, today, warranty=bool(_WARRANTY_Q.search(question))) + (_sender_facts(owner_ids, named, span) if _SUM_Q.search(question) else "")
+        overview = facts(owner_ids, today, warranty=bool(_WARRANTY_Q.search(question)), window=future_window(question, today))
+        if _SUM_Q.search(question):
+            overview += _sender_facts(owner_ids, named, span) + _tag_facts(owner_ids, question, span)
         if extra_facts:
             overview += extra_facts(span)
     except Exception:

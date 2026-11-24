@@ -159,7 +159,8 @@ def test_ask_overview_lists_deadlines_and_contracts(admin):
     _doc(admin, "Sanitär", "Becker", 547.88, "2025-09-15", tax_35a=324.87)
     _doc(admin, "Nebenkosten 2024", "Verwaltung", 3080.5, "2025-06-03", tax_35a=760.0)
     _doc(admin, "Sanitär Scan", "Becker", 547.88, "2025-09-15", tax_35a=324.87)   # zweiter Scan zählt nicht doppelt
-    assert "2025: Nebenkosten 2024 760,00 €; Sanitär 324,87 € – zusammen 1.084,87 €" in ask.facts([admin.id], today)
+    text = ask.facts([admin.id], today)
+    assert "- 2025: 2 Belege, zusammen 1.084,87 €\n  - Nebenkosten 2024: 760,00 €\n  - Sanitär: 324,87 €" in text
 
 
 def test_direction_can_be_corrected(admin):
