@@ -434,6 +434,21 @@ def test_contract_amount_follows_later_bills_and_shows_contract_amount(admin):
     assert c["amount"] == 44.95 and c["contract_amount"] == 39.95 and c["amount_from"] == "2026-10-04"
 
 
+def test_contract_amount_is_the_current_price(admin):
+    # Jahresbeitrag steigt jedes Jahr: der jüngste gilt, nicht der Median (war 655,80 statt 701,20)
+    for y, a in ((2023, 612.40), (2024, 655.80), (2025, 701.20)):
+        _doc(admin, f"Beitragsrechnung Kfz {y + 1}", "Hanse Kraft", a, f"{y}-11-18", direction="out")
+    # monatlich teurer geworden und gehalten → neuer Preis; ein einzelner Aufschlag → bisheriger Preis
+    for m, a in ((1, 40.0), (2, 40.0), (3, 40.0), (4, 40.0), (5, 44.0), (6, 44.0)):
+        _doc(admin, f"Rechnung {m}", "Netzwerk", a, f"2026-{m:02d}-04", direction="out")
+    for m, a in ((1, 20.0), (2, 20.0), (3, 20.0), (4, 31.5)):
+        _doc(admin, f"Rechnung {m}", "Funkfix", a, f"2026-{m:02d}-06", direction="out")
+    by = {c["sender"]: c for c in _contracts(admin, today=date(2026, 7, 1))}
+    assert by["Hanse Kraft"]["amount"] == 701.20 and by["Hanse Kraft"]["interval"] == "jährlich"
+    assert by["Netzwerk"]["amount"] == 44.0
+    assert by["Funkfix"]["amount"] == 20.0
+
+
 def test_cancellation_deadline_rolls_forward_for_yearly_bills(admin):
     for y in (2023, 2024, 2025):
         _doc(admin, f"Beitrag {y}", "Lindwurm", 650.0, f"{y}-11-18", direction="out",

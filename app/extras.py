@@ -336,6 +336,19 @@ def _increase(pays, interval: str = "monatlich") -> dict | None:
             "percent": round((new / old - 1) * 100)}
 
 
+def _current_amount(latest, interval: str) -> float:
+    """Was heute gezahlt wird (latest = Belege, jüngster zuerst). Jahres-/Halbjahresbeiträge: jede Rechnung nennt den
+    Preis, also die jüngste (ein Median über 612 → 656 → 701 € hielt den Vorjahresbeitrag fest). Monatlich und
+    vierteljährlich: der jüngste Betrag, wenn er sich gehalten hat (zweimal derselbe – Preiserhöhung oder -senkung),
+    sonst der Median der jüngsten Belege, damit ein einzelner Aufschlag (Roaming) den Preis nicht verschiebt."""
+    newest = latest[0]["amount"]
+    if interval in ("jährlich", "halbjährlich"):
+        return newest
+    if len(latest) >= 2 and abs(latest[1]["amount"] - newest) <= 0.01 * newest:
+        return newest
+    return statistics.median(r["amount"] for r in latest[:6])
+
+
 def contracts(con, owners: list[int], today: date | None = None) -> list[dict]:
     """Verträge, Abos, Darlehen, Gebühren: wiederkehrende Ausgaben an denselben Absender.
 
@@ -377,7 +390,7 @@ def contracts(con, owners: list[int], today: date | None = None) -> list[dict]:
             interval = next((name for name, _, lo, hi in INTERVALS if gap and lo <= gap <= hi), None)
             if interval:
                 latest = sorted(cluster, key=lambda r: r["d"], reverse=True)
-                amount = statistics.median(r["amount"] for r in latest[:6])   # jüngste Belege: Preiserhöhungen zählen
+                amount = _current_amount(latest, interval)
                 nxt = dates[-1] + timedelta(days=TYPICAL[interval])
                 due = next(({"date": r["due_date"], "document_id": r["id"]} for r in latest if r["due_date"] and not r["due_done"]), None)
                 item = {"sender": latest[0]["sender"], "amount": round(amount, 2), "interval": interval, "source": "pattern",
