@@ -1,8 +1,10 @@
 /* Papigator Web-Frontend – vanilla JS, kein Build-Schritt */
 const $ = (s) => document.querySelector(s);
-const PAGE = 200;
+// Kacheln seitenweise (25/50/100, im Browser gemerkt) statt endlos – Seite 1, sobald sich Filter oder Sortierung ändern
+const PAGE_SIZES = [25, 50, 100];
+const PAGE = (() => { try { const n = Number(localStorage.getItem("bl.pageSize")); return PAGE_SIZES.includes(n) ? n : 50; } catch { return 50; } })();
 const state = { me: null, docs: [], tags: [], users: [], q: "", tag: null, year: null, review: false, reviewCount: 0, due: false, dueCount: null, warranty: false, warrantyCount: null, sender: null, senders: [], trash: false, trashCount: 0, trashDays: 30, scope: "mine",
-                selected: new Set(), current: null, poll: null, limit: PAGE, progressStart: null,
+                selected: new Set(), current: null, poll: null, limit: PAGE, page: 0, total: null, filterKey: "", progressStart: null,
                 sort: localStorage.getItem("bl.sort") || "date", dir: localStorage.getItem("bl.dir") || "desc",
                 size: localStorage.getItem("bl.size") || "m", mode: startMode(), views: [],
                 smart: null };   // Suche in Sätzen: { chips, dropped } vom Server (siehe smartSearch)
@@ -23,9 +25,123 @@ async function api(path, opts = {}) {
   }
   return r.status === 204 ? null : r.json();
 }
+// Neue Server-Version (nur Admins): Hinweis oben, „Ausblenden“ merkt sich genau diese Version
+async function checkUpdates() {
+  const u = await api("/updates").catch(() => null);
+  let gone = null;
+  try { gone = localStorage.getItem("bl.update.hidden"); } catch {}
+  const show = !!(u && u.newer && u.latest !== gone);
+  $("#update-banner").classList.toggle("hidden", !show);
+  if (!show) return;
+  $("#update-text").textContent = `Papigator ${u.latest} ist da – hier läuft noch ${u.current}.`;
+  $("#update-link").href = u.url || "https://github.com/donsebby/papigator-server/releases";
+  $("#update-dismiss").onclick = () => {
+    try { localStorage.setItem("bl.update.hidden", u.latest); } catch {}
+    $("#update-banner").classList.add("hidden");
+  };
+}
+
+// ---------- Willkommen / „Was ist neu“ (app/whatsnew.py) ----------
+// Beim ersten Start eine kurze Tour, nach einem Update die Neuerungen – einmal pro Konto (der Server merkt es sich).
+const WN_SVG = {
+  search: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>`,
+  check: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>`,
+  sync: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5M20 20v-4h-4"/></svg>`,
+  shield: `<svg width="110" height="110" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>`,
+};
+const WN_ILL = {
+  scan: () => `<div class="wn-sheet wn-feed"></div><div class="wn-gator"><img class="g0" src="gator-wartet.webp" alt=""><img class="g1" src="gator-maul-auf.webp" alt=""><img class="g2" src="gator-kaut.webp" alt=""></div>`,
+  search: () => `<div class="wn-bar wn-card">${WN_SVG.search}<span class="wn-typed">Kfz-Versicherung</span></div>
+    <div class="wn-hit wn-card" style="top:86px"><b></b>Beitragsrechnung 2026</div>
+    <div class="wn-hit wn-card" style="top:134px;animation-delay:.15s"><b></b>Versicherungsschein</div>`,
+  due: () => `<div class="wn-cal wn-card"><b>Dezember</b><span>10</span></div><div class="wn-badge">${WN_SVG.check}</div>`,
+  money: () => `<div class="wn-bars"><i style="height:52px"></i><i style="height:92px;animation-delay:.15s"></i><i style="height:70px;animation-delay:.3s"></i><i style="height:122px;animation-delay:.45s"></i></div>`,
+  family: () => `<div class="wn-avs">${[["A", "#4f8f6a"], ["S", "#d9774b"], ["M", "#8b5cf6"]].map(([l, c], i) => `<div class="wn-av" style="background:${c};animation-delay:${i * .2}s">${l}</div>`).join("")}</div>`,
+  notes: () => `<div class="wn-note">Rückruf am Montag, Herr Weber</div>`,
+  calendar: () => `<div class="wn-cal wn-card"><b>Kalender</b><span>14</span></div><div class="wn-sync">${WN_SVG.sync}</div><div class="wn-badge">${WN_SVG.check}</div>`,
+  cancel: () => `<div class="wn-letter wn-card"><strong>Kündigung</strong><br>Vertragsnr. 4711<br>zum nächstmöglichen Termin<div class="wn-stamp">Fertig</div></div>`,
+  warranty: () => `<div class="wn-shield">${WN_SVG.shield}</div>`,
+  avatars: () => `<div class="wn-avs">${[["A", "#4f8f6a"], ["S", "#d9774b"], ["M", "#8b5cf6"]].map(([l, c], i) => `<div class="wn-av" style="background:${c}">${l}${i === 1 ? `<img src="mascot.png" alt="">` : ""}</div>`).join("")}</div>`,
+};
+let wn = null, wnChecked = false;
+async function checkWhatsNew(show = null) {
+  if (!show && wnChecked) return;
+  wnChecked = true;
+  const w = await api(`/whatsnew?client=web${show ? `&show=${show}` : ""}`).catch(() => null);
+  if (!w || !w.mode || !w.cards.length || $("#whatsnew-dialog").open) return;
+  wn = { ...w, i: 0, auto: !show };
+  wnDraw();
+  showDialog($("#whatsnew-dialog"));
+}
+function wnDraw() {
+  const c = wn.cards[wn.i], last = wn.i === wn.cards.length - 1;
+  const ill = $("#wn-ill");
+  ill.innerHTML = `<div class="wn-in" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">${(WN_ILL[c.anim] || (() => `<img class="wn-bob" src="mascot.png" alt="">`))()}</div>`;
+  $("#wn-tag").textContent = wn.mode === "news" ? `Neu · ${wn.label || ""}` : "";
+  $("#wn-tag").classList.toggle("hidden", wn.mode !== "news");
+  $("#wn-title").textContent = c.title;
+  $("#wn-text").textContent = c.text;
+  $(".whatsnew-dialog .wn-body").classList.remove("wn-in"); void $(".whatsnew-dialog .wn-body").offsetWidth;
+  $(".whatsnew-dialog .wn-body").classList.add("wn-in");
+  $("#wn-dots").innerHTML = wn.cards.map((_, j) => `<i class="${j === wn.i ? "on" : ""}"></i>`).join("");
+  $("#wn-back").classList.toggle("hidden", wn.i === 0);
+  $("#wn-skip").classList.toggle("hidden", last);
+  $("#wn-next").textContent = last ? (wn.mode === "tour" ? "Los geht’s" : "Alles klar") : "Weiter";
+}
+function wnStep(d) {
+  if (!wn) return;
+  const i = wn.i + d;
+  if (i >= wn.cards.length) { $("#whatsnew-dialog").close(); return; }
+  if (i < 0) return;
+  wn.i = i; wnDraw();
+}
+$("#wn-next").onclick = () => wnStep(1);
+$("#wn-back").onclick = () => wnStep(-1);
+$("#wn-skip").onclick = () => $("#whatsnew-dialog").close();
+$("#whatsnew-dialog").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight") { e.preventDefault(); wnStep(1); } else if (e.key === "ArrowLeft") { e.preventDefault(); wnStep(-1); }
+});
+$("#whatsnew-dialog").addEventListener("close", () => {
+  if (wn?.auto) api("/whatsnew/seen", { method: "POST" }).catch(() => {});   // auch Überspringen/Esc: nicht wieder zeigen
+  wn = null; $("#wn-ill").innerHTML = "";
+});
+$("#s-whatsnew").onclick = (e) => { e.preventDefault(); checkWhatsNew("news"); };
+$("#s-tour").onclick = (e) => { e.preventDefault(); checkWhatsNew("tour"); };
+
+// Einstellungen → Über Papigator: laufende Version und ob sie aktuell ist (nur Admins sehen den Abgleich)
+function renderUpdateStatus(u) {
+  const box = $("#s-update-status"), btn = $("#s-update-now");
+  btn.classList.toggle("hidden", !u || !u.enabled);
+  $("#s-update-check-row").classList.toggle("hidden", !u);
+  if (!u) { box.textContent = ""; return; }
+  $("#s-update-check").checked = u.enabled;
+  const when = u.checked ? new Date(u.checked).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : null;
+  let state;
+  if (!u.enabled) state = "Hinweis auf neue Versionen ist aus";
+  else if (u.newer) state = `Neu: Papigator ${esc(u.latest)} – <a href="${esc(u.url || "https://github.com/donsebby/papigator-server/releases")}" target="_blank" rel="noopener">Was ist neu?</a>`;
+  else if (!when) state = "Ob es eine neuere Version gibt, ließ sich noch nicht prüfen (GitHub nicht erreichbar)";
+  else state = `Aktuellste Version${u.latest ? "" : " (noch keine neuere veröffentlicht)"} · zuletzt geprüft ${esc(when)}`;
+  box.innerHTML = `<b>Server ${esc(u.current)}</b> · ${state}`;
+  $("#s-version").textContent = `Server ${u.current}` + (u.enabled ? (u.newer ? ` · ${u.latest} verfügbar` : when ? " · aktuell" : "") : "");
+}
+$("#s-update-check").onchange = async (e) => {
+  try {
+    await api("/settings", json("PATCH", { update_check: e.target.checked }));
+    renderUpdateStatus(await api("/updates").catch(() => null));
+    if (e.target.checked) checkUpdates(); else $("#update-banner").classList.add("hidden");
+  } catch (err) { e.target.checked = !e.target.checked; toast("Fehler: " + err.message); }
+};
+$("#s-update-now").onclick = async () => {
+  $("#s-update-now").disabled = true;
+  const u = await api("/updates?force=true").catch(() => null);
+  $("#s-update-now").disabled = false;
+  renderUpdateStatus(u);
+  if (state.me?.is_admin) checkUpdates();
+};
+
 // Startansicht: fest Heute/Kacheln/Ordner oder die zuletzt benutzte (Einstellungen → Darstellung); neu: Heute
 function startMode() {   // läuft schon beim Anlegen von state (oben) – deshalb die Liste hier drin
-  const MODES = ["today", "tiles", "folders", "money"];
+  const MODES = ["today", "tiles", "folders", "money", "family"];
   const s = localStorage.getItem("bl.start"), last = localStorage.getItem("bl.mode");
   return MODES.includes(s) ? s : MODES.includes(last) ? last : "today";
 }
@@ -226,6 +342,8 @@ async function enterMain() {
   if (gen !== settingsGen) return;
   show("#main");
   $("#demo-banner").classList.toggle("hidden", !state.me.demo);
+  if (state.me.is_admin) checkUpdates(); else $("#update-banner").classList.add("hidden");
+  checkWhatsNew();
   renderHello();
   renderScopeBar();
   applyMode();
@@ -487,14 +605,14 @@ function chip(label, active, onClick, color) {
 let docsSeq = 0;   // nur die zuletzt angeforderte Liste zeigen (schnelles Tippen, Polling, Satz-Suche)
 async function loadDocs() {
   const seq = ++docsSeq;
-  if ((folderBrowsing() && !state.tag) || todayBrowsing() || moneyBrowsing()) {   // Ordner-Übersicht, Heute, Geld: keine Kacheln
-    state.docs = [];
-    $("#more-btn").classList.add("hidden");
-    renderGrid(); renderTagBar(); renderFolderView(); renderToday(); renderMoney(); renderBankHint();
-    if (todayBrowsing() || moneyBrowsing()) $("#empty").classList.add("hidden");
+  if ((folderBrowsing() && !state.tag) || todayBrowsing() || moneyBrowsing() || familyBrowsing()) {   // Ordner-Übersicht, Heute, Geld, Familie: keine Kacheln
+    state.docs = []; state.total = null;
+    renderPager();
+    renderGrid(); renderTagBar(); renderFolderView(); renderToday(); renderMoney(); renderFamily(); renderBankHint();
+    if (todayBrowsing() || moneyBrowsing() || familyBrowsing()) $("#empty").classList.add("hidden");
     return;
   }
-  const p = new URLSearchParams({ limit: state.limit, sort: state.sort, dir: state.dir });
+  const p = new URLSearchParams({ sort: state.sort, dir: state.dir });
   if (smartOn()) {
     // Suche in Sätzen: nur die Chips zählen – Sortierung und „Mehr laden“ wie sonst
     for (const [k, v] of Object.entries(smartParams())) p.set(k, v);
@@ -509,15 +627,25 @@ async function loadDocs() {
     if (state.sender) p.set("sender", state.sender);
     if (state.trash) p.set("trash", "true");
   }
-  const docs = await api("/documents?" + p);
+  const key = p.toString();
+  if (key !== state.filterKey) { state.filterKey = key; state.page = 0; }
+  p.set("limit", state.limit); p.set("offset", state.page * state.limit); p.set("with_total", "true");
+  const r = await fetch("/documents?" + p, { credentials: "same-origin" });
+  if (r.status === 401) { showLogin(); return; }
+  if (!r.ok) throw new Error(r.statusText);
+  const docs = await r.json();
   if (seq !== docsSeq) return;
   state.docs = docs;
-  $("#more-btn").classList.toggle("hidden", state.docs.length < state.limit);
+  state.total = Number(r.headers.get("X-Total-Count") ?? docs.length);
+  // Letzte Seite leer geworden (gelöscht, verschoben): eine zurück
+  if (!docs.length && state.page > 0) { state.page = Math.max(0, Math.ceil(state.total / state.limit) - 1); return loadDocs(); }
+  renderPager();
   renderGrid();
   renderTagBar();
   renderFolderView();
   renderToday();
   renderMoney();
+  renderFamily();
   renderBankHint();
 }
 // Zur Dokumentsuche passende Buchungen: eine Zeile „Im Konto: 7 Buchungen · 214,30 €“, Klick öffnet sie in „Geld“
@@ -546,7 +674,10 @@ function folderBrowsing() {
   return state.mode === "folders" && !state.q && !state.smart && !state.year && !state.review && !state.due && !state.warranty && !state.sender && !state.trash;
 }
 function applyMode() {
-  for (const b of document.querySelectorAll("#mode-seg button")) b.classList.toggle("active", b.dataset.mode === state.mode);
+  for (const b of document.querySelectorAll("#mode-seg button")) {
+    b.classList.toggle("active", b.dataset.mode === state.mode);
+    b.setAttribute("aria-pressed", String(b.dataset.mode === state.mode));   // Screenreader: welche Ansicht gerade an ist
+  }
 }
 for (const seg of document.querySelectorAll(".segmented")) segKnob(seg);
 // Umschalter, die später gezeichnet werden (Geld: Zeitraum; Einstellungen …), bekommen den Gleiter auch
@@ -570,9 +701,9 @@ for (const b of document.querySelectorAll("#mode-seg button"))
     if (leaving === "money" && state.mode !== "money") { closeMoneyLayers(); money.jump = null; }
     state.tag = null;   // der geöffnete Ordner gehört zur Ordner-Ansicht, nicht als Filter in die Kacheln
     if (state.mode !== "tiles") { state.year = null; state.due = false; state.warranty = false; state.sender = null; }
-    if (state.mode === "today" || state.mode === "money") state.review = false;   // „Zu prüfen“ bleibt in den Ordnern ein Ort, in „Heute“ ist es die Karte
+    if (state.mode === "today" || state.mode === "money" || state.mode === "family") state.review = false;   // „Zu prüfen“ bleibt in den Ordnern ein Ort, in „Heute“ ist es die Karte
     state.searchAll = false;
-    const views = ["#todayview", "#moneyview", "#folderview", "#grid", "#tagbar", ".viewbar", "#empty"];
+    const views = ["#todayview", "#moneyview", "#familyview", "#folderview", "#grid", "#tagbar", ".viewbar", "#empty"];
     Promise.resolve(loadDocs()).catch(() => {}).finally(() => {
       for (const sel of views) {
         const el = document.querySelector(sel);
@@ -863,7 +994,26 @@ function renderGrid() {
     g.appendChild(c);
   }
 }
-$("#more-btn").onclick = () => { state.limit += PAGE; loadDocs(); };
+function renderPager() {
+  const total = state.total || 0, pages = Math.max(1, Math.ceil(total / state.limit));
+  $("#pager").classList.toggle("hidden", total <= PAGE_SIZES[0]);
+  $("#pg-prev").disabled = state.page <= 0;
+  $("#pg-next").disabled = state.page >= pages - 1;
+  $("#pg-prev").classList.toggle("hidden", pages <= 1);
+  $("#pg-next").classList.toggle("hidden", pages <= 1);
+  const from = state.page * state.limit + 1, to = Math.min(total, from + state.limit - 1);
+  $("#pg-info").textContent = pages > 1 ? `Seite ${state.page + 1} von ${pages} · ${from}–${to} von ${total}` : `${total} Dokumente`;
+  $("#pg-size").value = String(state.limit);
+}
+function goPage(n) { state.page = n; loadDocs(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+$("#pg-prev").onclick = () => goPage(Math.max(0, state.page - 1));
+$("#pg-next").onclick = () => goPage(state.page + 1);
+$("#pg-size").onchange = (e) => {
+  const first = state.page * state.limit;            // ungefähr an derselben Stelle bleiben
+  state.limit = Number(e.target.value);
+  try { localStorage.setItem("bl.pageSize", String(state.limit)); } catch {}
+  goPage(Math.floor(first / state.limit));
+};
 
 /// Leere Ansicht mit dem Alligator: Titel und ein warmer Satz je nach Lage
 function renderEmpty() {
@@ -970,6 +1120,7 @@ $("#sort-select").addEventListener("change", applyDir);
 applyDir();
 function applySize() {
   $("#grid").dataset.size = state.size;
+  $("#folderview").dataset.size = state.size;   // Ordner-Kacheln wachsen und schrumpfen mit
   for (const b of $("#size-seg").querySelectorAll("button")) b.classList.toggle("active", b.dataset.size === state.size);
 }
 for (const b of $("#size-seg").querySelectorAll("button"))
@@ -1073,13 +1224,15 @@ $("#delete-selected-btn").onclick = async () => {
 function todayBrowsing() {
   return state.mode === "today" && !state.q && !state.smart && !state.tag && !state.year && !state.review && !state.due && !state.warranty && !state.sender && !state.trash;
 }
-const today = { seq: 0, data: null, family: null, familyAt: 0, showAllDue: false, checked: new Set() };
+const today = { seq: 0, data: null, family: null, familyAt: 0, showAllDue: false, checked: new Set(),
+  assigning: false, pick: new Set(), people: null, peopleSeq: 0 };   // Mehrfachauswahl „Wer kümmert sich?“
 const TODAY_DUE_SHOWN = 6;
 const AV_COLORS = ["#3a7452", "#c2410c", "#7c3aed", "#0e7490", "#db2777", "#92400e"];
 const T_ALARM = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="13" r="7" stroke="currentColor" stroke-width="2.2"/><path d="M12 10v3l2 2M5 4L3 6M19 4l2 2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
 const T_CHECK = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4" stroke="currentColor" stroke-width="2.2"/><path d="M8.5 12l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const T_PEOPLE = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="9" cy="8" r="3.5" stroke="currentColor" stroke-width="2.2"/><circle cx="17" cy="9.5" r="2.5" stroke="currentColor" stroke-width="2.2"/><path d="M3 19c.8-3.3 3.2-5 6-5s5.2 1.7 6 5M15.5 14.3c2.6-.4 4.6 1.2 5.5 4.2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
 const T_REPEAT = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-label="wiederholt sich"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 01-3 3H3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const T_COIN = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2.2"/><path d="M15 8.6a4 4 0 1 0 0 6.8M7.5 11h5.5M7.5 13.5h5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 const T_CROSS = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="3" stroke="currentColor" stroke-width="2.1"/><path d="M9 7V5h6v2M12 10.5v6M9 13.5h6" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>`;
 
 async function renderToday() {
@@ -1104,17 +1257,95 @@ async function renderToday() {
   today.data = { due, recent, review: rc ? rc.count : 0, upcoming: (up && up.items) || [] };
   today.checked.clear();
   drawToday();
+  loadTodayMoney(seq);
+}
+
+// „Geld“ auf Heute: der jüngste Monat mit Umsätzen (laufend: „bisher“), Vormonat, die größten Posten und der
+// Jährlich-Topf. Ohne Konten keine Karte. Höchstens alle 5 Minuten neu – die Umsätze kommen ja nur per CSV.
+async function loadTodayMoney(seq) {
+  if (today.money !== undefined && Date.now() - (today.moneyAt || 0) < 300000) return;
+  const pad = (n) => String(n).padStart(2, "0");
+  const ym = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+  const now = new Date(), back = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+  const base = await api(`/bank/summary?from=${ym(back)}-01`).catch(() => null);
+  if (!base || !base.covered) { today.money = null; today.moneyAt = Date.now(); if (seq === today.seq && todayBrowsing()) drawToday(); return; }
+  const month = base.covered.last.slice(0, 7);                       // jüngster Monat mit Umsätzen
+  const [y, m] = month.split("-").map(Number);
+  const end = new Date(y, m, 0).getDate();
+  const [s, yr] = await Promise.all([
+    api(`/bank/summary?from=${month}-01&to=${month}-${pad(end)}`).catch(() => null),
+    api("/bank/yearly").catch(() => null),
+  ]);
+  const prevKey = ym(new Date(y, m - 2, 1));
+  today.money = s ? { month, last: base.covered.last, spent: s.spent, cats: s.categories.filter((c) => c.cents > 0).slice(0, 3),
+    prev: (base.months.find((x) => x.month === prevKey) || {}).cents ?? null, running: month === ym(now), yearly: yr } : null;
+  today.moneyAt = Date.now();
+  if (seq === today.seq && todayBrowsing()) drawToday();
+}
+function todayMoneyCard() {
+  const g = today.money;
+  if (!g) return "";
+  const [y, m] = g.month.split("-").map(Number);
+  const name = new Date(y, m - 1, 1).toLocaleDateString("de-DE", { month: "long" });
+  const max = Math.max(1, ...g.cats.map((c) => c.cents));
+  const old = (Date.now() - new Date(g.last.slice(0, 10) + "T00:00")) / 864e5 > 35;
+  const yr = g.yearly && (g.yearly.items.length || g.yearly.pot) ? moneyPotLine(g.yearly) : "";
+  const diff = g.prev ? Math.round((g.spent / g.prev - 1) * 100) : null;
+  return `<section class="tcard t-money" aria-labelledby="t-money-h">
+    <div class="t-head"><span class="t-ic">${T_COIN}</span><h2 id="t-money-h">Geld</h2><button class="t-link" data-act="money">Öffnen</button></div>
+    <div class="t-mbig"><b>${eurC(g.spent)}</b><span>${esc(name)}${g.running ? " bisher" : ""} ausgegeben${
+      diff != null && !g.running ? ` · ${diff > 0 ? "+" : ""}${diff} % zum Vormonat` : g.prev != null ? ` · Vormonat ${eurC(g.prev)}` : ""}</span></div>
+    ${g.cats.map((c) => `<button class="t-mcat" data-act="money"><span class="n">${esc(c.name)}</span><span class="bar"><i style="width:${Math.round(c.cents / max * 100)}%"></i></span><span class="v">${eurC(c.cents)}</span></button>`).join("")}
+    ${yr ? `<p class="t-mline">${yr}</p>` : ""}
+    ${old ? `<p class="t-mline warn">Umsätze bis ${fmtDate(g.last)} – neue CSV importieren</p>` : ""}
+  </section>`;
+}
+
+// Zwei Spalten: die Karten rechts nacheinander in die gerade kürzere Spalte – so bleibt links unter wenigen Fristen
+// keine Lücke. Schmal (eine Spalte) bleibt die Reihenfolge, wie sie ist.
+const todayWide = matchMedia("(min-width: 861px)");
+todayWide.addEventListener("change", () => { if (todayBrowsing() && today.data) drawToday(); if (moneyBrowsing() && money.data) drawMoney(); });
+function balanceToday() {
+  balanceColumns(document.querySelector("#todayview .t-main"), document.querySelector("#todayview .t-side"), 14);
+}
+// Heute und Geld: die Karten rechts nacheinander in die gerade kürzere Spalte (nur bei zwei Spalten)
+function balanceColumns(main, side, gap) {
+  if (!main || !side || !todayWide.matches) return;
+  const cards = [...side.children], h = cards.map((c) => c.offsetHeight);
+  let L = main.offsetHeight, R = 0;
+  cards.forEach((c, i) => {
+    if (R <= L) { R += (R ? gap : 0) + h[i]; } else { main.appendChild(c); L += gap + h[i]; }
+  });
+}
+
+// Profilbilder (Server: /users/<id>/avatar, /persons/<id>/avatar; ?v= = Änderungszeit, also cachebar)
+const avatarUrl = (kind, id, v) => (v ? `/${kind === "u" ? "users" : "persons"}/${id}/avatar?v=${v}` : null);
+function avatarHtml(url, name, color, cls = "t-av") {
+  return url ? `<span class="${cls} has-img" style="--av:${esc(color || "#3a7452")}"><img src="${esc(url)}" alt="" loading="lazy"></span>`
+    : `<span class="${cls}" style="--av:${esc(color || "#3a7452")}">${esc((name || "?").charAt(0).toUpperCase())}</span>`;
+}
+// Ein Bild auswählen und hochladen (eigenes Profil oder eine Person) – ein gemeinsames, unsichtbares Dateifeld
+function pickAvatar(url, done) {
+  const input = $("#avatar-file");
+  input.value = "";
+  input.onchange = async () => {
+    const f = input.files[0]; if (!f) return;
+    const fd = new FormData(); fd.append("file", f);
+    try { await api(url, { method: "PUT", body: fd }); toast("Profilbild gespeichert"); done(); }
+    catch (e) { toast("Fehler: " + e.message, 4000); }
+  };
+  input.click();
 }
 
 function todayMembers() {
   const me = state.me, f = today.family || { persons: [], counts: null };
   const counts = new Map((f.counts || []).map((r) => [r.owner_id, r.count]));
   const out = [], seen = new Set();
-  for (const u of [{ id: me.id, display_name: me.display_name || me.username }, ...(me.shared_with_me || [])]) {
+  for (const u of [{ id: me.id, display_name: me.display_name || me.username, avatar: me.avatar }, ...(me.shared_with_me || [])]) {
     if (seen.has(u.id)) continue; seen.add(u.id);
-    out.push({ key: `a${u.id}`, account: u.id, name: u.display_name, count: f.counts ? (counts.get(u.id) || 0) : null });
+    out.push({ key: `a${u.id}`, account: u.id, name: u.display_name, count: f.counts ? (counts.get(u.id) || 0) : null, img: avatarUrl("u", u.id, u.avatar) });
   }
-  for (const p of f.persons) out.push({ key: `p${p.id}`, person: p.id, name: p.name, count: p.count, color: p.color });
+  for (const p of f.persons) out.push({ key: `p${p.id}`, person: p.id, name: p.name, count: p.count, color: p.color, img: avatarUrl("p", p.id, p.avatar) });
   return out.map((m, i) => ({ ...m, color: m.color || AV_COLORS[i % AV_COLORS.length] }));
 }
 
@@ -1126,13 +1357,50 @@ function todayDueRow(d) {
   const sub = d.due_note || d.sender || "";
   const who = d.due_assignee != null && d.due_assignee === state.me.id ? "Ich" : d.due_assignee_name;
   const done = today.checked.has(d.id);
-  return `<div class="t-row ${u}${done ? " done" : ""}">
-    <button class="t-open" data-open="${d.id}"><span class="t-stripe"></span><span class="t-txt"><span class="t-title">${esc(d.title)}</span>${
+  // Auswahl „Wer kümmert sich?“: die Zeile wählt aus statt zu öffnen (nur, was ich bearbeiten darf)
+  const picking = today.assigning && d.can_edit, picked = picking && today.pick.has(d.id);
+  return `<div class="t-row ${u}${done ? " done" : ""}${picked ? " picked" : ""}">
+    ${picking ? `<span class="t-box" aria-hidden="true"></span>` : ""}
+    <button class="t-open" ${picking ? `data-pick="${d.id}" aria-pressed="${picked}"` : `data-open="${d.id}"`}><span class="t-stripe"></span><span class="t-txt"><span class="t-title">${esc(d.title)}</span>${
       sub || who || d.due_repeat ? `<span class="t-sub">${sub ? `<span class="t-note">${esc(sub)}</span>` : ""}${d.due_repeat ? T_REPEAT : ""}${who ? `<span class="t-who">${esc(who)}</span>` : ""}</span>` : ""
     }</span><span class="t-pill" title="${esc(`${d.due_note || "Frist"} · ${fmtDate(d.due_date)}`)}">${esc(label)}</span></button>
-    ${d.can_edit ? `<button class="t-check" data-done="${d.id}" aria-label="Erledigt: ${esc(d.title)}" title="Erledigt"${done ? " disabled" : ""}></button>` : ""}
+    ${d.can_edit && !today.assigning ? `<button class="t-check" data-done="${d.id}" aria-label="Erledigt: ${esc(d.title)}" title="Erledigt"${done ? " disabled" : ""}></button>` : ""}
   </div>`;
 }
+
+// „Wer kümmert sich?“ für mehrere: Zähler, alle, Person wählen (nur wer die jeweiligen Dokumente sieht – „2 von 3“)
+function dueAssignBar(editable) {
+  const n = today.pick.size, p = today.people;
+  const opts = p ? p.people.map((x) => `<option value="${x.id}">${esc(x.display_name)}${x.count < p.total ? ` (${x.count} von ${p.total})` : ""}</option>`).join("") : "";
+  return `<div class="t-assign">
+    <span class="t-assign-n">${n ? `${n} ausgewählt` : "Fristen antippen"}</span>
+    ${n < editable.length ? `<button class="t-link" data-act="pickall">Alle</button>` : ""}
+    <select id="t-assign-to" aria-label="Zuweisen an"${n && p ? "" : " disabled"}><option value="">Zuweisen an …</option>${opts}<option value="none">Niemand</option></select>
+  </div>`;
+}
+async function loadDuePeople() {
+  const seq = ++today.peopleSeq;
+  if (!today.pick.size) { today.people = null; redrawDue(); return; }
+  const p = await api(`/due/assignees?ids=${[...today.pick].join(",")}`).catch(() => null);
+  if (seq === today.peopleSeq) { today.people = p; redrawDue(); }
+}
+async function dueAssignChange(e) {
+  if (e.target.id !== "t-assign-to" || !e.target.value) return;
+  const v = e.target.value, ids = [...today.pick];
+  e.target.disabled = true;
+  try {
+    const r = await api("/due/assign", json("POST", { ids, assignee: v === "none" ? null : Number(v) }));
+    toast(r.skipped ? `${r.updated} zugewiesen, ${r.skipped} übersprungen – die Person sieht diese Dokumente nicht`
+      : r.updated === 1 ? "1 Frist zugewiesen" : `${r.updated} Fristen zugewiesen`);
+    today.assigning = false; today.pick.clear(); today.people = null;
+    renderToday(); renderFamily(true);
+  } catch (err) { e.target.disabled = false; toast("Fehler: " + err.message); }
+}
+$("#todayview").addEventListener("change", dueAssignChange);
+$("#familyview").addEventListener("change", dueAssignChange);
+// Heute und Familie teilen sich Fristen-Zeilen, Auswahl und Zuweisen – neu zeichnen, was gerade zu sehen ist
+function redrawDue() { if (todayBrowsing()) drawToday(); if (familyBrowsing()) drawFamily(); }
+function dueList() { return (familyBrowsing() ? family.dues : today.data?.due) || []; }
 
 // „Im Blick“: Ausweis läuft ab, Prüfung/Wartung fällig, teurer geworden, Erstattung offen (Server: /upcoming)
 function blickRow(i) {
@@ -1143,6 +1411,7 @@ function blickRow(i) {
   let title, sub, pill = when, u = n != null && n < 0 ? "over" : n != null && n <= 30 ? "soon" : "later";
   if (i.type === "expiry") { title = i.what ? `${i.what} läuft ab` : "Läuft ab"; sub = i.title; }
   else if (i.type === "service") { title = `${i.what} fällig`; sub = `zuletzt: ${i.title}`; }
+  else if (i.type === "warranty") { title = `${i.what} endet`; sub = `${i.title}${i.amount ? " · " + eur(i.amount) : ""} – Mängel jetzt noch melden`; u = n != null && n <= 14 ? "soon" : "later"; }
   else if (i.type === "price") {
     title = `${i.what} ist teurer`; sub = `${eur(i.from)} → ${eur(i.amount)} (+${i.percent} %)` + (i.cancel_by ? ` · kündbar bis ${fmtDate(i.cancel_by)}` : "");
     pill = `seit ${fmtDate(i.date)}`; u = "later";
@@ -1156,12 +1425,15 @@ function drawToday() {
   const box = $("#todayview"), t = today.data;
   if (!t) { box.innerHTML = ""; return; }
   const dues = (t.due || []).filter((d) => d.due_date && !d.due_done);
-  const shown = today.showAllDue ? dues : dues.slice(0, TODAY_DUE_SHOWN);
+  const shown = today.showAllDue || today.assigning ? dues : dues.slice(0, TODAY_DUE_SHOWN);
+  const editable = dues.filter((d) => d.can_edit);
   const dueCard = `<section class="tcard t-due" aria-labelledby="t-due-h">
-    <div class="t-head"><span class="t-ic orange">${T_ALARM}</span><h2 id="t-due-h">Fristen</h2>${dues.length ? `<span class="t-count">${dues.length} offen</span>` : ""}</div>
+    <div class="t-head"><span class="t-ic orange">${T_ALARM}</span><h2 id="t-due-h">Fristen</h2>${dues.length ? `<span class="t-count">${dues.length} offen</span>` : ""}${
+      editable.length > 1 || today.assigning ? `<button class="t-link" data-act="assign" title="Mehrere Fristen auf einmal jemandem geben">${today.assigning ? "Fertig" : "Zuweisen"}</button>` : ""}</div>
+    ${today.assigning ? dueAssignBar(editable) : ""}
     ${t.due === null ? `<p class="t-none">Fristen ließen sich gerade nicht laden.</p>` : dues.length ? "" : `<p class="t-none">Keine offenen Fristen – Zeit für einen Kaffee.</p>`}
     ${shown.map(todayDueRow).join("")}
-    ${dues.length > TODAY_DUE_SHOWN ? `<button class="t-more" data-act="more">${today.showAllDue ? "Weniger zeigen" : `Alle ${dues.length} Fristen zeigen`}</button>` : ""}
+    ${dues.length > TODAY_DUE_SHOWN && !today.assigning ? `<button class="t-more" data-act="more">${today.showAllDue ? "Weniger zeigen" : `Alle ${dues.length} Fristen zeigen`}</button>` : ""}
   </section>`;
   const review = t.review ? `<button class="t-review" data-act="review"><span class="t-ic">${T_CHECK}</span>
     <span class="t-rv"><b>${t.review === 1 ? "1 Dokument" : `${t.review} Dokumente`} zum Prüfen</b><small>Kurz drüberschauen – dauert keine Minute</small></span><span aria-hidden="true">›</span></button>` : "";
@@ -1174,7 +1446,7 @@ function drawToday() {
   const family = members.length > 1 || em ? `<section class="tcard t-family" aria-labelledby="t-fam-h">
     <div class="t-head"><span class="t-ic">${T_PEOPLE}</span><h2 id="t-fam-h">Familie</h2></div>
     ${members.length > 1 ? `<div class="t-people">${members.map((m) => `<button class="t-person" data-member="${m.key}" title="Dokumente von ${esc(m.name)}">
-      <span class="t-av" style="--av:${esc(m.color)}">${esc((m.name || "?").charAt(0).toUpperCase())}</span><b>${esc(m.name)}</b>
+      ${avatarHtml(m.img, m.name, m.color)}<b>${esc(m.name)}</b>
       <small>${m.count == null ? "&nbsp;" : m.count === 1 ? "1 Dokument" : `${m.count} Dokumente`}</small></button>`).join("")}</div>` : ""}
     ${em ? `<button class="t-emerg" data-act="emergency">${T_CROSS}<b>Notfallmappe</b><small>${em.documents.length ? (em.documents.length === 1 ? "1 Dokument" : `${em.documents.length} Dokumente`) : "Noch leer"}</small></button>` : ""}
   </section>` : "";
@@ -1184,8 +1456,10 @@ function drawToday() {
       return `<button class="t-doc" data-open="${d.id}"><span class="t-thumb">${ready ? `<img loading="lazy" src="${d.thumbnail_url}?v=${enc(d.updated_at)}" alt="">` : `<span class="pending">${d.status === "error" ? "Fehler" : "OCR läuft …"}</span>`}</span>
         <span class="t-dtitle">${esc(d.title)}</span>${d.tags.length ? pill(d.tags[0]) : `<span class="t-dsub">${docDateHtml(d)}</span>`}</button>`;
     }).join("")}</div>` : "";
+  const moneyCard = todayMoneyCard();
   const empty = !dues.length && !t.review && !up.length && !(t.recent || []).length && t.due !== null;
-  box.innerHTML = empty ? "" : `<div class="t-cols">${dueCard}${review || blick || family ? `<div class="t-side">${review}${blick}${family}</div>` : ""}</div>${recent}`;
+  box.innerHTML = empty ? "" : `<div class="t-cols"><div class="t-main">${dueCard}</div>${review || blick || moneyCard || family ? `<div class="t-side">${review}${blick}${moneyCard}${family}</div>` : ""}</div>${recent}`;
+  if (!empty) balanceToday();
   $("#empty").classList.toggle("hidden", !empty);
   if (empty) { state.docs = []; renderEmpty(); }
 }
@@ -1203,22 +1477,32 @@ function showChip(c, text) {
   renderSmartBar(); loadDocs();
 }
 
-$("#todayview").addEventListener("click", async (e) => {
+async function dueViewClick(e) {
   const el = e.target.closest("button"); if (!el) return;
   if (el.dataset.open) return openDetail(Number(el.dataset.open));
+  if (el.dataset.pick) {
+    const id = Number(el.dataset.pick);
+    if (today.pick.has(id)) today.pick.delete(id); else today.pick.add(id);
+    redrawDue(); loadDuePeople(); return;
+  }
   if (el.dataset.member) { const m = todayMembers().find((x) => x.key === el.dataset.member); if (m) showMember(m); return; }
   if (el.dataset.done) {
     const id = Number(el.dataset.done);
-    today.checked.add(id); drawToday();
+    today.checked.add(id); redrawDue();
     try {
       const d = await api(`/documents/${id}`, json("PATCH", { due_done: true }));
       toast(d && d.due_date && !d.due_done ? `Erledigt – nächste Frist ${fmtDate(d.due_date)}` : "Erledigt");
     } catch (err) { today.checked.delete(id); toast("Fehler: " + err.message); }
-    setTimeout(() => { if (todayBrowsing()) renderToday(); }, 600);
+    setTimeout(() => { if (todayBrowsing()) renderToday(); if (familyBrowsing()) renderFamily(true); }, 600);
     return;
   }
   switch (el.dataset.act) {
     case "more": today.showAllDue = !today.showAllDue; drawToday(); break;
+    case "assign": today.assigning = !today.assigning; today.pick.clear(); today.people = null; redrawDue(); break;
+    case "pickall":
+      for (const d of dueList().filter((x) => x.due_date && !x.due_done && x.can_edit)) today.pick.add(d.id);
+      redrawDue(); loadDuePeople(); break;
+    case "fam-sect": openSettingsSection(el.dataset.sect); break;
     case "review": state.review = true; renderTagBar(); loadDocs(); break;
     case "emergency": {   // als Ordner-Chip über alles, was ich sehe (wie die Mappe selbst) – nicht nur im Bereich „Meine“
       const em = today.family?.emergency;
@@ -1228,7 +1512,93 @@ $("#todayview").addEventListener("click", async (e) => {
     case "all": $('#mode-seg button[data-mode="tiles"]').click(); break;
     case "money": $('#mode-seg button[data-mode="money"]').click(); break;
   }
-});
+}
+$("#todayview").addEventListener("click", dueViewClick);
+$("#familyview").addEventListener("click", dueViewClick);
+
+// ---------- Familie ----------
+// Wie der Familie-Tab der App: wer gehört dazu (Konten, die mit mir teilen, Personen ohne Konto), wer kümmert sich um
+// welche Frist (gruppiert, mit „Zuweisen“ für mehrere), Notfallmappe, Personen, Aufräumen. Verwalten passiert weiter in
+// den Einstellungen – die Karten führen dorthin.
+function familyBrowsing() {
+  return state.mode === "family" && !state.q && !state.smart && !state.tag && !state.year && !state.review && !state.due && !state.warranty && !state.sender && !state.trash;
+}
+const family = { seq: 0, dues: null, cleanup: null, at: 0 };
+async function renderFamily(force = false) {
+  const box = $("#familyview"), on = familyBrowsing();
+  $("#main").classList.toggle("family-on", on);
+  box.classList.toggle("hidden", !on);
+  if (!on) return;
+  if (family.dues) drawFamily();
+  if (!force && Date.now() - family.at < 15000) return;     // nicht bei jedem Tastendruck/Polling neu laden
+  const seq = ++family.seq;
+  const [persons, counts, em, dues, cl] = await Promise.all([
+    api("/persons").catch(() => []), api("/documents/owner_counts").catch(() => null), api("/emergency").catch(() => null),
+    api("/documents?scope=all&due=true&limit=500").catch(() => null), api("/cleanup").catch(() => null),
+  ]);
+  if (seq !== family.seq || !familyBrowsing()) return;
+  today.family = { persons: persons || [], counts, emergency: em }; today.familyAt = Date.now();
+  family.dues = (dues || []).filter((d) => d.due_date && !d.due_done);
+  family.cleanup = cl ? cl.count : null;
+  family.at = Date.now();
+  drawFamily();
+}
+function drawFamily() {
+  const box = $("#familyview"), me = state.me, members = todayMembers();
+  const dues = family.dues || [];
+  // Wer kümmert sich? – nach Zuständigen; dringendste Gruppe oben, „Noch niemand“ zuletzt
+  const groups = new Map();
+  for (const d of dues) {
+    const a = d.due_assignee ?? null, k = a === null ? "none" : String(a);
+    if (!groups.has(k)) groups.set(k, { a, name: a === null ? "Noch niemand" : a === me.id ? "Ich" : d.due_assignee_name || "Jemand anderes", docs: [] });
+    groups.get(k).docs.push(d);
+  }
+  const urg = (g) => [g.docs.filter((d) => dueDays(d) < 0).length, g.docs.filter((d) => { const n = dueDays(d); return n >= 0 && n <= 7; }).length];
+  const sorted = [...groups.values()].sort((x, y) => (x.a === null) - (y.a === null) || urg(y)[0] - urg(x)[0] || urg(y)[1] - urg(x)[1] || x.name.localeCompare(y.name));
+  const editable = dues.filter((d) => d.can_edit);
+  const memberOf = (a) => members.find((m) => m.account === a);
+  const who = `<section class="tcard t-due" aria-labelledby="f-who-h">
+    <div class="t-head"><span class="t-ic orange">${T_ALARM}</span><h2 id="f-who-h">Wer kümmert sich?</h2>${dues.length ? `<span class="t-count">${dues.length} offen</span>` : ""}${
+      editable.length > 1 || today.assigning ? `<button class="t-link" data-act="assign">${today.assigning ? "Fertig" : "Zuweisen"}</button>` : ""}</div>
+    ${today.assigning ? dueAssignBar(editable) : ""}
+    ${family.dues === null ? `<p class="t-none">Lädt …</p>` : dues.length ? "" : `<p class="t-none">Keine offenen Fristen.</p>`}
+    ${sorted.map((g) => {
+      const m = memberOf(g.a), [over, soon] = urg(g);
+      return `<div class="f-group"><div class="f-gh">${avatarHtml(m?.img, g.name, m?.color || "#94a3b8", "t-av small")}<b>${esc(g.name)}</b>
+        <span class="f-pills">${over ? `<span class="f-pill over">${over} überfällig</span>` : ""}${soon ? `<span class="f-pill soon">${soon} bald</span>` : ""}<span class="muted small">${g.docs.length === 1 ? "1 Frist" : `${g.docs.length} Fristen`}</span></span></div>
+        ${g.docs.map(todayDueRow).join("")}</div>`;
+    }).join("")}
+  </section>`;
+  const people = `<section class="tcard t-family" aria-labelledby="f-mem-h">
+    <div class="t-head"><span class="t-ic">${T_PEOPLE}</span><h2 id="f-mem-h">Familie</h2></div>
+    <div class="t-people">${members.map((m) => `<button class="t-person" data-member="${m.key}" title="Dokumente von ${esc(m.name)}">
+      ${avatarHtml(m.img, m.name, m.color)}<b>${esc(m.name)}</b>
+      <small>${m.count == null ? "&nbsp;" : m.count === 1 ? "1 Dokument" : `${m.count} Dokumente`}</small></button>`).join("")}</div>
+    <p class="m-note" style="margin-top:10px">Konten, die mit dir teilen, und Personen ohne Konto (z. B. Kinder). Personen anlegen und Bilder wählen:
+      <button class="linkish" data-act="fam-sect" data-sect="s-persons-sect">Personen verwalten</button></p>
+  </section>`;
+  const em = today.family?.emergency;
+  const emerg = `<section class="tcard"><div class="t-head"><span class="t-ic">${T_CROSS}</span><h2>Notfallmappe</h2></div>
+    <p class="m-note" style="margin:-2px 0 8px">Was Angehörige im Ernstfall brauchen: Vollmachten, Verfügungen, Versicherungen.</p>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      ${em && em.documents.length ? `<button class="btn" data-act="emergency">${em.documents.length === 1 ? "1 Dokument" : `${em.documents.length} Dokumente`} ansehen</button>` : `<span class="muted small">Noch leer</span>`}
+      <button class="btn ghost" data-act="fam-sect" data-sect="s-emergency-sect">Füllen und teilen</button></div></section>`;
+  const clean = `<section class="tcard"><div class="t-head"><span class="t-ic">${T_CHECK}</span><h2>Aufräumen</h2></div>
+    <p class="m-note" style="margin:-2px 0 8px">${family.cleanup == null ? "Was nach Ablauf der Aufbewahrungsfrist weg darf."
+      : family.cleanup ? `${family.cleanup} Dokument${family.cleanup === 1 ? " darf" : "e dürfen"} nach Ablauf der Aufbewahrungsfrist weg.` : "Nichts zum Aufräumen – alles liegt noch in seiner Frist."}</p>
+    <button class="btn ghost" data-act="fam-sect" data-sect="s-cleanup-sect">${family.cleanup ? "Ansehen" : "Fristen ansehen"}</button></section>`;
+  box.innerHTML = `<div class="t-cols"><div class="t-main">${who}</div><div class="t-side">${people}${emerg}${clean}</div></div>`;
+  balanceColumns(box.querySelector(".t-main"), box.querySelector(".t-side"), 14);
+}
+// Einstellungen öffnen und gleich den passenden Abschnitt aufklappen (Personen, Notfallmappe, Aufräumen)
+async function openSettingsSection(id) {
+  await openSettings();
+  const d = document.getElementById(id);
+  if (!d) return;
+  d.open = true;
+  d.dispatchEvent(new Event("toggle"));
+  d.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 // ---------- Geld (Kontoumsätze aus CSV, Server: /bank) ----------
 // Eigene Ansicht wie „Heute“: Zeitraum, Kacheln, „Wofür“ als Balken, eine Kategorie im Detail mit Monaten und Buchungen,
@@ -1290,7 +1660,17 @@ function moneyTxRow(t, edit = false) {
   return `<div class="m-tx"><span class="d">${d}.${m}.</span><span class="w"><b>${esc(who)}</b><small>${esc(t.purpose || "")}</small></span>${sel}${doc}${year}
     <span class="a${t.cents > 0 ? " plus" : ""}">${t.cents > 0 ? "+" : ""}${eurC(t.cents)}</span></div>`;
 }
+// Fokus nach dem Zeichnen: in eine Ebene hinein auf „‹ Geld“, beim Schließen zurück auf den Knopf, der sie geöffnet
+// hat – sonst landet er nach dem Neuzeichnen auf <body> (Tastatur, Screenreader)
 function drawMoney() {
+  drawMoneyView();
+  if (money.focus) {
+    const el = document.querySelector("#moneyview " + money.focus);
+    money.focus = null;
+    if (el) el.focus({ preventScroll: true });
+  }
+}
+function drawMoneyView() {
   const box = $("#moneyview"), a = money.accounts, s = money.data;
   const accs = (a && a.accounts) || [];
   const periods = [["month", "Monat"], ["6m", "6 Monate"], ["year", "Jahr"], ["all", "Alles"]];
@@ -1371,7 +1751,9 @@ function drawMoney() {
       ${(money.rules || []).length ? `<details class="m-rules"><summary>${money.rules.length} eigene Regeln</summary>${money.rules.map((r) =>
         `<div class="m-tx"><span class="w"><b>${r.pattern.startsWith("kat:") ? `Bank-Kategorie „${esc(r.pattern.slice(4))}“` : `„${esc(r.pattern)}“`}</b><small>→ ${esc(r.category)}</small></span><button class="m-pill" data-mrule="${r.id}">Entfernen</button></div>`).join("")}</details>` : ""}
       <p class="m-note">Die Umsätze bleiben auf eurem Server und erscheinen nie in Freigabe-Links.</p></section></div>`;
-  box.innerHTML = head + kpis + `<div class="m-cols"><div style="display:flex;flex-direction:column;gap:16px;min-width:0">${detail}${bars}</div>${side}</div>`;
+  box.innerHTML = head + kpis + `<div class="m-cols"><div class="m-main" style="display:flex;flex-direction:column;gap:16px;min-width:0">${detail}${bars}</div>${side}</div>`;
+  // wie Heute: Karten rechts (Einsortieren, Jährliche Kosten, Erkannt, Konten) in die kürzere Spalte – keine Lücke unter „Wofür“
+  balanceColumns(box.querySelector(".m-main"), box.querySelector(".m-cols > .t-side"), 16);
   // Kategorie geöffnet: zu ihr springen (sie steht über den Balken); geschlossen: zurück zu „Wofür“
   const jump = money.jump; money.jump = null;
   const target = jump === "detail" ? box.querySelector(".m-detail") : jump === "bars" ? box.querySelector("#m-cat-h") : null;
@@ -1500,8 +1882,8 @@ document.addEventListener("keydown", (e) => {
   const top = layers.length ? layers[layers.length - 1].name : "";
   if (!$("#detail").classList.contains("hidden") || !$("#settings").classList.contains("hidden")) return;
   if (top !== "money-yearly" && top !== "money-sort") return;
-  if (money.yearlyOpen) { money.yearlyOpen = false; closeLayer("money-yearly"); renderMoney(); }
-  else if (money.sorting) { money.sorting = false; closeLayer("money-sort"); renderMoney(); }
+  if (money.yearlyOpen) { money.yearlyOpen = false; money.focus = '[data-mact="yearly"]'; closeLayer("money-yearly"); renderMoney(); }
+  else if (money.sorting) { money.sorting = false; money.focus = '[data-mact="sort"]'; closeLayer("money-sort"); renderMoney(); }
 });
 $("#moneyview").addEventListener("click", async (e) => {
   const el = e.target.closest("button"); if (!el) return;
@@ -1542,10 +1924,12 @@ $("#moneyview").addEventListener("click", async (e) => {
   }
   switch (el.dataset.mact) {
     case "import": openBankImport(); break;
-    case "sort": money.sorting = true; openLayer("money-sort", () => { money.sorting = false; renderMoney(); }); renderMoney(); break;
-    case "closesort": money.sorting = false; closeLayer("money-sort"); renderMoney(); break;
-    case "yearly": money.yearlyOpen = true; openLayer("money-yearly", () => { money.yearlyOpen = false; renderMoney(); }); renderMoney(); window.scrollTo({ top: 0 }); break;
-    case "closeyearly": money.yearlyOpen = false; closeLayer("money-yearly"); renderMoney(); break;
+    case "sort": money.sorting = true; money.focus = ".m-back";
+      openLayer("money-sort", () => { money.sorting = false; money.focus = '[data-mact="sort"]'; renderMoney(); }); renderMoney(); break;
+    case "closesort": money.sorting = false; money.focus = '[data-mact="sort"]'; closeLayer("money-sort"); renderMoney(); break;
+    case "yearly": money.yearlyOpen = true; money.focus = ".m-back";
+      openLayer("money-yearly", () => { money.yearlyOpen = false; money.focus = '[data-mact="yearly"]'; renderMoney(); }); renderMoney(); window.scrollTo({ top: 0 }); break;
+    case "closeyearly": money.yearlyOpen = false; money.focus = '[data-mact="yearly"]'; closeLayer("money-yearly"); renderMoney(); break;
     case "clearsearch": money.q = ""; money.search = null; $("#search").value = ""; renderMoney(); break;
     case "closecat": money.cat = null; money.jump = "bars"; closeLayer("money-cat"); renderMoney(); break;
     case "undo":
@@ -1912,8 +2296,61 @@ async function openDetail(id) {
   $("#m-persons").classList.toggle("hidden", !persons.length);
   $("#m-persons").innerHTML = persons.length ? `<span class="muted small">Für</span>` +
     persons.map((t) => `<span class="person-pill" style="--tag:${tagColor(t.name, t.color)}">${esc(t.name)}</span>`).join("") : "";
+  $("#m-note-text").value = "";
+  renderNotes(d);
   history.pushState({ id }, "", `#doc-${id}`);
 }
+// Kalender-Abo (Server: /calendar/feed): Link anzeigen, abonnieren (webcal://), kopieren, neu, abschalten
+function renderCalFeed(path) {
+  $("#s-cal-off").classList.toggle("hidden", !!path);
+  $("#s-cal-on").classList.toggle("hidden", !path);
+  if (!path) return;
+  const url = location.origin + path;
+  $("#s-cal-url").value = url;
+  $("#s-cal-open").href = url.replace(/^https?:/, "webcal:");
+}
+$("#s-cal-sect").addEventListener("toggle", async (e) => {
+  if (e.target.open) renderCalFeed((await api("/calendar/feed").catch(() => ({}))).path);
+});
+$("#s-cal-create").onclick = $("#s-cal-new").onclick = async (e) => {
+  if (e.target.id === "s-cal-new" && !confirm("Neuen Link erstellen? Der bisherige funktioniert dann nicht mehr – abonnierte Kalender müssen neu abonniert werden.")) return;
+  try { renderCalFeed((await api("/calendar/feed", { method: "POST" })).path); } catch (err) { toast("Fehler: " + err.message); }
+};
+$("#s-cal-del").onclick = async () => {
+  if (!confirm("Kalender-Abo abschalten? Abonnierte Kalender bekommen dann keine Fristen mehr.")) return;
+  try { await api("/calendar/feed", { method: "DELETE" }); renderCalFeed(null); } catch (err) { toast("Fehler: " + err.message); }
+};
+$("#s-cal-copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("#s-cal-url").value); toast("Link kopiert"); }
+  catch { $("#s-cal-url").select(); toast("Link markiert – jetzt kopieren"); }
+};
+
+// Notizen am Dokument: wer, wann, Text; löschen eigene (oder mit Bearbeitungsrecht alle)
+async function renderNotes(d) {
+  const box = $("#m-notes");
+  document.querySelector(".note-add").classList.toggle("hidden", !!state.me?.demo);   // Demo: niemand schreibt für alle
+  const list = await api(`/documents/${d.id}/notes`).catch(() => null);
+  if (state.current?.id !== d.id) return;
+  if (!list) { box.innerHTML = ""; return; }
+  box.innerHTML = list.length ? list.map((n) => `<div class="note"><p>${esc(n.text)}</p><span class="muted small">${esc(n.author || (n.mine ? "Ich" : "jemand"))} · ${esc(fmtDateTime(n.created_at))}${
+    n.mine || d.can_edit ? ` · <button class="linkish" data-note-del="${n.id}">löschen</button>` : ""}</span></div>`).join("")
+    : `<p class="muted small" style="margin:2px 0 6px">Noch keine Notizen.</p>`;
+}
+function fmtDateTime(s) {
+  const t = new Date((s || "").replace(" ", "T"));
+  return isNaN(t) ? s : t.toLocaleString("de-DE", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+$("#m-note-add").onclick = async () => {
+  const d = state.current, text = $("#m-note-text").value.trim();
+  if (!d || !text) return;
+  try { await api(`/documents/${d.id}/notes`, json("POST", { text })); $("#m-note-text").value = ""; renderNotes(d); }
+  catch (e) { toast("Fehler: " + e.message); }
+};
+$("#m-notes").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-note-del]"); if (!b || !state.current) return;
+  try { await api(`/documents/${state.current.id}/notes/${b.dataset.noteDel}`, { method: "DELETE" }); renderNotes(state.current); }
+  catch (err) { toast("Fehler: " + err.message); }
+});
 // Frist-Felder, die sich beim Speichern ändern können (wiederkehrend erledigt → nächster Termin, wieder offen)
 function fillDue(d) {
   $("#m-due").value = isoToDmy(d.due_date);
@@ -2180,7 +2617,11 @@ $("#settings-btn").onclick = openSettings;
 // Zur Übersicht – per Knopf oder Browser-Zurück
 function leaveSettings() { show("#main"); enterMain(); }
 $("#settings-back").onclick = () => { closeLayer("settings"); leaveSettings(); };
-$("#logout-btn").onclick = async () => { await api("/auth/logout", { method: "POST" }).catch(() => {}); showLogin(); };
+$("#logout-btn").onclick = async () => {
+  if (!confirm("Wirklich abmelden? Danach musst du dich auf diesem Gerät neu anmelden.")) return;
+  await api("/auth/logout", { method: "POST" }).catch(() => {});
+  showLogin();
+};
 
 async function openSettings() {
   settingsGen++;
@@ -2189,14 +2630,18 @@ async function openSettings() {
   [state.me, state.users] = await Promise.all([api("/auth/me"), api("/users")]);
   const me = state.me;
   $("#s-hello").textContent = me.display_name;
-  fetch("/health").then((r) => r.json()).then((h) => { if (!h.version) return; $("#s-version").textContent = h.version ? `Server ${h.version}` : ""; }).catch(() => {});
+  $("#s-version").textContent = "";
+  // Version aus /health – nur, wenn der Abgleich (Admins, unten) nicht schon mehr dazu geschrieben hat
+  fetch("/health").then((r) => r.json()).then((h) => { if (h.version && !$("#s-version").textContent) $("#s-version").textContent = `Server ${h.version}`; }).catch(() => {});
+  renderUpdateStatus(me.is_admin ? await api("/updates").catch(() => null) : null);
   $("#s-show-partner").checked = me.show_partner_in_overview;
   $("#s-name").value = me.display_name;
+  renderMyAvatar();
   $("#s-pass").value = ""; $("#s-pass-old").value = "";
   $("#s-pass-old-row").classList.toggle("hidden", me.is_admin);
   // Demo: gemeinsames Konto – Name, Passwort, Geräte und Freigaben sperrt der Server (app/demo.py)
   $("#s-demo-account").classList.toggle("hidden", !me.demo);
-  for (const id of ["#s-account-edit", "#s-sessions-revoke", "#s-share-add-row"]) $(id).classList.toggle("hidden", !!me.demo);
+  for (const id of ["#s-account-edit", "#s-sessions-revoke", "#s-share-add-row", "#s-cal-sect"]) $(id).classList.toggle("hidden", !!me.demo);
 
   renderLinks();
   $("#s-public-row").classList.toggle("hidden", !me.is_admin);
@@ -2613,12 +3058,60 @@ async function renderContracts() {
       <span class="amt">${c.amount.toFixed(2).replace(".", ",")} €</span>
       <span class="meta">${c.increase ? `<span class="warn">seit ${fmtDate(c.increase.since)} teurer: ${c.increase.from.toFixed(2).replace(".", ",")} → ${c.increase.to.toFixed(2).replace(".", ",")} € (+${c.increase.percent} %)</span> · ` : ""}${c.per_month.toFixed(2).replace(".", ",")} €/Monat · ${when}${c.cancel_by ? ` · <span class="warn">kündbar bis ${fmtDate(c.cancel_by.date)}</span>` : ""}${c.due ? ` · <span class="warn">Frist ${fmtDate(c.due.date)}</span>` : ""}</span>`;
     el.style.cursor = "pointer"; el.onclick = async () => { state.sender = c.sender; await enterMain(); };
+    const cx = document.createElement("button");
+    cx.className = "btn ghost small-btn"; cx.type = "button"; cx.textContent = "Kündigen …";
+    cx.onclick = (e) => { e.stopPropagation(); openCancelDialog(c); };
+    el.querySelector(".meta").append(" · ", cx);
     box.appendChild(el);
   }
   const total = document.createElement("p"); total.className = "small"; total.style.marginTop = "10px";
   total.innerHTML = `<b>${sum.toFixed(2).replace(".", ",")} € pro Monat</b> für ${list.length} erkannte Verträge/Abos, ${(sum * 12).toFixed(0)} € im Jahr.`;
   box.appendChild(total);
 }
+// Kündigungshelfer: Felder vorbelegen (Nummern aus den Vertragsdokumenten, eigene Angaben aus dem Browser)
+async function openCancelDialog(c) {
+  let me = {};
+  try { me = JSON.parse(localStorage.getItem("bl.cancel.me") || "{}"); } catch {}
+  $("#cx-from").value = me.name || state.me.display_name || "";
+  $("#cx-from-addr").value = me.address || ""; $("#cx-place").value = me.place || "";
+  $("#cx-to").value = c.sender; $("#cx-to-addr").value = ""; $("#cx-about").value = "";
+  $("#cx-contract").value = ""; $("#cx-customer").value = ""; $("#cx-by").value = "";
+  $("#cx-save").classList.toggle("hidden", !!state.me?.demo);   // Demo: nichts für alle ablegen
+  $("#cancel-dialog").showModal();
+  const p = await api(`/contracts/cancel-prefill?document_ids=${(c.documents || []).join(",")}`).catch(() => null);
+  if (p) {
+    if (p.contract_number) $("#cx-contract").value = p.contract_number;
+    if (p.customer_number) $("#cx-customer").value = p.customer_number;
+    if (p.about) $("#cx-about").value = p.about;
+  }
+}
+function cancelBody(save) {
+  const me = { name: $("#cx-from").value.trim(), address: $("#cx-from-addr").value.trim(), place: $("#cx-place").value.trim() };
+  try { localStorage.setItem("bl.cancel.me", JSON.stringify(me)); } catch {}
+  return { from_name: me.name, from_address: me.address, place: me.place, to_name: $("#cx-to").value.trim(),
+    to_address: $("#cx-to-addr").value.trim(), about: $("#cx-about").value.trim(), contract_number: $("#cx-contract").value.trim(),
+    customer_number: $("#cx-customer").value.trim(), by_date: $("#cx-by").value || null, save };
+}
+$("#cx-pdf").onclick = async () => {
+  try {
+    const r = await fetch("/contracts/cancel-letter", { method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(cancelBody(false)) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url; a.download = (r.headers.get("content-disposition") || "").match(/filename="([^"]+)"/)?.[1] || "Kuendigung.pdf";
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+    $("#cancel-dialog").close();
+  } catch (e) { toast("Fehler: " + e.message, 4000); }
+};
+$("#cx-save").onclick = async () => {
+  try {
+    const r = await api("/contracts/cancel-letter", json("POST", cancelBody(true)));
+    $("#cancel-dialog").close();
+    toast(`Abgelegt: ${r.title}`);
+  } catch (e) { toast("Fehler: " + e.message, 4000); }
+};
+
 function renderPackageForm() {
   const years = (state.years || []).map((y) => y.year ?? y);
   const now = new Date().getFullYear();
@@ -2919,10 +3412,21 @@ async function renderPersons() {
   box.innerHTML = list.length ? "" : `<p class="muted small">Noch keine Personen – zum Beispiel deine Kinder.</p>`;
   for (const p of list) {
     const row = document.createElement("div"); row.className = "list-row";
-    row.innerHTML = `<span class="person-pill" style="--tag:${tagColor(p.name, p.color)}">${esc(p.name)}</span>` +
+    const img = avatarUrl("p", p.id, p.avatar);
+    row.innerHTML = (p.can_remove ? `<button class="avatar-btn" title="${img ? "Bild ändern" : "Bild wählen"}" aria-label="Bild für ${esc(p.name)}">${avatarHtml(img, p.name, tagColor(p.name, p.color), "t-av small")}</button>`
+      : avatarHtml(img, p.name, tagColor(p.name, p.color), "t-av small")) +
+      `<span class="person-pill" style="--tag:${tagColor(p.name, p.color)}">${esc(p.name)}</span>` +
       `<span class="muted small">${p.count} Dok.${p.auto ? "" : " · Name zu kurz zum automatischen Zuordnen – Dokumente von Hand taggen"}</span><span class="spacer"></span>` +
-      (p.can_remove ? `<button class="btn ghost danger">Entfernen</button>` : "");
-    const b = row.querySelector("button");
+      (p.can_remove && img ? `<button class="btn ghost" data-noimg>Bild weg</button>` : "") +
+      (p.can_remove ? `<button class="btn ghost danger" data-remove>Entfernen</button>` : "");
+    const after = () => { renderPersons(); today.familyAt = 0; };
+    const pick = row.querySelector(".avatar-btn");
+    if (pick) pick.onclick = () => pickAvatar(`/persons/${p.id}/avatar`, after);
+    const noimg = row.querySelector("[data-noimg]");
+    if (noimg) noimg.onclick = async () => {
+      try { await api(`/persons/${p.id}/avatar`, { method: "DELETE" }); after(); } catch (e) { toast("Fehler: " + e.message); }
+    };
+    const b = row.querySelector("[data-remove]");
     if (b) b.onclick = async () => {
       if (!confirm(`„${p.name}“ als Person entfernen?\n\nOrdner und Dokumente bleiben – neue Dokumente werden nur nicht mehr automatisch zugeordnet.`)) return;
       try { await api(`/persons/${p.id}`, { method: "DELETE" }); renderPersons(); } catch (e) { toast("Fehler: " + e.message); }
@@ -3114,6 +3618,17 @@ $("#s-share-add").onclick = async () => {
   const id = Number($("#s-share-user").value); if (!id) return;
   await api("/shares", json("PUT", { user_id: id, can_edit: $("#s-share-edit").checked }));
   toast("Freigegeben"); openSettings();
+};
+function renderMyAvatar() {
+  const me = state.me, url = avatarUrl("u", me.id, me.avatar);
+  $("#s-avatar").outerHTML = avatarHtml(url, me.display_name || me.username, AV_COLORS[0]).replace('class="t-av', 'id="s-avatar" class="t-av');
+  $("#s-avatar-del").classList.toggle("hidden", !url);
+  $("#s-avatar-pick").textContent = url ? "Anderes Bild" : "Profilbild wählen";
+}
+async function refreshMe() { state.me = await api("/auth/me"); renderMyAvatar(); today.familyAt = 0; }
+$("#s-avatar-pick").onclick = () => pickAvatar("/auth/me/avatar", refreshMe);
+$("#s-avatar-del").onclick = async () => {
+  try { await api("/auth/me/avatar", { method: "DELETE" }); toast("Profilbild entfernt"); refreshMe(); } catch (e) { toast("Fehler: " + e.message); }
 };
 $("#s-save").onclick = async () => {
   const body = { display_name: $("#s-name").value.trim() || undefined };

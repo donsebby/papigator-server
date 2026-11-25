@@ -86,7 +86,8 @@ done
 step "web UI and first-run setup"
 WEBUI=$(python3 -c "import sys,xml.etree.ElementTree as E; print(E.parse(sys.argv[1]).getroot().findtext('WebUI'))" "$TEMPLATE" \
         | sed "s|\[IP\]|127.0.0.1|; s|\[PORT:[0-9]*\]|$PORT|")
-curl -fsS "$WEBUI/" | grep -q 'app.js' || fail "web UI $WEBUI"
+# erst ganz lesen: grep -q hört beim ersten Treffer auf, curl scheitert dann mit pipefail („Failed writing body“)
+PAGE=$(curl -fsS "$WEBUI/") && grep -q 'app.js' <<<"$PAGE" || fail "web UI $WEBUI"
 curl -fsS "$B/ping" | jq -e '.needs_setup == true' >/dev/null || fail "/ping does not ask for setup"
 curl -fsS -X POST "$B/users" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"username\":\"check\",\"display_name\":\"Check\",\"password\":\"$PW\"}" >/dev/null || fail "creating the first user"

@@ -25,6 +25,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(1, str(Path(__file__).resolve().parent.parent))
 import make_bank  # noqa: E402
+import make_avatars  # noqa: E402
 import shift  # noqa: E402
 from app.processing import warranty_end  # noqa: E402
 
@@ -163,6 +164,12 @@ for who, data in make_bank.exports(today, moved).items():
               data={"preview": "false", "visible_to": str(other), "shares": json.dumps(shares)}, headers=H[who]))
 
 # --- Prüfen: stimmt, was die App zeigen soll?
+# Profilbilder: erfundene, gezeichnete Gesichter (in der Demo selbst ist Hochladen gesperrt)
+for who in ("alex", "sam"):
+    ok(c.put("/auth/me/avatar", files={"file": (f"{who}.png", make_avatars.avatar(who), "image/png")}, headers=H[who]))
+for p in ok(c.get("/persons", headers=H["sam"])).json():
+    if p["name"] == "Mia":
+        ok(c.put(f"/persons/{p['id']}/avatar", files={"file": ("mia.png", make_avatars.avatar("mia"), "image/png")}, headers=H["sam"]))
 A = H["alex"]
 rc = ok(c.get("/documents/review_count", params={"scope": "all"}, headers=A)).json()
 dc = ok(c.get("/documents/due_count", params={"scope": "all"}, headers=A)).json()
@@ -171,6 +178,8 @@ emerg = ok(c.get("/emergency", headers=A)).json()
 owners = ok(c.get("/documents/owner_counts", headers=A)).json()
 mia = next((p for p in persons if p["name"] == "Mia"), None)
 problems = []
+if not (mia and mia.get("avatar")) or not ok(c.get("/auth/me", headers=A)).json().get("avatar"):
+    problems.append("Profilbilder fehlen")
 if not dc.get("count"):
     problems.append("keine offenen Fristen")
 if not mia or (mia.get("count") or 0) < 2:

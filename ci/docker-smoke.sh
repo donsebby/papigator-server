@@ -99,7 +99,7 @@ curl -fsS "$B/documents?q=Rauchtest" -H "$AUTH" | jq -e "map(.id) | index($ID) !
 step "thumbnail, file, web app, share service"
 curl -fsS "$B/documents/$ID/thumbnail" -H "$AUTH" -o "$WORK/thumb" && [ -s "$WORK/thumb" ] || fail "thumbnail"
 curl -fsS "$B/documents/$ID/file" -H "$AUTH" -o "$WORK/file.pdf" && head -c 5 "$WORK/file.pdf" | grep -q '%PDF' || fail "file"
-curl -fsS "$B/app/" | grep -q 'app.js' || fail "web app"
+PAGE=$(curl -fsS "$B/app/") && grep -q 'app.js' <<<"$PAGE" || fail "web app"   # erst ganz lesen (pipefail + grep -q)
 curl -fsS "http://127.0.0.1:$SHARE_PORT/s/_/ping" >/dev/null || fail "share service"
 code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SHARE_PORT/documents")
 [ "$code" = 404 ] || fail "share service answers outside /s/ ($code)"

@@ -289,6 +289,20 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS bank_pot (
                 user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
                 account_id INTEGER NOT NULL REFERENCES bank_accounts(id) ON DELETE CASCADE);
+            -- Kalender-Abo (25.11.2026, app/calfeed.py): Token nur als Hash (Abfrage) und verschlüsselt (Anzeigen)
+            CREATE TABLE IF NOT EXISTS calendar_feeds (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                token_hash TEXT NOT NULL UNIQUE,
+                token_enc TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')));
+            -- Notizen am Dokument (25.11.2026, app/notes.py)
+            CREATE TABLE IF NOT EXISTS document_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')));
+            CREATE INDEX IF NOT EXISTS idx_document_notes_doc ON document_notes(document_id);
             -- „kein Topf“ ausdrücklich gewählt (24.11.2026): sonst schlüge ein Konto namens „Jährlich“ wieder vor
             CREATE TABLE IF NOT EXISTS bank_pot_off (
                 user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE);
@@ -405,6 +419,12 @@ CREATE TABLE IF NOT EXISTS demo_uploads (
 );
 CREATE INDEX IF NOT EXISTS idx_demo_uploads ON demo_uploads(user_id, at);
 """)
+        # Willkommen/„Was ist neu“ (25.11.2026, app/whatsnew.py): zuletzt gesehene Ausgabe pro Konto. Beim Einführen
+        # bekommen bestehende Konten „0“ – sie kennen die App, sehen also die Neuerungen statt der Tour.
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='whatsnew_seen'").fetchone():
+            con.execute("CREATE TABLE whatsnew_seen (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, "
+                        "seen TEXT NOT NULL)")
+            con.execute("INSERT INTO whatsnew_seen(user_id, seen) SELECT id, '0' FROM users")
         global _trigram
         _trigram = setup_trigram(con)
         con.execute("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)")

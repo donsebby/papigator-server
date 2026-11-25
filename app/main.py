@@ -26,7 +26,8 @@ from .db import connect, refresh_parent_tags, get_setting, init_db, search_where
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 # API-Doku (/docs, /redoc, /openapi.json) nur auf Wunsch – sonst sieht sie jeder ohne Anmeldung (PAPIGATOR_API_DOCS=1)
-app = FastAPI(title="Papigator", version="0.2.0", **({} if config.API_DOCS else {"docs_url": None, "redoc_url": None, "openapi_url": None}))
+from .version import VERSION  # noqa: E402
+app = FastAPI(title="Papigator", version=VERSION, **({} if config.API_DOCS else {"docs_url": None, "redoc_url": None, "openapi_url": None}))
 
 @app.middleware("http")
 async def same_origin_only(request: Request, call_next):
@@ -59,6 +60,18 @@ from . import invites  # noqa: E402  Einladungen (/invites) – nur im Hauptdien
 app.include_router(invites.router)
 from . import yearly  # noqa: E402  Jährliche Kosten und Rücklagen-Topf (/bank/yearly)
 app.include_router(yearly.router)
+from . import avatars  # noqa: E402  Profilbilder für Konten und Personen ohne Konto (25.11.2026)
+app.include_router(avatars.router)
+from . import updates  # noqa: E402  Hinweis auf neue Server-Versionen (25.11.2026)
+app.include_router(updates.router)
+from . import notes  # noqa: E402  Notizen am Dokument (25.11.2026)
+app.include_router(notes.router)
+from . import calfeed  # noqa: E402  Kalender-Abo für alle Fristen (25.11.2026)
+app.include_router(calfeed.router)
+from . import cancel  # noqa: E402  Kündigungshelfer (25.11.2026)
+app.include_router(cancel.router)
+from . import whatsnew  # noqa: E402  Willkommen und „Was ist neu“ (25.11.2026)
+app.include_router(whatsnew.router)
 
 
 @app.on_event("startup")
@@ -214,13 +227,13 @@ def do_logout(request: Request, response: Response, user: User = Depends(current
 def me(user: User = Depends(current_user)):
     with connect() as con:
         partners_in = [
-            {"id": r["id"], "display_name": r["display_name"], "can_edit": bool(r["can_edit"])}
+            {"id": r["id"], "display_name": r["display_name"], "can_edit": bool(r["can_edit"]), "avatar": avatars.version("u", r["id"])}
             for r in con.execute(
                 "SELECT u.id, u.display_name, p.can_edit FROM partner_shares p JOIN users u ON u.id=p.from_user "
                 "WHERE p.to_user=?", (user.id,))
         ]
         partners_out = [
-            {"id": r["id"], "display_name": r["display_name"], "can_edit": bool(r["can_edit"])}
+            {"id": r["id"], "display_name": r["display_name"], "can_edit": bool(r["can_edit"]), "avatar": avatars.version("u", r["id"])}
             for r in con.execute(
                 "SELECT u.id, u.display_name, p.can_edit FROM partner_shares p JOIN users u ON u.id=p.to_user "
                 "WHERE p.from_user=?", (user.id,))
@@ -229,6 +242,7 @@ def me(user: User = Depends(current_user)):
     return {
         "id": user.id, "username": user.username, "display_name": user.display_name,
         "is_admin": user.is_admin, "show_partner_in_overview": user.show_partner_in_overview,
+        "avatar": avatars.version("u", user.id) if user.id else None,
         "shared_with_me": partners_in, "shared_by_me": partners_out, "needs_setup": needs_setup,
         "demo": config.DEMO,
     }
@@ -365,6 +379,7 @@ def _remove_user(con, user_id: int) -> list[int]:
     ids = [r["id"] for r in con.execute("SELECT id FROM documents WHERE owner_id=?", (user_id,))]
     con.execute("UPDATE documents SET due_assignee=NULL WHERE due_assignee=?", (user_id,))
     con.execute("DELETE FROM users WHERE id=?", (user_id,))
+    avatars.remove("u", user_id)
     return ids
 
 
@@ -577,6 +592,8 @@ def list_documents(
     owner: Optional[str] = Query(None, pattern=r"^\d+(,\d+)*$",
                                  description="Nur Dokumente dieser Person(en), z. B. 2 oder 2,3 (müssen sichtbar sein)"),
     mine_due: bool = Query(False, description="Nur Fristen, die mir oder niemandem zugeteilt sind"),
+    with_total: bool = Query(False, description="Gesamtzahl der Treffer im Header X-Total-Count (für Seiten)"),
+    response: Response = None,
     user: User = Depends(current_user),
 ):
     for v in (date_from, date_to):
@@ -587,8 +604,14 @@ def list_documents(
                         scope=scope, date_from=date_from, date_to=date_to, owner=owner, mine_due=mine_due,
                         warranty=warranty)
         if f is None:
+            if with_total and response is not None:
+                response.headers["X-Total-Count"] = "0"
             return []
         where, params, fq = f
+        if with_total and response is not None:
+            n = con.execute("SELECT COUNT(*) FROM documents d" + (" WHERE " + " AND ".join(where) if where else ""),
+                            params).fetchone()[0]
+            response.headers["X-Total-Count"] = str(n)
         if due:
             sort = "due"
             dir = "asc"
@@ -1021,6 +1044,58 @@ def due_assignees(doc_id: int, user: User = Depends(current_user)):
     with connect() as con:
         row = get_doc(con, doc_id, user)
         return duemod.candidates(con, user, row["owner_id"])
+
+
+class DueAssignIn(BaseModel):
+    ids: list[int]
+    assignee: Optional[int] = None    # null = niemand
+
+
+def _due_docs(con, user: User, ids: list[int], edit: bool) -> list:
+    """Offene Fristen aus der Auswahl, die `user` sieht (bzw. bearbeiten darf); der Rest fällt still weg."""
+    rows = []
+    for i in dict.fromkeys(ids):
+        r = con.execute("SELECT * FROM documents WHERE id=? AND deleted_at IS NULL", (i,)).fetchone()
+        if not r or not r["due_date"] or r["due_done"] or not auth.can_view(con, user, r["owner_id"]):
+            continue
+        if edit and not auth.can_edit(con, user, r["owner_id"]):
+            continue
+        rows.append(r)
+    return rows
+
+
+@app.get("/due/assignees")
+def due_assignees_many(ids: str = Query(..., max_length=20000), user: User = Depends(current_user)):
+    """Mehrfachauswahl in „Wer kümmert sich?“: wen ich für die gewählten Fristen eintragen kann – je Person, für wie
+    viele davon (nur, wer das jeweilige Dokument sieht; nur Dokumente, die ich bearbeiten darf)."""
+    try:
+        want = [int(x) for x in ids.split(",") if x.strip()][:500]
+    except ValueError:
+        raise HTTPException(400, "ids: Zahlen, durch Komma getrennt")
+    with connect() as con:
+        rows = _due_docs(con, user, want, edit=True)
+        people: dict[int, dict] = {}
+        for r in rows:
+            for c in duemod.candidates(con, user, r["owner_id"]):
+                people.setdefault(c["id"], {**c, "count": 0})["count"] += 1
+        return {"total": len(rows), "people": sorted(people.values(), key=lambda p: p["display_name"].lower())}
+
+
+@app.post("/due/assign")
+def due_assign_many(body: DueAssignIn, user: User = Depends(current_user)):
+    """Mehrere offene Fristen auf einmal einer Person geben (oder niemandem). Übersprungen wird, was ich nicht
+    bearbeiten darf oder was die Person nicht sieht – das Ergebnis sagt, wie viele."""
+    if len(body.ids) > 500:
+        raise HTTPException(400, "Höchstens 500 auf einmal")
+    with connect() as con:
+        rows = _due_docs(con, user, body.ids, edit=True)
+        done = 0
+        for r in rows:
+            if body.assignee is not None and body.assignee not in {c["id"] for c in duemod.candidates(con, user, r["owner_id"])}:
+                continue
+            con.execute("UPDATE documents SET due_assignee=?, updated_at=datetime('now') WHERE id=?", (body.assignee, r["id"]))
+            done += 1
+        return {"updated": done, "skipped": len(set(body.ids)) - done}
 
 
 @app.get("/documents/{doc_id}/due.ics")
@@ -1458,6 +1533,7 @@ class SettingsIn2(BaseModel):
     backup_keep_weeks: Optional[int] = None
     public_url: Optional[str] = None       # Adresse für Freigabe-Links, z. B. https://papigator.example.de
     return_window: Optional[bool] = None   # Online-Käufe: Rücksendefrist (14 Tage) als Frist eintragen
+    update_check: Optional[bool] = None     # nach neuen Papigator-Versionen suchen (GitHub-Release)
 
 
 @app.get("/settings")
@@ -1472,7 +1548,13 @@ def get_settings(user: User = Depends(require_admin)):
             "duplicate_mode": cfg["duplicate_mode"], "thumb_width": cfg["thumb_width"],
             **{f"backup_{k}": v for k, v in backupmod.settings().items() if k in ("dir", "hour", "keep_days", "keep_weeks")},
             "public_url": _public_url(), "llm_paused_until": worker.paused_until(),
-            "return_window": _setting_on("return_window")}
+            "return_window": _setting_on("return_window"), "update_check": _update_check()}
+
+
+def _update_check() -> bool:
+    from . import updates
+    with connect() as con:
+        return updates.enabled(con)
 
 
 def _setting_on(key: str) -> bool:
@@ -1495,6 +1577,9 @@ def patch_settings(body: SettingsIn2, admin: User = Depends(require_admin)):
         _patch_llm_servers(con, body)
         if body.return_window is not None:
             set_setting(con, "return_window", "1" if body.return_window else "0")
+        if body.update_check is not None:
+            set_setting(con, "update_check", "1" if body.update_check else "0")
+            set_setting(con, "update_checked", None)       # beim nächsten Blick neu nachsehen
         if body.ocr_langs is not None and body.ocr_langs.strip():
             set_setting(con, "ocr_langs", body.ocr_langs.strip())
         if body.trash_days is not None:

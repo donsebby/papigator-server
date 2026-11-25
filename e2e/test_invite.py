@@ -35,10 +35,19 @@ def test_invite_create_and_welcome_page(page, browser, server):
     guest.fill("#inv-user", "kim")
     guest.click("#invite-form button[type=submit]")
     expect(guest.locator("#main")).to_be_visible()
+    # neues Konto: erst die Tour (Willkommen) – Überspringen, kommt danach nicht wieder
+    expect(guest.locator("#whatsnew-dialog")).to_be_visible()
+    expect(guest.locator("#wn-title")).to_have_text("Füttere ihn")
+    guest.click("#wn-skip")
+    expect(guest.locator("#whatsnew-dialog")).to_be_hidden()
     expect(guest.locator("#main")).to_contain_text("Keine Dokumente")            # eigener Pot ist leer …
     guest.get_by_role("button", name="Partner").click()
     expect(guest.locator(".card", has_text="Grundsteuer")).to_be_visible()   # … Alex hat seinen freigegeben
     assert "#invite=" not in guest.url
+    guest.reload()
+    expect(guest.locator("#main")).to_be_visible()
+    guest.wait_for_timeout(600)
+    expect(guest.locator("#whatsnew-dialog")).to_be_hidden()
     guest.goto(url)                                           # zweites Mal: verbraucht
     expect(guest.locator("#inv-sub")).to_contain_text("schon benutzt")
     expect(guest.locator("#inv-fields")).to_be_hidden()

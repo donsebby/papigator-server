@@ -136,6 +136,7 @@ web app; the setting stored in the database then wins.
 | `PAPIGATOR_TOKEN` | – (required in Compose) | Bootstrap token for the first-run setup; ignored once a user exists. |
 | `PAPIGATOR_DATA` | `/data` | Data folder (database, PDFs, thumbnails). |
 | `PAPIGATOR_BACKUP` | `/backup` in the image | Backup target folder; empty disables backups. *Starting value.* |
+| `PAPIGATOR_UPDATE_CHECK` | `1` | Admins see a notice when a newer Papigator release exists (one anonymous request to the GitHub API at most twice a day). `0` turns it off. *Starting value.* |
 | `PAPIGATOR_INBOX` | `$PAPIGATOR_DATA/inbox` | Scanner inbox; files in `<inbox>/<username>/` are imported for that user. |
 | `PAPIGATOR_INBOX_POLL` | `10` | Seconds between inbox scans. |
 | `PAPIGATOR_OCR_LANGS` | `deu+eng` | Tesseract languages. *Starting value.* |

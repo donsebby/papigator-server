@@ -459,6 +459,14 @@ def upcoming(con, owners: list[int], today: date | None = None) -> list[dict]:
     for r in newest.values():
         if r["d"] and (today - dt.timedelta(days=365)).isoformat() <= r["d"] <= (today + dt.timedelta(days=60)).isoformat():
             items.append({"type": "service", "document_id": r["id"], "title": r["title"], "what": r["what"], "date": r["d"]})
+    # Gewährleistung/Garantie endet in den nächsten vier Wochen (25.11.2026): noch Zeit, einen Defekt zu melden. Kleinkram
+    # (unter 50 €) nicht – sonst stünde jeder Online-Einkauf irgendwann hier
+    for r in con.execute(f"SELECT id, title, sender, amount, warranty_kind AS kind, warranty_until AS d FROM documents "
+                         f"WHERE {base} AND warranty_months > 0 AND warranty_until BETWEEN ? AND ? "
+                         f"AND (amount IS NULL OR amount >= 50) ORDER BY warranty_until",
+                         (*owners, today.isoformat(), (today + dt.timedelta(days=28)).isoformat())).fetchall():
+        items.append({"type": "warranty", "document_id": r["id"], "title": r["title"],
+                      "what": "Garantie" if r["kind"] == "garantie" else "Gewährleistung", "date": r["d"], "amount": r["amount"]})
     refunds = con.execute(f"SELECT id, title, sender, amount, currency, document_date AS d FROM documents WHERE {base} "
                           f"AND refund_state='open' ORDER BY document_date, id", owners).fetchall()
     if len(refunds) > 3:   # viele offene: eine Zeile mit Zahl und Summe, öffnet die älteste
@@ -475,7 +483,7 @@ def upcoming(con, owners: list[int], today: date | None = None) -> list[dict]:
             items.append({"type": "price", "document_id": inc["document_id"], "title": c["sender"], "what": c["sender"],
                           "date": inc["since"], "amount": inc["to"], "from": inc["from"], "percent": inc["percent"],
                           "cancel_by": (c.get("cancel_by") or {}).get("date")})
-    order = {"expiry": 0, "service": 1, "price": 2, "refund": 3}
+    order = {"expiry": 0, "warranty": 1, "service": 2, "price": 3, "refund": 4}
     items.sort(key=lambda i: (order[i["type"]], i["date"] or ""))
     return items
 

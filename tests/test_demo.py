@@ -100,7 +100,7 @@ def test_nothing_changed_by_blocked_calls(demo_on, client, family):
     assert kim.get("/auth/me").status_code == 200
     me = other.get("/auth/me").json()
     assert me["demo"] is True
-    assert me["shared_by_me"] == [{"id": sam.id, "display_name": "sam", "can_edit": True}]
+    assert me["shared_by_me"] == [{"id": sam.id, "display_name": "sam", "can_edit": True, "avatar": None}]
 
 
 def test_allowed_me_setting_still_works(demo_on, family):
@@ -236,6 +236,9 @@ REVIEWED_ALLOWED = {
     ("POST", "/ask"),                         # ohne KI-Server bricht das freundlich ab
     ("POST", "/documents/owner"),
     ("PATCH", "/documents/{doc_id}"),
+    ("POST", "/due/assign"),
+    ("POST", "/whatsnew/seen"),               # merkt nur, dass dieses Konto die Tour gesehen hat
+    ("POST", "/contracts/cancel-letter"),     # PDF zurück; „ablegen“ ist in der Demo gesperrt (app/cancel.py)                  # wie PATCH an der Frist: nur eigene/bearbeitbare Dokumente
     ("POST", "/documents/{doc_id}/accept"),
     ("POST", "/documents/{doc_id}/restore"),
     ("POST", "/views"), ("PATCH", "/views/{view_id}"), ("DELETE", "/views/{view_id}"),
@@ -247,7 +250,6 @@ REVIEWED_ALLOWED = {
     ("POST", "/bank/import"),                 # in der Demo bis 1 MB je Datei und bank.DEMO_MAX_TX Buchungen insgesamt
     ("PATCH", "/bank/accounts/{account_id}"),  # Name, wer mitsieht – lässt sich zurückstellen
     ("PATCH", "/bank/tx/{tx_id}"), ("DELETE", "/bank/rules/{rule_id}"),
-    ("PUT", "/bank/yearly/pot"), ("PUT", "/bank/yearly/mark"),   # nur eigene Einstellungen, zurückstellbar
 }
 
 

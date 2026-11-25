@@ -130,13 +130,28 @@ def _fold(line: str) -> str:
 
 def ics(row, host: str = "papigator") -> str:
     """Ganztägiger Termin am Tag der Frist mit Erinnerung drei Tage vorher; wiederkehrend mit RRULE."""
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Papigator//Fristen//DE", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+             *vevent(row, host), "END:VCALENDAR"]
+    return "\r\n".join(_fold(x) for x in lines) + "\r\n"
+
+
+def feed_calendar(rows, host: str = "papigator", extra: dict | None = None) -> str:
+    """Kalender-Abo (app/calfeed.py): alle offenen Fristen als ein Kalender, den Apple Kalender & Co. regelmäßig neu laden."""
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Papigator//Fristen//DE", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+             "X-WR-CALNAME:Papigator – Fristen", "REFRESH-INTERVAL;VALUE=DURATION:PT6H", "X-PUBLISHED-TTL:PT6H"]
+    for r in rows:
+        lines += vevent(r, host, (extra or {}).get(r["id"]))
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(_fold(x) for x in lines) + "\r\n"
+
+
+def vevent(row, host: str = "papigator", who: str | None = None) -> list[str]:
     day = dt.date.fromisoformat(row["due_date"][:10])
     title = row["title"] or "Dokument"
-    desc = "\n".join(x for x in (row["due_note"], row["sender"]) if x)
+    desc = "\n".join(x for x in (row["due_note"], row["sender"], f"Kümmert sich: {who}" if who else None) if x)
     repeat = row["due_repeat"] if "due_repeat" in row.keys() else None
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     lines = [
-        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Papigator//Fristen//DE", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
         "BEGIN:VEVENT",
         f"UID:papigator-doc-{row['id']}-due@{host}",
         f"DTSTAMP:{stamp}",
@@ -155,5 +170,5 @@ def ics(row, host: str = "papigator") -> str:
         lines.append(f"RRULE:{rule}")
     lines += ["TRANSP:TRANSPARENT",
               "BEGIN:VALARM", "ACTION:DISPLAY", f"DESCRIPTION:{_esc('Frist: ' + title)}", "TRIGGER:-P3D", "END:VALARM",
-              "END:VEVENT", "END:VCALENDAR"]
-    return "\r\n".join(_fold(x) for x in lines) + "\r\n"
+              "END:VEVENT"]
+    return lines

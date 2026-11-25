@@ -72,17 +72,22 @@
   </header>
   <!-- Öffentliche Demo (Server mit PAPIGATOR_DEMO=1, /auth/me → demo) -->
   <p id="demo-banner" class="demo-banner hidden" role="note">Demo mit erfundenen Daten – wird täglich zurückgesetzt</p>
+  <!-- Nur Admins: neue Server-Version auf GitHub (app.js → checkUpdates, Server: /updates) -->
+  <p id="update-banner" class="demo-banner update-banner hidden" role="status"><span id="update-text"></span>
+    <a id="update-link" href="#" target="_blank" rel="noopener">Was ist neu?</a>
+    <button id="update-dismiss" class="linkish" type="button">Ausblenden</button></p>
   <!-- Suche in Sätzen: erkannte Filter als Chips (app.js → renderSmartBar) -->
   <!-- Begrüßung (app.js → renderHello): „Guten Abend, Alex“ mit Datum – das Logo steht schon oben links -->
   <div id="hello" class="hello">
     <div class="hello-text"><div id="hello-date" class="hello-date"></div><h1 id="hello-title" class="hello-title"></h1></div>
     <!-- Umschalter neben der Begrüßung (18.11.2026): steht so in jeder Ansicht an derselben Stelle, auch wenn
          Heute und Geld die Leisten für Dokumente nicht brauchen -->
-    <div class="segmented" id="mode-seg" aria-label="Ansicht">
+    <div class="segmented" id="mode-seg" role="group" aria-label="Ansicht">
       <button data-mode="today" title="Fristen, Familie und das Neueste auf einen Blick"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Heute</span></button>
       <button data-mode="tiles" title="Alle Dokumente als Kacheln"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Kacheln</span></button>
       <button data-mode="folders" title="Tags als Ordner durchblättern"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Ordner</span></button>
       <button data-mode="money" title="Kontoumsätze: wofür das Geld ging"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Geld</span></button>
+      <button data-mode="family" title="Familie: wer kümmert sich, Personen, Notfallmappe"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17" cy="9.5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 19c.8-3.3 3.2-5 6-5s5.2 1.7 6 5M15.5 14.3c2.6-.4 4.6 1.2 5.5 4.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Familie</span></button>
     </div>
   </div>
   <div id="smartbar" class="tagbar filterbar smartbar hidden" aria-live="polite"></div>
@@ -151,6 +156,8 @@
   <div id="todayview" class="todayview hidden"></div>
   <!-- Geld (app.js → renderMoney): Kontoumsätze aus CSV, Kategorien, Einsortieren -->
   <div id="moneyview" class="moneyview hidden"></div>
+  <!-- Familie (app.js → renderFamily): Mitglieder, Wer kümmert sich?, Notfallmappe, Personen, Aufräumen -->
+  <div id="familyview" class="todayview familyview hidden"></div>
   <div id="folderview" class="folderview hidden"></div>
   <main id="grid" class="grid"></main>
   <!-- Leere Ansicht: Titel und Satz je nach Lage (app.js → renderEmpty) -->
@@ -160,7 +167,13 @@
     <p id="empty-text"></p>
     <label id="empty-upload" class="btn primary hidden" for="file-input"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>Dokument hochladen</label>
   </div>
-  <p class="center"><button id="more-btn" class="btn hidden">Mehr laden</button></p>
+  <!-- Seiten (app.js → renderPager): 25/50/100 pro Seite, im Browser gemerkt -->
+  <nav id="pager" class="pager hidden" aria-label="Seiten">
+    <button id="pg-prev" class="btn" type="button">‹ Zurück</button>
+    <span id="pg-info" class="muted small"></span>
+    <button id="pg-next" class="btn" type="button">Weiter ›</button>
+    <label class="pg-size muted small">Pro Seite <select id="pg-size"><option>25</option><option>50</option><option>100</option></select></label>
+  </nav>
   <div id="dropzone" class="dropzone hidden">PDFs hier ablegen</div>
 </section>
 
@@ -244,6 +257,12 @@
         <datalist id="tag-list"></datalist>
       </label>
       <p id="m-llm-hint" class="llm-hint hidden" style="margin:0">Tags vom LLM vorgeschlagen – noch nicht bestätigt</p>
+      <!-- Notizen (app/notes.py): sehen alle, die das Dokument sehen -->
+      <div id="m-notes-box"><span class="k">Notizen</span>
+        <div id="m-notes"></div>
+        <div class="note-add"><textarea id="m-note-text" rows="2" maxlength="2000" placeholder="z. B. Mit Versicherung telefoniert, Rückruf abwarten"></textarea>
+          <button id="m-note-add" class="btn" type="button">Notiz hinzufügen</button></div>
+      </div>
       <div class="spacer"></div>
       <button id="save-btn" class="primary">Speichern</button>
       <p id="m-info" class="muted small" style="margin:0"></p>
@@ -273,6 +292,10 @@
         <div class="sect-body">
           <p id="s-demo-account" class="muted small hidden">In der Demo teilen sich alle dieses Konto – Name, Passwort und Geräte lassen sich hier nicht ändern.</p>
           <div id="s-account-edit">
+          <div class="avatar-row"><span id="s-avatar" class="t-av"></span>
+            <button id="s-avatar-pick" class="btn" type="button">Profilbild wählen</button>
+            <button id="s-avatar-del" class="btn ghost danger hidden" type="button">Entfernen</button></div>
+          <input id="avatar-file" type="file" accept="image/*" hidden>
           <label><span class="k">Anzeigename</span><input id="s-name"></label>
           <label id="s-pass-old-row"><span class="k">Aktuelles Passwort (nur zum Ändern)</span><input id="s-pass-old" type="password" autocomplete="current-password"></label>
           <label><span class="k">Neues Passwort</span><input id="s-pass" type="password" autocomplete="new-password" placeholder="leer lassen = unverändert, mindestens 8 Zeichen"></label>
@@ -288,6 +311,24 @@
             <label><span class="k">Passwort zur Bestätigung</span><input id="s-delete-pass" type="password" autocomplete="current-password"></label>
             <button id="s-delete-me" class="btn danger">Konto endgültig löschen</button>
           </details>
+        </div>
+      </details>
+      <details class="sect" id="s-cal-sect">
+        <summary>Kalender-Abo</summary>
+        <div class="sect-body">
+          <p class="muted small">Alle offenen Fristen, die du siehst, als Kalender – einmal in Apple Kalender, Google Kalender
+            oder Outlook abonnieren, neue Fristen kommen dann von selbst dazu. Der Link funktioniert ohne Anmeldung: nur an
+            eigene Geräte geben. Abruf wie die App: im Heimnetz oder per VPN.</p>
+          <div id="s-cal-off"><button id="s-cal-create" class="btn" type="button">Abo-Link erstellen</button></div>
+          <div id="s-cal-on" class="hidden">
+            <input id="s-cal-url" readonly aria-label="Abo-Link">
+            <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:8px">
+              <a id="s-cal-open" class="btn primary">Im Kalender abonnieren</a>
+              <button id="s-cal-copy" class="btn" type="button">Kopieren</button>
+              <button id="s-cal-new" class="btn ghost" type="button">Neuer Link</button>
+              <button id="s-cal-del" class="btn ghost danger" type="button">Abschalten</button>
+            </div>
+          </div>
         </div>
       </details>
       <details class="sect">
@@ -432,7 +473,7 @@
             <p class="muted small" style="margin:0">Hintergrund und Akzentfarbe der ganzen App. Jeder in der Familie wählt auf seinem Gerät selbst – gilt für diesen Browser.</p>
           </div>
           <div class="field-row"><span>Startansicht</span>
-            <div class="segmented" id="start-seg"><button data-start="last">Zuletzt benutzt</button><button data-start="today">Heute</button><button data-start="tiles">Kacheln</button><button data-start="folders">Ordner</button><button data-start="money">Geld</button></div>
+            <div class="segmented" id="start-seg"><button data-start="last">Zuletzt benutzt</button><button data-start="today">Heute</button><button data-start="tiles">Kacheln</button><button data-start="folders">Ordner</button><button data-start="money">Geld</button><button data-start="family">Familie</button></div>
           </div>
           <div class="field-row"><span>Datumsformat</span>
             <select id="s-date-fmt">
@@ -456,6 +497,10 @@
       <details class="sect">
         <summary>Über Papigator <span id="s-version" class="muted small"></span></summary>
         <div class="sect-body">
+          <div class="row" id="s-update-row"><p id="s-update-status" class="small" style="margin:0;flex:1"></p>
+            <button id="s-update-now" class="btn hidden" type="button">Jetzt prüfen</button></div>
+          <label class="toggle hidden" id="s-update-check-row"><input type="checkbox" id="s-update-check"> Auf neue Papigator-Versionen hinweisen (fragt zweimal am Tag bei GitHub nach, ohne Daten über diesen Server)</label>
+          <p class="small"><a href="#" id="s-whatsnew">Was ist neu?</a> · <a href="#" id="s-tour">Kurze Einführung</a></p>
           <p class="small">Der Papigator-Server ist freie Software unter der GNU AGPL 3.0 – Quellcode: <a href="https://github.com/donsebby/papigator-server" target="_blank" rel="noopener">github.com/donsebby/papigator-server</a>.</p>
           <p class="small">Danke an die Open-Source-Projekte, ohne die es Papigator nicht gäbe. Sie laufen unverändert als eigenständige Programme und Bibliotheken; die Lizenztexte liegen den Paketen bei, eine Übersicht steht in <code>THIRD_PARTY.md</code>.</p>
           <ul class="thanks">
@@ -733,6 +778,44 @@
     <div class="row" style="justify-content:flex-end">
       <button value="cancel" class="btn ghost">Abbrechen</button>
       <button type="button" id="bk-go" class="btn primary" disabled>Importieren</button>
+    </div>
+  </form>
+</dialog>
+<!-- Willkommen / „Was ist neu“ (app/whatsnew.py): Karten mit kleiner Animation, einmal pro Konto -->
+<dialog id="whatsnew-dialog" class="share-dialog whatsnew-dialog" aria-labelledby="wn-title">
+  <div class="wn">
+    <button type="button" id="wn-skip" class="btn ghost wn-skip">Überspringen</button>
+    <div id="wn-ill" class="wn-ill" aria-hidden="true"></div>
+    <div class="wn-body">
+      <span id="wn-tag" class="wn-tag hidden"></span>
+      <h3 id="wn-title"></h3>
+      <p id="wn-text"></p>
+    </div>
+    <div id="wn-dots" class="wn-dots"></div>
+    <div class="wn-actions">
+      <button type="button" id="wn-back" class="btn ghost">Zurück</button>
+      <button type="button" id="wn-next" class="btn primary">Weiter</button>
+    </div>
+  </div>
+</dialog>
+<!-- Kündigungshelfer (app/cancel.py): Schreiben als PDF oder gleich abgelegt -->
+<dialog id="cancel-dialog" class="share-dialog">
+  <form method="dialog" class="share-form">
+    <h3>Kündigungsschreiben</h3>
+    <p class="muted small" style="margin-top:-6px">Fristgerecht zum nächstmöglichen Zeitpunkt. Deine Anschrift merkt sich dieser Browser.</p>
+    <div class="row"><label style="flex:1"><span class="k">Von</span><input id="cx-from" autocomplete="name"></label>
+      <label style="flex:1"><span class="k">Ort (für das Datum)</span><input id="cx-place" autocomplete="address-level2"></label></div>
+    <label><span class="k">Deine Anschrift</span><textarea id="cx-from-addr" rows="2" placeholder="Straße Nr.&#10;PLZ Ort"></textarea></label>
+    <label><span class="k">An</span><input id="cx-to"></label>
+    <label><span class="k">Anschrift des Empfängers</span><textarea id="cx-to-addr" rows="2" placeholder="Straße oder Postfach&#10;PLZ Ort – steht meist oben im letzten Schreiben"></textarea></label>
+    <label><span class="k">Betrifft</span><input id="cx-about" placeholder="z. B. Kfz-Versicherung"></label>
+    <div class="row"><label style="flex:1"><span class="k">Vertragsnummer</span><input id="cx-contract"></label>
+      <label style="flex:1"><span class="k">Kundennummer</span><input id="cx-customer"></label></div>
+    <label><span class="k">Spätestens zum (optional)</span><input id="cx-by" type="date"></label>
+    <div class="row" style="justify-content:flex-end;flex-wrap:wrap">
+      <button value="cancel" class="btn ghost">Abbrechen</button>
+      <button type="button" id="cx-save" class="btn">In Papigator ablegen</button>
+      <button type="button" id="cx-pdf" class="btn primary">PDF herunterladen</button>
     </div>
   </form>
 </dialog>

@@ -151,7 +151,7 @@ def run(reason: str = "manuell") -> dict:
             security.migrate(con)
         db_bytes = (dest / "papigator.db").stat().st_size
         files = size = 0
-        for sub in ("documents", "thumbnails"):
+        for sub in ("documents", "thumbnails", "avatars"):
             f, b = _copy_tree(config.DATA_DIR / sub, dest / sub, prev / sub if prev else None)
             files += f
             size += b
@@ -215,7 +215,7 @@ def restore(name: str) -> dict:
         raise RuntimeError("Eine Sicherung läuft gerade – bitte kurz warten")
     try:
         files = 0
-        for sub in ("documents", "thumbnails"):
+        for sub in ("documents", "thumbnails", "avatars"):
             dest = config.DATA_DIR / sub
             dest.mkdir(parents=True, exist_ok=True)
             srcdir = path / sub

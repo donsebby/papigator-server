@@ -60,7 +60,9 @@ def _person_out(con, user: User, tag_id: int) -> dict:
                        (tag_id, *visible)).fetchone() is not None
     mine = con.execute(f"SELECT 1 FROM persons WHERE tag_id=? AND user_id IN ({_marks(editable)})",
                        (tag_id, *editable)).fetchone() is not None
-    return {"id": t["id"], "name": t["name"], "color": t["color"], "count": count, "auto": auto, "can_remove": mine}
+    from . import avatars
+    return {"id": t["id"], "name": t["name"], "color": t["color"], "count": count, "auto": auto, "can_remove": mine,
+            "avatar": avatars.version("p", tag_id)}
 
 
 @router.get("/persons")
@@ -143,6 +145,8 @@ def remove_person(tag_id: int, user: User = Depends(current_user)):
         con.execute(f"DELETE FROM rules WHERE tag_id=? AND word=1 AND created_by IN ({_marks(mine)})", (tag_id, *mine))
         if not con.execute("SELECT 1 FROM persons WHERE tag_id=?", (tag_id,)).fetchone():
             con.execute("UPDATE tags SET kind=NULL WHERE id=? AND kind='person'", (tag_id,))
+            from . import avatars
+            avatars.remove("p", tag_id)        # niemand führt die Person mehr – das Bild geht mit
 
 
 # ---------- Notfallmappe ----------

@@ -190,3 +190,20 @@ def test_extras_migration_runs_on_startup(tmp_path, monkeypatch):
     con = sq.connect(path)
     got = con.execute("SELECT title, refund_state, llm_status FROM documents ORDER BY id").fetchall()
     assert got[0][1] == "done" and got[2][2] == "refill_w" and got[1][2] == "done"
+
+
+def test_warranty_ending_soon(admin):
+    """Gewährleistung/Garantie endet in den nächsten vier Wochen → „Im Blick“; Kleinkram unter 50 € und spätere nicht."""
+    def doc(title, until, amount, kind="legal"):
+        d = admin.upload(f"Rechnung {title}", title).json()
+        with connect() as con:
+            con.execute("UPDATE documents SET warranty_months=24, warranty_kind=?, warranty_until=?, amount=? WHERE id=?",
+                        (kind, until, amount, d["id"]))
+        return d["id"]
+    tv = doc("Fernseher", _iso(20), 899.0)
+    doc("Kabel", _iso(10), 12.99)
+    doc("Waschmaschine", _iso(90), 650.0)
+    dryer = doc("Trockner", _iso(5), 700.0, kind="garantie")
+    w = _items(admin, "warranty")
+    assert [i["document_id"] for i in w] == [dryer, tv]
+    assert w[0]["what"] == "Garantie" and w[1]["what"] == "Gewährleistung" and w[1]["date"] == _iso(20)

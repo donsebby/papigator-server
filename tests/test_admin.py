@@ -28,6 +28,7 @@ ADMIN_ONLY = [
     ("delete", "/cleanup/rules/1", None),
     ("post", "/invites", {"display_name": "Kim"}),
     ("get", "/invites", None),
+    ("get", "/updates", None),
     ("delete", "/invites/1", None),
 ]
 

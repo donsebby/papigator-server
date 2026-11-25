@@ -36,6 +36,8 @@ done
 grep -q "build_from" homeassistant/build.yaml || fail "build.yaml ohne build_from"
 VER=$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' homeassistant/config.yaml)
 [ -n "$VER" ] || fail "config.yaml: version nicht lesbar"
+APPVER=$(sed -n 's/^VERSION = "\([^"]*\)"$/\1/p' app/version.py)
+[ "$VER" = "$APPVER" ] || fail "config.yaml version ($VER) ≠ app/version.py ($APPVER)"
 for a in aarch64 amd64; do
   grep -q "^  $a: ghcr.io/donsebby/papigator:$VER\$" homeassistant/build.yaml || fail "build.yaml: $a nicht auf :$VER (version aus config.yaml)"
 done

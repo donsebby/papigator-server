@@ -573,6 +573,48 @@ def test_review_reasons_on_cards_and_detail(page):
     page.unroute_all(behavior="ignoreErrors")   # sonst stört eine noch laufende Umleitung den nächsten Test
 
 
+def test_update_banner_for_admins(page):
+    """Neue Server-Version: Hinweis oben mit Link; „Ausblenden“ gilt für genau diese Version."""
+    import json as _json
+    body = _json.dumps({"current": "2026.11.25.1", "enabled": True, "latest": "2099.1.1", "newer": True,
+                        "url": "https://github.com/donsebby/papigator-server/releases/tag/v2099.1.1", "notes": ""})
+    page.route("**/updates", lambda r: r.fulfill(status=200, content_type="application/json", body=body))
+    page.evaluate("localStorage.removeItem('bl.update.hidden')")
+    page.reload()
+    shown(page, "#update-banner")
+    expect(page.locator("#update-text")).to_contain_text("Papigator 2099.1.1 ist da")
+    expect(page.locator("#update-link")).to_have_attribute("href", re.compile("v2099.1.1"))
+    page.click("#update-dismiss")
+    hidden(page, "#update-banner")
+    page.reload()
+    page.wait_for_selector("#main:not(.hidden)")
+    hidden(page, "#update-banner")
+    page.unroute_all(behavior="ignoreErrors")
+
+
+def _png() -> bytes:
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (320, 200), (40, 120, 200)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_own_avatar_in_settings_and_family(page):
+    """Profilbild: Einstellungen → Konto & Geräte → „Profilbild wählen“; danach im Kreis, und wieder entfernen."""
+    page.click("#settings-btn")
+    page.locator("summary", has_text="Konto & Geräte").click()
+    expect(page.locator("#s-avatar")).not_to_have_class(re.compile("has-img"))
+    with page.expect_file_chooser() as fc:
+        page.click("#s-avatar-pick")
+    fc.value.set_files(files=[{"name": "ich.png", "mimeType": "image/png", "buffer": _png()}])
+    expect(page.locator("#s-avatar img")).to_be_visible()
+    assert page.evaluate("(async () => (await fetch(document.querySelector('#s-avatar img').src)).headers.get('content-type'))()") == "image/jpeg"
+    page.click("#s-avatar-del")
+    expect(page.locator("#s-avatar img")).to_have_count(0)
+    page.go_back()
+
+
 def test_family_settings(page):
     # Familie (am Ende, weil es Ordner anlegt): Person hinzufügen, Notfallmappe füllen und teilen, Aufräumen
     page.click("#settings-btn")
@@ -581,6 +623,13 @@ def test_family_settings(page):
     page.fill("#s-person-name", "Lena")
     page.press("#s-person-name", "Enter")
     expect(page.locator("#s-persons .person-pill")).to_have_text("Lena")
+    # Bild für Lena: auf den Kreis klicken, Datei wählen – danach steht das Bild da und lässt sich wieder entfernen
+    with page.expect_file_chooser() as fc:
+        page.locator("#s-persons .avatar-btn").click()
+    fc.value.set_files(files=[{"name": "lena.png", "mimeType": "image/png", "buffer": _png()}])
+    expect(page.locator("#s-persons .avatar-btn img")).to_be_visible()
+    page.locator("#s-persons [data-noimg]").click()
+    expect(page.locator("#s-persons .avatar-btn img")).to_have_count(0)
     page.locator("#s-emergency-sect summary").click()
     expect(page.locator("#s-emergency")).to_contain_text("Noch leer")
     expect(page.locator("#s-emergency-share")).to_be_disabled()
@@ -903,6 +952,57 @@ def test_today_view_deadlines_family_new_and_back(page):
     page.evaluate("localStorage.setItem('bl.mode', 'tiles')")
 
 
+def test_today_assign_several_deadlines_at_once(page):
+    """„Wer kümmert sich?“ für mehrere: in „Fristen“ auf „Zuweisen“, Fristen antippen, Person wählen – alle auf einmal."""
+    from datetime import date, timedelta
+    ids = [_upload(page, t) for t in ("Kita-Beitrag", "Rundfunkbeitrag")]
+    for i in ids:
+        _patch(page, i, {"due_date": (date.today() + timedelta(days=5)).isoformat()})
+    _today(page)
+    card = page.locator(".t-due")
+    card.locator('[data-act="assign"]').click()
+    expect(card.locator(".t-assign")).to_contain_text("Fristen antippen")
+    expect(card.locator(".t-check")).to_have_count(0)                    # Abhaken ruht während der Auswahl
+    for t in ("Kita-Beitrag", "Rundfunkbeitrag"):
+        card.locator(".t-row", has_text=t).locator(".t-open").click()
+    expect(card.locator(".t-assign-n")).to_have_text("2 ausgewählt")
+    expect(card.locator("#t-assign-to")).to_be_enabled()
+    card.locator("#t-assign-to").select_option(label="Alex")
+    expect(page.locator("#toast")).to_contain_text("2 Fristen zugewiesen")
+    expect(card.locator(".t-assign")).to_have_count(0)
+    me = page.evaluate("fetch('/auth/me').then(r => r.json())")["id"]
+    for i in ids:
+        assert page.evaluate(f"fetch('/documents/{i}').then(r => r.json())")["due_assignee"] == me
+        _patch(page, i, {"due_date": ""})                                # aufräumen für die anderen Tests
+    page.evaluate("localStorage.setItem('bl.mode', 'tiles')")
+
+
+def test_today_money_card_and_balanced_columns(page):
+    """Heute: Karte „Geld“ (jüngster Monat mit Umsätzen, größte Posten) und die Karten auf beide Spalten verteilt –
+    keine große Lücke unter wenigen Fristen."""
+    from datetime import date, timedelta
+    d = lambda n: (date.today() - timedelta(days=n)).strftime("%d.%m.%Y")
+    csv_ = ("Buchungsdatum;Zahlungsempfänger;Verwendungszweck;Betrag\n"
+            f"{d(3)};REWE Markt;Einkauf;-84,20\n{d(4)};Stadtwerke;Strom Abschlag;-96,00\n{d(35)};REWE Markt;Einkauf;-61,10\n")
+    acc = page.evaluate("""async (csv) => { const fd = new FormData();
+        fd.append("file", new Blob([csv], { type: "text/csv" }), "giro.csv"); fd.append("account_name", "Giro");
+        return (await (await fetch("/bank/import", { method: "POST", body: fd })).json()).account_id; }""", csv_)
+    page.reload()
+    _today(page)
+    card = page.locator(".t-money")
+    expect(card).to_contain_text("ausgegeben")
+    expect(card.locator(".t-mcat")).not_to_have_count(0)
+    # Verteilung: die Spalten unterscheiden sich höchstens um die höchste Karte
+    diff, tallest = page.evaluate("""() => { const m = document.querySelector('#todayview .t-main'), s = document.querySelector('#todayview .t-side');
+        const cards = [...document.querySelectorAll('#todayview .t-cols .tcard, #todayview .t-cols .t-review')];
+        return [Math.abs(m.offsetHeight - s.offsetHeight), Math.max(...cards.map(c => c.offsetHeight))]; }""")
+    assert diff <= tallest + 14, (diff, tallest)
+    card.locator('[data-act="money"]').first.click()
+    shown(page, "#moneyview")
+    page.evaluate(f"fetch('/bank/accounts/{acc}', {{ method: 'DELETE' }})")
+    page.evaluate("localStorage.setItem('bl.mode', 'tiles')")
+
+
 def test_today_is_default_start_and_fits_phone_width(page):
     # Ohne gespeicherte Ansicht startet ein neuer Browser in „Heute“
     assert page.evaluate("localStorage.removeItem('bl.mode'); localStorage.removeItem('bl.start'); startMode()") == "today"
@@ -1194,6 +1294,9 @@ def test_delete_own_account(page, browser, server):
     pg.fill("#login-pass", "weg-e2e-pass-123")
     pg.click("#login-form button[type=submit]")
     pg.wait_for_selector("#main:not(.hidden)")
+    expect(pg.locator("#whatsnew-dialog")).to_be_visible()          # neues Konto: Tour
+    pg.keyboard.press("Escape")
+    expect(pg.locator("#whatsnew-dialog")).to_be_hidden()
     pg.click("#settings-btn")
     pg.locator("summary", has_text="Konto & Geräte").click()
     pg.locator("#s-delete summary").click()
@@ -1204,3 +1307,168 @@ def test_delete_own_account(page, browser, server):
     assert c.post("/auth/login", json={"username": "weg-e2e", "password": "weg-e2e-pass-123"}).status_code == 401
     ctx.close()
     assert not errors, errors
+
+
+def test_logout_asks_first(page):
+    """Abmelden fragt nach: „Abbrechen“ lässt einen angemeldet, „OK“ meldet ab."""
+    page.click("#settings-btn")
+    page.once("dialog", lambda d: d.dismiss())
+    page.click("#logout-btn")
+    shown(page, "#settings")
+    page.once("dialog", lambda d: (d.message.startswith("Wirklich abmelden") or None) and d.accept())
+    page.click("#logout-btn")
+    expect(page.locator("#login-form")).to_be_visible()
+
+
+def test_money_layer_focus(page):
+    """Ebene in Geld: Fokus auf „‹ Geld“, nach Esc zurück auf den Knopf, der sie geöffnet hat."""
+    import datetime as _dt
+    t = _dt.date.today()
+    ago = lambda n: (t - _dt.timedelta(days=n)).strftime("%d.%m.%Y")
+    csv_ = (f"Buchungsdatum;Zahlungsempfänger;Verwendungszweck;Betrag\n{ago(405)};Hanse Kraft;Kfz;-655,80\n{ago(40)};Hanse Kraft;Kfz;-701,20\n")
+    acc = page.evaluate("""async (csv) => { const fd = new FormData();
+        fd.append("file", new Blob([csv], { type: "text/csv" }), "giro.csv"); fd.append("account_name", "Giro");
+        return (await (await fetch("/bank/import", { method: "POST", body: fd })).json()).account_id; }""", csv_)
+    page.click('#mode-seg button[data-mode="money"]')
+    expect(page.locator('#mode-seg button[data-mode="money"]')).to_have_attribute("aria-pressed", "true")
+    mv = page.locator("#moneyview")
+    mv.locator('[data-mact="yearly"]').click()
+    expect(mv.locator(".m-back")).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(mv.locator('[data-mact="yearly"]')).to_be_focused()
+    page.evaluate(f"fetch('/bank/accounts/{acc}', {{ method: 'DELETE' }})")
+
+
+def test_version_status_in_about(page):
+    """Einstellungen → Über Papigator: laufende Version, „Aktuellste Version“ mit Prüfzeit, „Jetzt prüfen“ fragt neu."""
+    import json as _json
+    seen = []
+    def handle(route):
+        seen.append(route.request.url)
+        route.fulfill(status=200, content_type="application/json", body=_json.dumps(
+            {"current": "2026.11.25.1", "enabled": True, "latest": "2026.11.25.1", "newer": False, "url": None,
+             "notes": None, "checked": "2026-11-25T12:00:00"}))
+    page.route("**/updates*", handle)
+    page.click("#settings-btn")
+    page.locator("summary", has_text="Über Papigator").click()
+    expect(page.locator("#s-update-status")).to_contain_text("Server 2026.11.25.1")
+    expect(page.locator("#s-update-status")).to_contain_text("Aktuellste Version")
+    expect(page.locator("#s-version")).to_contain_text("aktuell")
+    expect(page.locator("#s-update-check")).to_be_checked()
+    page.click("#s-update-now")
+    page.wait_for_timeout(300)
+    assert any("force=true" in u for u in seen)
+    page.unroute_all(behavior="ignoreErrors")
+
+
+def test_document_notes(page):
+    """Notiz am Dokument: hinzufügen, steht mit „Alex“ und Zeit da, wieder löschen."""
+    page.locator(".card", has_text="Grundsteuer").first.click()
+    shown(page, "#detail")
+    expect(page.locator("#m-notes")).to_contain_text("Noch keine Notizen")
+    page.fill("#m-note-text", "Bescheid geprüft, Einspruch nicht nötig")
+    page.click("#m-note-add")
+    expect(page.locator("#m-notes .note")).to_contain_text("Bescheid geprüft")
+    expect(page.locator("#m-notes .note")).to_contain_text("Alex")
+    page.locator("#m-notes [data-note-del]").click()
+    expect(page.locator("#m-notes")).to_contain_text("Noch keine Notizen")
+
+
+def test_calendar_subscription(page):
+    """Einstellungen → Kalender-Abo: Link erstellen, der Link liefert einen Kalender, abschalten."""
+    page.click("#settings-btn")
+    page.locator("#s-cal-sect summary").click()
+    page.click("#s-cal-create")
+    url = page.locator("#s-cal-url")
+    expect(url).to_have_value(re.compile(r"/calendar/.+\.ics$"))
+    expect(page.locator("#s-cal-open")).to_have_attribute("href", re.compile(r"^webcal://"))
+    body = page.evaluate("(async (u) => (await fetch(u, { credentials: 'omit' })).text())", url.input_value())
+    assert "BEGIN:VCALENDAR" in body
+    page.once("dialog", lambda d: d.accept())
+    page.click("#s-cal-del")
+    expect(page.locator("#s-cal-create")).to_be_visible()
+
+
+def test_cancel_letter_dialog(page):
+    """Kündigungshelfer: Formular ausfüllen, PDF kommt als Download; eigene Angaben bleiben im Browser."""
+    page.click("#settings-btn")
+    page.evaluate("openCancelDialog({ sender: 'Stromwerk Süd GmbH', documents: [] })")
+    expect(page.locator("#cx-to")).to_have_value("Stromwerk Süd GmbH")
+    page.fill("#cx-from", "Alex Muster")
+    page.fill("#cx-from-addr", "Gartenweg 3\n12345 Musterstadt")
+    page.fill("#cx-about", "Stromliefervertrag")
+    with page.expect_download() as dl:
+        page.click("#cx-pdf")
+    assert dl.value.suggested_filename.startswith("Kuendigung_Stromwerk")
+    assert "Gartenweg" in page.evaluate("localStorage.getItem('bl.cancel.me')")
+
+
+def test_tiles_pages(page):
+    """Kacheln seitenweise: 25 pro Seite → Weiter/Zurück, Seite 1 nach Filterwechsel; Größe gemerkt."""
+    for i in range(27):
+        _upload(page, f"Seitentest {i:02d}")
+    page.evaluate("localStorage.setItem('bl.pageSize', '25')")
+    page.reload()
+    page.wait_for_selector(".card")
+    page.fill("#search", "Seitentest")
+    expect(page.locator("#pg-info")).to_contain_text("Seite 1 von 2")
+    expect(page.locator(".card")).to_have_count(25)
+    page.click("#pg-next")
+    expect(page.locator("#pg-info")).to_contain_text("Seite 2 von 2")
+    expect(page.locator(".card")).to_have_count(2)
+    page.select_option("#pg-size", "50")
+    expect(page.locator(".card")).to_have_count(27)
+    expect(page.locator("#pg-prev")).to_be_hidden()
+    assert page.evaluate("localStorage.getItem('bl.pageSize')") == "50"
+    page.fill("#search", "")
+
+
+def test_family_view(page):
+    """Familie: eigene Ansicht mit „Wer kümmert sich?“, Mitgliedern, Notfallmappe und Aufräumen; Links in die Einstellungen."""
+    from datetime import date, timedelta
+    doc = _upload(page, "Familienfrist")
+    _patch(page, doc, {"due_date": (date.today() + timedelta(days=4)).isoformat()})
+    page.click('#mode-seg button[data-mode="family"]')
+    fv = page.locator("#familyview")
+    shown(page, "#familyview")
+    expect(fv).to_contain_text("Wer kümmert sich?")
+    expect(fv.locator(".f-group", has_text="Noch niemand")).to_contain_text("Familienfrist")
+    expect(fv).to_contain_text("Notfallmappe")
+    fv.locator('[data-sect="s-persons-sect"]').click()
+    shown(page, "#settings")
+    expect(page.locator("#s-persons-sect")).to_have_attribute("open", "")
+    page.go_back()
+    shown(page, "#familyview")
+    _patch(page, doc, {"due_date": ""})
+    page.evaluate("localStorage.setItem('bl.mode', 'tiles')")
+
+
+def test_whatsnew_tour_and_news_from_settings(page):
+    """Einstellungen → Über Papigator: Einführung und „Was ist neu“ – blättern (Knöpfe, Pfeiltasten), Zurück schließt."""
+    page.click("#settings-btn")
+    page.locator("summary", has_text="Über Papigator").click()
+    page.click("#s-tour")
+    dlg = page.locator("#whatsnew-dialog")
+    expect(dlg).to_be_visible()
+    expect(page.locator("#wn-title")).to_have_text("Füttere ihn")
+    expect(page.locator("#wn-back")).to_be_hidden()
+    expect(page.locator("#wn-ill img.g1")).to_have_count(1)          # Alligator-Posen fürs Füttern
+    n = page.locator("#wn-dots i").count()
+    assert n >= 4
+    page.click("#wn-next")
+    expect(page.locator("#wn-title")).to_have_text("Alles wiederfinden")
+    page.keyboard.press("ArrowLeft")
+    expect(page.locator("#wn-title")).to_have_text("Füttere ihn")
+    for _ in range(n - 1):
+        page.keyboard.press("ArrowRight")
+    expect(page.locator("#wn-next")).to_have_text("Los geht’s")
+    expect(page.locator("#wn-skip")).to_be_hidden()
+    page.click("#wn-next")
+    expect(dlg).to_be_hidden()
+    page.click("#s-whatsnew")
+    expect(dlg).to_be_visible()
+    expect(page.locator("#wn-tag")).to_contain_text("Neu")
+    expect(page.locator("#wn-ill")).not_to_contain_text("App-Icon")
+    page.go_back()                                                    # Browser-Zurück schließt den Dialog
+    expect(dlg).to_be_hidden()
+    expect(page.locator("#settings")).to_be_visible()

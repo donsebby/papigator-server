@@ -49,6 +49,11 @@ def _shared_account(request: Request, _body) -> bool:
 DENY: list[tuple[str, str, Optional[Callable]]] = [
     # Andere aussperren
     ("PATCH", "/auth/me", _me_change),
+    # Profilbilder: in einer öffentlichen Demo sähen alle Besucher, was einer hochlädt
+    ("PUT", "/auth/me/avatar", None),
+    ("DELETE", "/auth/me/avatar", None),
+    ("PUT", "/persons/{tag_id}/avatar", None),
+    ("DELETE", "/persons/{tag_id}/avatar", None),
     ("DELETE", "/auth/me", _shared_account),
     ("DELETE", "/auth/sessions", None),
     ("DELETE", "/auth/sessions/{session_id}", None),
@@ -80,6 +85,16 @@ DENY: list[tuple[str, str, Optional[Callable]]] = [
     # Geld: die erfundenen Konten bleiben – ein Besucher leerte sonst den Reiter für alle bis zum Zurücksetzen
     ("DELETE", "/bank/accounts/{account_id}", None),
     ("DELETE", "/bank/imports/{import_id}", None),
+    # Jährliche Kosten: Topf und Markierungen gelten für das geteilte Demo-Konto – „kein Topf“ eines Besuchers
+    # leerte die Karte sonst für alle bis zum Zurücksetzen
+    ("PUT", "/bank/yearly/pot", None),
+    ("PUT", "/bank/yearly/mark", None),
+    # Kalender-Abo: ein Link ohne Anmeldung – in der Demo nicht
+    ("POST", "/calendar/feed", None),
+    ("DELETE", "/calendar/feed", None),
+    # Notizen: in der öffentlichen Demo sähen alle Besucher, was einer schreibt
+    ("POST", "/documents/{doc_id}/notes", None),
+    ("DELETE", "/documents/{doc_id}/notes/{note_id}", None),
 ]
 
 # Zählen zum Tageslimit pro Nutzer: alles, was ein neues PDF anlegt oder OCR/KI erneut laufen lässt

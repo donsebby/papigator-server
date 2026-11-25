@@ -134,3 +134,31 @@ def test_due_ics(admin):
                        "due_repeat": None})
     assert all(len(line.encode()) <= 75 for line in long.split("\r\n"))
     assert "".join(x[1:] if x.startswith(" ") else x for x in long.split("\r\n")).count("Ä") == 200  # Titel + Alarm
+
+
+def test_assign_many_at_once(admin, sam, make_user):
+    """Mehrfachauswahl in „Wer kümmert sich?“: mehrere offene Fristen auf einmal einer Person geben – nur, was ich
+    bearbeiten darf und was die Person sieht; fremde und erledigte Dokumente bleiben unberührt."""
+    jo = make_user("jo")
+    a, b = _doc_with_due(admin, "Strom"), _doc_with_due(admin, "Wasser")
+    done = _doc_with_due(admin, "Erledigt")
+    admin.patch(f"/documents/{done['id']}", json={"due_done": True})
+    other = _doc_with_due(jo, "Von Jo")          # Alex sieht es nicht
+    ids = [a["id"], b["id"], done["id"], other["id"]]
+    # Sam sieht Alex' Dokumente noch nicht: nur Alex selbst zur Wahl, Sam wird übersprungen
+    r = admin.get("/due/assignees", params={"ids": ",".join(map(str, ids))}).json()
+    assert r["total"] == 2 and [p["id"] for p in r["people"]] == [admin.id]
+    assert admin.post("/due/assign", json={"ids": ids, "assignee": sam.id}).json() == {"updated": 0, "skipped": 4}
+    admin.put("/shares", json={"user_id": sam.id, "can_edit": True})
+    r = admin.get("/due/assignees", params={"ids": ",".join(map(str, ids))}).json()
+    assert {p["id"]: p["count"] for p in r["people"]} == {admin.id: 2, sam.id: 2}
+    assert admin.post("/due/assign", json={"ids": ids, "assignee": sam.id}).json() == {"updated": 2, "skipped": 2}
+    assert {admin.get(f"/documents/{i}").json()["due_assignee"] for i in (a["id"], b["id"])} == {sam.id}
+    assert admin.get(f"/documents/{done['id']}").json()["due_assignee"] is None
+    assert jo.get(f"/documents/{other['id']}").json()["due_assignee"] is None
+    # Jo darf Alex' Fristen nicht umverteilen (keine Freigabe)
+    assert jo.post("/due/assign", json={"ids": [a["id"]], "assignee": None}).json() == {"updated": 0, "skipped": 1}
+    # zurück auf niemand
+    assert admin.post("/due/assign", json={"ids": [a["id"], b["id"]], "assignee": None}).json()["updated"] == 2
+    assert admin.get(f"/documents/{a['id']}").json()["due_assignee"] is None
+    assert admin.get("/due/assignees", params={"ids": "x"}).status_code == 400

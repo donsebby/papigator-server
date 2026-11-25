@@ -53,7 +53,8 @@ def server():
     data = Path(tempfile.mkdtemp(prefix="papigator-e2e-"))
     port = _free_port()
     env = {**os.environ, "PAPIGATOR_DATA": str(data / "data"), "PAPIGATOR_TOKEN": "boot-e2e",
-           "PAPIGATOR_INBOX": str(data / "inbox"), "PAPIGATOR_BACKUP": str(data / "backup")}
+           "PAPIGATOR_INBOX": str(data / "inbox"), "PAPIGATOR_BACKUP": str(data / "backup"),
+           "PAPIGATOR_UPDATE_CHECK": "0"}   # keine echten Anfragen an GitHub; die Meldung testet test_update_banner
     env.pop("PAPIGATOR_LLM_URL", None)
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port)],
                             cwd=SERVER, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -71,7 +72,11 @@ def server():
     _seed(base)
     yield base
     proc.terminate()
-    proc.wait(timeout=10)
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:   # Verarbeitung vieler Test-Uploads läuft noch – dann hart beenden
+        proc.kill()
+        proc.wait(timeout=10)
 
 
 def _seed(base: str) -> None:
@@ -80,6 +85,7 @@ def _seed(base: str) -> None:
            headers={"Authorization": "Bearer boot-e2e"}).raise_for_status()
     tok = c.post("/auth/login", json={"username": USER, "password": PASSWORD}).json()["token"]
     h = {"Authorization": f"Bearer {tok}"}
+    c.post("/whatsnew/seen", headers=h).raise_for_status()   # Tour gesehen – sonst läge sie über jedem Test
     c.post("/tags", json={"name": "Haus"}, headers=h).raise_for_status()
     haus = next(t for t in c.get("/tags", headers=h).json() if t["name"] == "Haus")
     c.post("/tags", json={"name": "Strom", "parent_id": haus["id"]}, headers=h).raise_for_status()
