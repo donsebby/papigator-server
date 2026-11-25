@@ -2049,10 +2049,15 @@ def health(user: User = Depends(current_user)):
         backfill = con.execute("SELECT COUNT(*) FROM documents WHERE llm_status='refill_k' AND status='done' "
                                "AND deleted_at IS NULL").fetchone()[0]
         backfill_total = max(backfill, int(get_setting(con, "kinds_v1", "0") or 0))
+    # Ohne nutzbare KI (aus, nicht erreichbar, Mac schläft) passiert nichts – dann nicht „KI arbeitet“ zeigen, sondern
+    # nur sagen, dass es wartet
+    backfill_waiting = 0
+    if backfill and not worker.ai_usable():
+        backfill_waiting, backfill = backfill, 0
     bs = backupmod.settings()
     cfg = config.llm_config()
     return {"ok": True, "version": app.version, "documents": counts, "llm_failed": llm_failed, "users": users,
-            "backfill": backfill, "backfill_total": backfill_total,
+            "backfill": backfill, "backfill_total": backfill_total, "backfill_waiting": backfill_waiting,
             "llm": cfg["enabled"] and bool(cfg["url"]), "llm_paused_until": worker.paused_until(),
             "backup": {"configured": bool(bs["dir"]), "stale": backupmod.is_stale(bs), "last": bs["last"], "ok": bs["last_ok"]}}
 

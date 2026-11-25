@@ -58,8 +58,10 @@ def test_edit_filter_and_kinds_list(admin, sam):
     assert d["doc_kind"] is None and d["recipient"] is None and d["refs"] == {}
 
 
-def test_backfill_is_silent_and_keeps_money_kinds(admin):
+def test_backfill_is_silent_and_keeps_money_kinds(admin, monkeypatch):
+    from app import worker
     from app.db import init_db
+    monkeypatch.setattr(worker, "ai_usable", lambda: True)
     i, j = _doc(admin), _doc(admin, "Rechnung", "Rechnung Nr. 12345 an Mia Muster über 20,00 €")
     with connect() as con:
         con.execute("UPDATE documents SET status='done', llm_status='done', doc_kind=NULL WHERE id=?", (i,))
@@ -77,3 +79,26 @@ def test_backfill_is_silent_and_keeps_money_kinds(admin):
     assert r["doc_kind"] == "rechnung" and r["recipient"] == "Mia Muster" and r["title"] == "Rechnung"
     # Zu prüfen bleibt sichtbar (Status „done“), nichts erscheint als „in Arbeit“
     assert "tagging" not in admin.get("/health").json()["documents"]
+
+
+def test_idle_backfill_selection_and_give_up(admin, monkeypatch):
+    """Nachtragen nur im Leerlauf und nur mit nutzbarer KI; ein Fehler dabei führt nicht zur Endlosschleife;
+    ohne KI meldet /health das Nachtragen als „wartet“ statt „KI arbeitet“."""
+    from app import worker
+    i = _doc(admin)
+    with connect() as con:
+        con.execute("UPDATE documents SET status='done', llm_status='refill_k' WHERE id=?", (i,))
+    monkeypatch.setattr(worker, "ai_usable", lambda: False)
+    with connect() as con:
+        assert worker.next_llm_doc(con) is None                       # keine KI: nichts anfassen
+    h = admin.get("/health").json()
+    assert h["backfill"] == 0 and h["backfill_waiting"] == 1
+    monkeypatch.setattr(worker, "ai_usable", lambda: True)
+    with connect() as con:
+        assert worker.next_llm_doc(con)["id"] == i
+    assert admin.get("/health").json()["backfill"] == 1
+    worker.give_up(i)                                                  # unerwarteter Fehler beim Nachtragen
+    with connect() as con:
+        assert worker.next_llm_doc(con) is None                       # nicht sofort wieder dasselbe
+        r = con.execute("SELECT status, llm_status FROM documents WHERE id=?", (i,)).fetchone()
+    assert (r["status"], r["llm_status"]) == ("done", "done")

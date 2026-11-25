@@ -173,6 +173,37 @@ def paused_until() -> str | None:
         return until.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+# Bis wann die KI zuletzt nicht erreichbar war (Pause im Tagging) – /health zeigt das Nachtragen dann als „wartet“
+unreachable_until = 0.0
+
+
+def ai_usable() -> bool:
+    """KI eingeschaltet, eingetragen, fürs Erkennen freigegeben und gerade nicht als unerreichbar zurückgestellt."""
+    cfg = config.llm_config()
+    return bool(cfg["enabled"] and cfg["url"] and llm.usable("tag")) and time.time() >= unreachable_until
+
+
+def next_llm_doc(con):
+    """Nächstes Dokument fürs LLM: erst neue Scans (status='tagging'), Eingeworfenes zuletzt. Sonst nichts zu tun:
+    Bestand still nachtragen (refill_k, Status bleibt „done“), neueste zuerst – nur mit nutzbarer KI, sonst liefe die
+    Schleife leer im Kreis."""
+    row = con.execute("SELECT id FROM documents WHERE status='tagging' AND deleted_at IS NULL "
+                      "ORDER BY ext_pending, id LIMIT 1").fetchone()
+    if not row and ai_usable():
+        row = con.execute("SELECT id FROM documents WHERE status='done' AND llm_status='refill_k' "
+                          "AND deleted_at IS NULL ORDER BY id DESC LIMIT 1").fetchone()
+    return row
+
+
+def give_up(doc_id: int) -> None:
+    """Unerwarteter Fehler bei einem Dokument: nicht noch einmal sofort versuchen. Nachtragen (refill*) gilt als
+    erledigt, ein neuer Scan als fehlgeschlagen. Auch still nachgetragene (Status „done“) – sonst nähme next_llm_doc
+    dasselbe Dokument gleich wieder, ohne Pause, immer wieder."""
+    with connect() as con:
+        con.execute("UPDATE documents SET status='done', llm_status=CASE WHEN llm_status IN ('refill', 'refill_w', 'refill_k') "
+                    "THEN 'done' ELSE 'failed' END WHERE id=? AND (status='tagging' OR llm_status='refill_k')", (doc_id,))
+
+
 def llm_loop() -> None:
     last_retry = 0.0
     backoff_until = 0.0
@@ -199,24 +230,14 @@ def llm_loop() -> None:
             _wake_llm.clear()
             continue
         with connect() as con:
-            # Nachtragen im Bestand (refill) hinten anstellen – neue Scans sollen nicht dahinter warten
-            row = con.execute("SELECT id FROM documents WHERE status='tagging' AND deleted_at IS NULL "
-                              "ORDER BY ext_pending, id LIMIT 1").fetchone()
-            # Sonst nichts zu tun: Bestand still nachtragen (refill_k, Status bleibt „done“), neueste zuerst – nur mit
-            # nutzbarer KI, sonst liefe die Schleife leer im Kreis
-            cfg = config.llm_config()
-            if not row and cfg["enabled"] and cfg["url"] and llm.usable("tag"):
-                row = con.execute("SELECT id FROM documents WHERE status='done' AND llm_status='refill_k' "
-                                  "AND deleted_at IS NULL ORDER BY id DESC LIMIT 1").fetchone()
+            row = next_llm_doc(con)
         if row:
             try:
                 ok = llm_one(row["id"])
             except Exception:
                 # Nie den ganzen Tagging-Thread sterben lassen – sonst bleibt alles bis zum Neustart liegen
                 log.exception("Dokument %s: Tagging abgebrochen", row["id"])
-                with connect() as con:
-                    con.execute("UPDATE documents SET status='done', llm_status=CASE WHEN llm_status IN ('refill', 'refill_w', 'refill_k') THEN 'done' "
-                                "ELSE 'failed' END WHERE id=? AND status='tagging'", (row["id"],))
+                give_up(row["id"])
                 continue
             if not ok:
                 # LLM nicht erreichbar: alle wartenden auf failed setzen, 2 Minuten Pause
@@ -224,6 +245,8 @@ def llm_loop() -> None:
                     con.execute("UPDATE documents SET status='done', llm_status='failed' WHERE status='tagging' AND llm_status NOT IN ('refill', 'refill_w', 'refill_k')")
                     con.execute("UPDATE documents SET status='done' WHERE status='tagging' AND llm_status IN ('refill', 'refill_w', 'refill_k')")
                 backoff_until = time.time() + 120
+                global unreachable_until
+                unreachable_until = backoff_until
                 log.warning("LLM nicht erreichbar – Tagging pausiert, Nachholen in %ds", LLM_RETRY_INTERVAL)
             continue
         _wake_llm.wait(timeout=10)
