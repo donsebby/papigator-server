@@ -3,7 +3,7 @@
 # Dieselbe Version steht in build.yaml als Image-Tag (die öffentliche Action taggt das Image damit; ci/ha-addon-check.sh
 # prüft, dass beide gleich sind).
 name: Papigator
-version: "2026.11.25.1"
+version: "2026.11.25.2"
 slug: papigator
 description: Self-hosted document archive – OCR, full-text search, deadlines, optional local AI
 url: https://github.com/donsebby/papigator-server

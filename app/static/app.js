@@ -3,7 +3,7 @@ const $ = (s) => document.querySelector(s);
 // Kacheln seitenweise (25/50/100, im Browser gemerkt) statt endlos – Seite 1, sobald sich Filter oder Sortierung ändern
 const PAGE_SIZES = [25, 50, 100];
 const PAGE = (() => { try { const n = Number(localStorage.getItem("bl.pageSize")); return PAGE_SIZES.includes(n) ? n : 50; } catch { return 50; } })();
-const state = { me: null, docs: [], tags: [], users: [], q: "", tag: null, year: null, review: false, reviewCount: 0, due: false, dueCount: null, warranty: false, warrantyCount: null, sender: null, senders: [], trash: false, trashCount: 0, trashDays: 30, scope: "mine",
+const state = { me: null, docs: [], tags: [], users: [], q: "", tag: null, year: null, review: false, reviewCount: 0, due: false, dueCount: null, warranty: false, warrantyCount: null, sender: null, kind: null, kindLabels: {}, senders: [], trash: false, trashCount: 0, trashDays: 30, scope: "mine",
                 selected: new Set(), current: null, poll: null, limit: PAGE, page: 0, total: null, filterKey: "", progressStart: null,
                 sort: localStorage.getItem("bl.sort") || "date", dir: localStorage.getItem("bl.dir") || "desc",
                 size: localStorage.getItem("bl.size") || "m", mode: startMode(), views: [],
@@ -61,6 +61,8 @@ const WN_ILL = {
   calendar: () => `<div class="wn-cal wn-card"><b>Kalender</b><span>14</span></div><div class="wn-sync">${WN_SVG.sync}</div><div class="wn-badge">${WN_SVG.check}</div>`,
   cancel: () => `<div class="wn-letter wn-card"><strong>Kündigung</strong><br>Vertragsnr. 4711<br>zum nächstmöglichen Termin<div class="wn-stamp">Fertig</div></div>`,
   warranty: () => `<div class="wn-shield">${WN_SVG.shield}</div>`,
+  kinds: () => `<div class="wn-kinddoc wn-card"><i></i><i></i><i></i><span>An: Mia Muster</span>
+    ${["Zeugnis", "Vertrag", "Befund", "Urkunde"].map((k, i) => `<b style="animation-delay:${i * 1.2}s">${k}</b>`).join("")}</div>`,
   avatars: () => `<div class="wn-avs">${[["A", "#4f8f6a"], ["S", "#d9774b"], ["M", "#8b5cf6"]].map(([l, c], i) => `<div class="wn-av" style="background:${c}">${l}${i === 1 ? `<img src="mascot.png" alt="">` : ""}</div>`).join("")}</div>`,
 };
 let wn = null, wnChecked = false;
@@ -377,7 +379,7 @@ function renderScopeBar() {
   for (const [val, label] of opts) {
     const b = document.createElement("button");
     b.textContent = label; b.className = state.scope === val ? "active" : "";
-    b.onclick = () => { state.scope = val; state.tag = null; state.year = null; state.review = false; state.due = false; state.warranty = false; state.sender = null; renderScopeBar(); loadTags(); loadYears(); loadDocs(); };
+    b.onclick = () => { state.scope = val; state.tag = null; state.year = null; state.review = false; state.due = false; state.warranty = false; state.sender = null; state.kind = null; renderScopeBar(); loadTags(); loadYears(); loadDocs(); };
     seg.appendChild(b);
   }
 }
@@ -416,8 +418,8 @@ function renderTagBar() {
     bar.appendChild(chip(`In „${state.tag}“`, !state.searchAll, () => { state.searchAll = false; renderTagBar(); loadDocs(); }));
     bar.appendChild(chip("Überall", !!state.searchAll, () => { state.searchAll = true; renderTagBar(); loadDocs(); }));
   }
-  if (!folders && (state.tag || state.year || state.review || state.due || state.warranty || state.sender)) {
-    bar.appendChild(chip("Alle", false, () => { state.tag = null; state.year = null; state.review = false; state.due = false; state.warranty = false; state.sender = null; renderTagBar(); loadDocs(); }));
+  if (!folders && (state.tag || state.year || state.review || state.due || state.warranty || state.sender || state.kind)) {
+    bar.appendChild(chip("Alle", false, () => { state.tag = null; state.year = null; state.review = false; state.due = false; state.warranty = false; state.sender = null; state.kind = null; renderTagBar(); loadDocs(); }));
   }
   if (state.reviewCount || state.review) {
     const r = chip(`Zu prüfen · ${state.reviewCount}`, state.review, () => { state.review = !state.review; state.due = false; state.warranty = false; state.tag = null; renderTagBar(); loadDocs(); }, "#ffb347");
@@ -457,10 +459,18 @@ function renderTagBar() {
   if (folders) {
     // –
   } else if (state.sender) {
-    const c = chip(state.sender, true, () => { state.sender = null; renderTagBar(); loadDocs(); });
+    const c = chip(state.sender, true, () => { state.sender = null; state.kind = null; renderTagBar(); loadDocs(); });
     c.appendChild(closeX()); bar.appendChild(c);
   } else if (!state.trash) {
     const c = chip("Absender", false, (e) => openSenderPopover(e.currentTarget)); c.appendChild(caret()); bar.appendChild(c);
+  }
+  if (folders) {
+    // –
+  } else if (state.kind) {
+    const c = chip(state.kindLabels[state.kind] || state.kind, true, () => { state.kind = null; renderTagBar(); loadDocs(); });
+    c.appendChild(closeX()); bar.appendChild(c);
+  } else if (!state.trash) {
+    const c = chip("Art", false, (e) => openKindPopover(e.currentTarget)); c.appendChild(caret()); bar.appendChild(c);
   }
   if (!folders && !state.trash && (state.views.length || Object.keys(currentViewParams()).some((k) => k !== "scope"))) {
     const c = chip(state.views.length ? `Gespeichert · ${state.views.length}` : "Suche speichern", false, (e) => openViewsPopover(e.currentTarget));
@@ -527,6 +537,44 @@ function openTagPopover(anchor, used) {
   });
 }
 
+// Detail: Art, Empfänger, Nummern (Server: processing.kind_fields)
+const REF_LABELS = { contract: "Vertrag", customer: "Kunde", case: "Aktenzeichen", invoice: "Rechnung/Bestellung", other: "Sonstige" };
+async function fillKind(d) {
+  const sel = $("#m-kind");
+  if (!sel.options.length || sel.options.length < 3) {
+    const kinds = Object.keys(state.kindLabels).length ? Object.entries(state.kindLabels).map(([code, label]) => ({ code, label })) : await loadKinds();
+    sel.innerHTML = `<option value="">– noch nicht erkannt –</option>` + kinds.map((k) => `<option value="${esc(k.code)}">${esc(k.label)}</option>`).join("");
+  }
+  sel.value = d.doc_kind || "";
+  $("#m-recipient").value = d.recipient || "";
+  const refs = d.refs || {};
+  $("#m-refs").innerHTML = Object.entries(REF_LABELS).map(([k, label]) =>
+    `<label><span class="k">${label}</span><input data-ref="${k}" value="${esc(refs[k] || "")}" autocomplete="off"></label>`).join("");
+  const n = Object.values(refs).filter(Boolean).length;
+  $("#m-refs-sum").textContent = n ? `Nummern · ${n}` : "Nummern";
+  $("#m-refs-box").open = false;
+}
+
+// Dokumentart (Rechnung, Vertrag, Zeugnis …) – nur Arten, die es im gewählten Bestand gibt
+async function loadKinds() {
+  const kinds = await api("/documents/kinds?scope=" + state.scope).catch(() => []);
+  for (const k of kinds) state.kindLabels[k.code] = k.label;
+  return kinds;
+}
+async function openKindPopover(anchor) {
+  const kinds = (await loadKinds()).filter((k) => k.count);
+  openPopover(anchor, (pop) => {
+    const list = document.createElement("div"); list.className = "pop-chips";
+    if (!kinds.length) list.innerHTML = `<span class="muted small">Noch keine Dokumentart erkannt.</span>`;
+    for (const k of kinds) {
+      const c = chip(k.label, state.kind === k.code, () => { state.kind = k.code; state.review = false; state.due = false; state.warranty = false; closePopover(); renderTagBar(); loadDocs(); });
+      const cnt = document.createElement("span"); cnt.className = "cnt"; cnt.textContent = k.count; c.appendChild(cnt);
+      list.appendChild(c);
+    }
+    pop.appendChild(list);
+  });
+}
+
 async function openSenderPopover(anchor) {
   const senders = await api("/senders?scope=" + state.scope).catch(() => []);
   openPopover(anchor, (pop) => {
@@ -574,7 +622,7 @@ function openTrash(on, fromHistory = false, tag = null) {
     if (on && !state.trash) history.pushState({ trash: true }, "");
     else if (!on && state.trash && history.state && history.state.trash) { skipTrashPop = true; history.back(); }
   }
-  state.trash = on; state.tag = tag; state.review = false; state.due = false; state.warranty = false; state.sender = null; state.selected.clear();
+  state.trash = on; state.tag = tag; state.review = false; state.due = false; state.warranty = false; state.sender = null; state.kind = null; state.selected.clear();
   $("#selection-bar").classList.add("hidden");
   $("#trash-bar").classList.toggle("hidden", !on);
   $("#trash-empty-btn").classList.toggle("hidden", !!state.me?.demo);   // Demo: nichts endgültig löschen
@@ -625,6 +673,7 @@ async function loadDocs() {
     if (state.due) p.set("due", "true");
     if (state.warranty) p.set("warranty", "true");
     if (state.sender) p.set("sender", state.sender);
+    if (state.kind) p.set("kind", state.kind);
     if (state.trash) p.set("trash", "true");
   }
   const key = p.toString();
@@ -671,7 +720,7 @@ $("#bank-hint").onclick = () => {
 // ---------- Ordner (Tags in Tags) ----------
 // Ordner-Modus ohne aktive Suche/Filter: state.tag ist der geöffnete Ordner, null = oberste Ebene.
 function folderBrowsing() {
-  return state.mode === "folders" && !state.q && !state.smart && !state.year && !state.review && !state.due && !state.warranty && !state.sender && !state.trash;
+  return state.mode === "folders" && !state.q && !state.smart && !state.year && !state.review && !state.due && !state.warranty && !state.sender && !state.kind && !state.trash;
 }
 function applyMode() {
   for (const b of document.querySelectorAll("#mode-seg button")) {
@@ -700,7 +749,7 @@ for (const b of document.querySelectorAll("#mode-seg button"))
     }
     if (leaving === "money" && state.mode !== "money") { closeMoneyLayers(); money.jump = null; }
     state.tag = null;   // der geöffnete Ordner gehört zur Ordner-Ansicht, nicht als Filter in die Kacheln
-    if (state.mode !== "tiles") { state.year = null; state.due = false; state.warranty = false; state.sender = null; }
+    if (state.mode !== "tiles") { state.year = null; state.due = false; state.warranty = false; state.sender = null; state.kind = null; }
     if (state.mode === "today" || state.mode === "money" || state.mode === "family") state.review = false;   // „Zu prüfen“ bleibt in den Ordnern ein Ort, in „Heute“ ist es die Karte
     state.searchAll = false;
     const views = ["#todayview", "#moneyview", "#familyview", "#folderview", "#grid", "#tagbar", ".viewbar", "#empty"];
@@ -917,6 +966,7 @@ function currentViewParams() {
   if (state.tag) p.tag = state.tag;
   if (state.year) p.year = state.year;
   if (state.sender) p.sender = state.sender;
+  if (state.kind) p.kind = state.kind;
   if (state.due) p.due = true;
   if (state.warranty) p.warranty = true;
   if (state.review) p.review = true;
@@ -926,7 +976,7 @@ function currentViewParams() {
 function applyView(v) {
   if (!v) return;
   const p = v.params || {};
-  state.q = p.q || ""; state.tag = p.tag || null; state.year = p.year || null; state.sender = p.sender || null;
+  state.q = p.q || ""; state.tag = p.tag || null; state.year = p.year || null; state.sender = p.sender || null; state.kind = p.kind || null;
   state.due = !!p.due; state.warranty = !!p.warranty; state.review = !!p.review; state.trash = false;
   state.smart = null; smartSeq++; clearTimeout(searchTimer);
   if (p.scope && $("#scope-seg").querySelector("button")) state.scope = p.scope;
@@ -1033,7 +1083,7 @@ function renderEmpty() {
   } else if (state.warranty) {
     title = "Keine laufende Garantie";
     text = "Gerade hat kein Kaufbeleg mehr Gewährleistung oder Garantie.";
-  } else if (state.tag || state.year || state.sender) {
+  } else if (state.tag || state.year || state.sender || state.kind) {
     title = "Hier ist noch nichts";
     text = "In dieser Auswahl liegen keine Dokumente.";
   } else {
@@ -1222,7 +1272,7 @@ $("#delete-selected-btn").onclick = async () => {
 // Familie (Konten, die mit mir teilen, und Personen ohne Konto), darunter das Neueste. Eine Suche, ein Filter oder ein
 // Klick auf eine Person zeigt Kacheln – ✕ an der Suche bzw. „Alle“ führt zurück. Gesucht wird über alles (scope=all).
 function todayBrowsing() {
-  return state.mode === "today" && !state.q && !state.smart && !state.tag && !state.year && !state.review && !state.due && !state.warranty && !state.sender && !state.trash;
+  return state.mode === "today" && !state.q && !state.smart && !state.tag && !state.year && !state.review && !state.due && !state.warranty && !state.sender && !state.kind && !state.trash;
 }
 const today = { seq: 0, data: null, family: null, familyAt: 0, showAllDue: false, checked: new Set(),
   assigning: false, pick: new Set(), people: null, peopleSeq: 0 };   // Mehrfachauswahl „Wer kümmert sich?“
@@ -1521,7 +1571,7 @@ $("#familyview").addEventListener("click", dueViewClick);
 // welche Frist (gruppiert, mit „Zuweisen“ für mehrere), Notfallmappe, Personen, Aufräumen. Verwalten passiert weiter in
 // den Einstellungen – die Karten führen dorthin.
 function familyBrowsing() {
-  return state.mode === "family" && !state.q && !state.smart && !state.tag && !state.year && !state.review && !state.due && !state.warranty && !state.sender && !state.trash;
+  return state.mode === "family" && !state.q && !state.smart && !state.tag && !state.year && !state.review && !state.due && !state.warranty && !state.sender && !state.kind && !state.trash;
 }
 const family = { seq: 0, dues: null, cleanup: null, at: 0 };
 async function renderFamily(force = false) {
@@ -2153,6 +2203,22 @@ async function updateProgress() {
   const open = (c.pending || 0) + (c.processing || 0) + (c.tagging || 0);
   const total = Object.values(c).reduce((a, b) => a + b, 0);
   const box = $("#progress");
+  // Ältere Dokumente still nachtragen (Art, Empfänger, Nummern): eigener Balken, die Liste muss dafür nicht neu laden
+  const bf = h.backfill || 0, bfTotal = Math.max(h.backfill_total || 0, bf);
+  if (!open && bf) {
+    const bfDone = bfTotal - bf;
+    if (!state.backfillStart) state.backfillStart = { t: Date.now(), done: bfDone };
+    const secs = (Date.now() - state.backfillStart.t) / 1000;
+    const per = (bfDone - state.backfillStart.done) / Math.max(secs, 1);
+    const mins = per > 0 ? Math.round(bf / per / 60) : null;
+    box.classList.remove("hidden");
+    $("#progress-label").textContent = `KI ergänzt ältere Dokumente (Art, Empfänger, Nummern) · ${bfDone} von ${bfTotal} fertig`;
+    $("#progress-eta").textContent = h.llm_paused_until ? "KI-Erkennung " + pauseText(h.llm_paused_until)
+      : mins !== null && secs > 30 ? `noch ca. ${mins < 60 ? mins + " min" : (mins / 60).toFixed(1) + " h"}` : "";
+    $("#progress-bar").style.width = `${Math.round(100 * bfDone / Math.max(bfTotal, 1))}%`;
+    return false;
+  }
+  state.backfillStart = null;
   if (!open) {
     box.classList.add("hidden"); state.progressStart = null;
     if (h.llm_failed) toastOnce(`${h.llm_failed} Dokument(e) ohne LLM-Tags – wird automatisch nachgeholt, sobald das LLM erreichbar ist`);
@@ -2165,7 +2231,8 @@ async function updateProgress() {
   const rate = (done - state.progressStart.done) / Math.max(elapsed, 1);
   const eta = rate > 0 ? Math.round(open / rate / 60) : null;
   box.classList.remove("hidden");
-  $("#progress-label").textContent = `${done} von ${total} verarbeitet · ${c.pending || 0} warten · ${c.processing || 0} OCR · ${c.tagging || 0} Tagging`;
+  $("#progress-label").textContent = `${done} von ${total} verarbeitet · ${c.pending || 0} warten · ${c.processing || 0} OCR · ${c.tagging || 0} Tagging`
+    + (bf ? ` · ${bf} ältere werden ergänzt` : "");
   // Pausiert: keine Restzeit schätzen, stattdessen sagen, bis wann
   $("#progress-eta").textContent = h.llm_paused_until && c.tagging ? "KI-Erkennung " + pauseText(h.llm_paused_until)
     : eta !== null && elapsed > 20 ? `noch ca. ${eta < 60 ? eta + " min" : (eta / 60).toFixed(1) + " h"}` : "";
@@ -2271,6 +2338,7 @@ async function openDetail(id) {
   $("#m-date").value = isoToDmy(d.document_date);
   updateDateHint(); renderDetailReasons(d);
   $("#m-sender").value = d.sender || "";
+  fillKind(d);
   $("#m-amount").value = d.amount ?? "";
   $("#m-currency").value = d.currency || "";
   $("#m-direction").value = d.direction || "";
@@ -2507,6 +2575,9 @@ $("#save-btn").onclick = async () => {
     title: $("#m-title").value.trim() || d.title,
     document_date: docDate || null,
     sender: $("#m-sender").value.trim() || null,
+    doc_kind: $("#m-kind").value,
+    recipient: $("#m-recipient").value.trim(),
+    refs: Object.fromEntries([...document.querySelectorAll("#m-refs input")].map((i) => [i.dataset.ref, i.value.trim()]).filter(([, v]) => v)),
     amount: $("#m-amount").value === "" ? null : Number($("#m-amount").value),
     currency: $("#m-currency").value.trim().toUpperCase() || null,
     ...($("#m-direction").value ? { direction: $("#m-direction").value } : {}),

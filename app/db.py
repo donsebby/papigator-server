@@ -375,6 +375,17 @@ def init_db() -> None:
             con.row_factory = None
             con.execute("INSERT INTO settings(key, value) VALUES ('extras_v1', ?)", (str(n),))
             log.info("Zusatzfelder: %s Dokument(e) zum Nachtragen vorgemerkt", n)
+        # Dokumentart allgemein, Empfänger, Nummern (26.11.2026, processing.kind_fields): Bestand einmalig nachtragen –
+        # nur diese Felder (refill_k), still: Status bleibt „done“ (kein „Tagging“ überall, „Zu prüfen“ bleibt), der
+        # Worker nimmt sie nur, wenn sonst nichts zu tun ist (worker.llm_loop)
+        if "recipient" not in cols:
+            con.execute("ALTER TABLE documents ADD COLUMN recipient TEXT")
+            con.execute("ALTER TABLE documents ADD COLUMN refs TEXT")   # JSON: contract/customer/case/invoice/other
+        if not con.execute("SELECT 1 FROM settings WHERE key='kinds_v1'").fetchone():
+            n = con.execute("UPDATE documents SET llm_status='refill_k' WHERE status='done' "
+                            "AND llm_status='done' AND deleted_at IS NULL AND COALESCE(text, '') != ''").rowcount
+            con.execute("INSERT INTO settings(key, value) VALUES ('kinds_v1', ?)", (str(n),))
+            log.info("Dokumentart/Empfänger/Nummern: %s Dokument(e) zum Nachtragen vorgemerkt", n)
         # „Hat kein Datum“ (17.11.2026): von Hand bestätigt – steht dann nicht mehr unter „Zu prüfen“
         if "no_date" not in cols:
             con.execute("ALTER TABLE documents ADD COLUMN no_date INTEGER NOT NULL DEFAULT 0")

@@ -157,7 +157,20 @@ Felder:
 - "amount": Betrag als Zahl oder null, so wie er im Text steht – bei Rechnungen der Rechnungsbetrag; bei Abrechnungen (Strom, Nebenkosten) die Nachzahlung bzw. das Guthaben; bei Verträgen, Darlehen und Beitrags-/Gebührenbescheiden die regelmäßige Rate; bei Gehaltsabrechnungen der Auszahlungsbetrag. Steht kein Betrag im Text, null – nicht rechnen oder raten.
 - "currency": z. B. "EUR" oder null
 - "summary": ein Satz, worum es geht
-- "kind": Art des Dokuments, genau eins von "Rechnung", "Gutschrift", "Gehalt", "Abrechnung", "Bescheid", "Vertrag", "Mahnung", "Kündigung", "Spende", "Info"
+- "kind": Art des Dokuments, genau eins von: "Rechnung" (auch Quittung, Kassenbon, Beitragsrechnung), "Gutschrift",
+  "Mahnung", "Abrechnung" (Strom, Nebenkosten u. ä.), "Lohnabrechnung", "Kontoauszug", "Bescheid" (Behörde setzt etwas fest),
+  "Vertrag", "Versicherungsschein", "Kündigung", "Angebot", "Bestätigung" (Buchung, Termin, Auftrag, Eingang),
+  "Spendenquittung", "Bescheinigung" (Nachweis, Meldebescheinigung, Krankmeldung, Impfnachweis), "Zeugnis" (Schul-,
+  Arbeits-, Kurszeugnis, Halbjahresinformation, Zertifikat), "Urkunde" (Geburts-, Heirats-, Sterbeurkunde u. ä.), "Ausweis",
+  "Befund" (Arztbrief, Laborbefund), "Bericht" (Protokoll, Übergabeprotokoll, Prüfbericht, Gutachten), "Antrag" (auch
+  ausgefülltes Formular), "Mitteilung" (Information, Elternbrief, Schreiben ohne Forderung), "Sonstiges"
+- "recipient": an wen das Dokument gerichtet ist oder für wen es ausgestellt wurde, wie im Anschriftfeld bzw. bei
+  „Kunde:“, „Mitglied:“, „Käufer:“, „Patient:“, „Name:“ – nur der Name, ohne Anschrift; mehrere Namen mit „und“; bei einem
+  Antrag die Stelle, an die er geht; null, wenn nicht erkennbar. Nie der Absender
+- "references": Objekt mit Nummern, die so im Text stehen, sonst null: "contract" (Vertrags-, Versicherungsschein-,
+  Mitglieds-, Darlehensnummer), "customer" (Kunden-, Beitrags-, Personal-, Versichertennummer), "case" (Aktenzeichen,
+  Steuernummer, Vorgangs-, Register-, Buchungsnummer), "invoice" (Rechnungs-, Bestell-, Angebotsnummer), "other" (sonstige
+  Kennnummer wie Ausweis-, Zertifikats-, Prüfbericht-Nr., IBAN)
 - "direction": "Ausgabe" (ich muss zahlen oder habe bezahlt), "Einnahme" (ich bekomme Geld: Gehalt, Erstattung, Guthaben, Gutschrift) oder "keine" (dieses Dokument bewegt selbst kein Geld, z. B. Vertrag, Mahnung zu einer Rechnung, Information)
 - "autopay": true, wenn der Betrag per Lastschrift/Abbuchung eingezogen wird oder schon bezahlt ist (Karte, PayPal, bar), sonst false
 - "recurring": "monatlich", "vierteljährlich", "halbjährlich" oder "jährlich", wenn das Dokument eine regelmäßige Zahlung festlegt, die ICH leiste (Vertrag, Abo, Darlehen, Beitrags-/Gebührenbescheid), sonst null. Regelmäßiges Geld, das ich bekomme (Gehalt im Arbeitsvertrag, Miete als Vermieter, Rente), ist null – dann "direction": "Einnahme". Betrag und Rhythmus müssen zusammenpassen: „vierteljährlich 55,08 €“ ist "vierteljährlich" mit 55.08, nicht "monatlich"
@@ -312,9 +325,29 @@ def amount_in_text(amount: float, text: str) -> bool:
     return bool(re.search(rf"(?<!\d)(?<!\d[.,])(?:{body})(?![.,]\d)", t))
 
 
-KINDS = {"rechnung": "rechnung", "gutschrift": "gutschrift", "gehalt": "gehalt", "abrechnung": "abrechnung",
-         "bescheid": "bescheid", "vertrag": "vertrag", "mahnung": "mahnung", "kündigung": "kuendigung",
-         "kuendigung": "kuendigung", "spende": "spende", "info": "info"}
+# Dokumentart (seit 26.11.2026 allgemein, nicht nur Geld): interner Code → Bezeichnung. Die alten Codes bleiben
+# (gehalt = Lohnabrechnung, spende = Spendenquittung, info = Mitteilung), weil Geld-Funktionen daran hängen.
+KIND_LABELS = {
+    "rechnung": ("Rechnung", "Invoice"), "gutschrift": ("Gutschrift", "Credit note"), "mahnung": ("Mahnung", "Reminder"),
+    "abrechnung": ("Abrechnung", "Statement of charges"), "gehalt": ("Lohnabrechnung", "Payslip"),
+    "kontoauszug": ("Kontoauszug", "Bank statement"), "bescheid": ("Bescheid", "Official notice"),
+    "vertrag": ("Vertrag", "Contract"), "police": ("Versicherungsschein", "Insurance policy"),
+    "kuendigung": ("Kündigung", "Cancellation"), "angebot": ("Angebot", "Quote"),
+    "bestaetigung": ("Bestätigung", "Confirmation"), "spende": ("Spendenquittung", "Donation receipt"),
+    "bescheinigung": ("Bescheinigung", "Certificate"), "zeugnis": ("Zeugnis", "Report / diploma"),
+    "urkunde": ("Urkunde", "Official record"), "ausweis": ("Ausweis", "ID document"), "befund": ("Befund", "Medical report"),
+    "bericht": ("Bericht", "Report"), "antrag": ("Antrag", "Application"), "info": ("Mitteilung", "Notification"),
+    "sonstiges": ("Sonstiges", "Other"),
+}
+# Was die KI sagt (Bezeichnung, alte Namen, Kurzformen) → Code
+KINDS = {**{c: c for c in KIND_LABELS}, **{de.lower(): c for c, (de, _) in KIND_LABELS.items()},
+         "kündigung": "kuendigung", "gehalt": "gehalt", "spende": "spende", "info": "info", "versicherung": "police",
+         "bestätigung": "bestaetigung", "quittung": "rechnung", "zertifikat": "zeugnis", "arztbrief": "befund",
+         "protokoll": "bericht", "formular": "antrag", "brief": "info"}
+# Arten, die selbst kein Geld bewegen – ein Betrag darin (Kontostand, Angebotssumme) ist keine Ausgabe
+NON_MONEY_KINDS = ("kontoauszug", "angebot", "bescheinigung", "zeugnis", "urkunde", "ausweis", "befund", "bericht",
+                   "antrag")
+REF_KEYS = ("contract", "customer", "case", "invoice", "other")
 DIRECTIONS = {"ausgabe": "out", "einnahme": "in", "keine": "none", "out": "out", "in": "in", "none": "none"}
 INTERVALS = ("monatlich", "vierteljährlich", "halbjährlich", "jährlich")
 # Fristen, die nur „bis dann wird bezahlt“ heißen – bei Lastschrift ist da nichts zu tun
@@ -600,7 +633,8 @@ def apply_warranty(con, doc_id: int, data: dict) -> None:
     kind = row["doc_kind"] or KINDS.get(str(data.get("kind") or "").strip().lower())
     direction = row["direction"] or DIRECTIONS.get(str(data.get("direction") or "").strip().lower())
     # Kassenbons nennt das Modell auch mal „Info“ – mit goods=true zählen sie wie eine Rechnung
-    if kind not in ("rechnung", "info", None) or direction == "in" or (kind != "rechnung" and data.get("goods") is not True):
+    if kind not in ("rechnung", "info", "bestaetigung", "sonstiges", None) or direction == "in" or (
+            kind != "rechnung" and data.get("goods") is not True):
         return
     months, wkind = 0, None
     if data["goods"]:
@@ -676,10 +710,12 @@ def money_fields(data: dict) -> dict:
         out["doc_kind"] = kind
     direction = DIRECTIONS.get(str(data.get("direction") or "").strip().lower())
     rec = str(data.get("recurring") or "").strip().lower()
-    if kind == "vertrag" and (direction == "in" or _INCOME_CONTRACT.search(str(data.get("title") or ""))):
+    if kind in ("vertrag", "police") and (direction == "in" or _INCOME_CONTRACT.search(str(data.get("title") or ""))):
         rec = ""               # Arbeitsvertrag & Co.: regelmäßiges Geld kommt herein – kein Vertrag, der etwas kostet
-    if kind in ("mahnung", "kuendigung") or (kind == "vertrag" and (rec in INTERVALS or direction == "in")):
+    if kind in ("mahnung", "kuendigung") or (kind in ("vertrag", "police") and (rec in INTERVALS or direction == "in")):
         direction = "none"     # Mahnung: die Rechnung zählt schon; Vertrag mit Rate: gezahlt wird über Abbuchungen
+    if kind in NON_MONEY_KINDS:
+        direction, rec = "none", ""   # Kontoauszug, Angebot, Zeugnis …: ein Betrag darin ist keine Zahlung
     if kind in ("gehalt", "gutschrift"):
         direction = "in"
     if direction:
@@ -732,9 +768,66 @@ def apply_money(con, doc_id: int, data: dict) -> None:
                 (doc_id, f"-{OLD_DUE_DAYS} days"))
 
 
+def _alnum(s) -> str:
+    return re.sub(r"[^0-9a-zäöüß]", "", str(s or "").lower())
+
+
+def recipient_from(data: dict, text: str) -> str | None:
+    """Empfänger – nur, wenn jedes längere Wort davon so im Text steht (keine erfundenen Namen)."""
+    name = re.sub(r"\s+", " ", str(data.get("recipient") or "")).strip(" ,;:")[:120]
+    words = [w for w in re.findall(r"[\wäöüßÄÖÜ-]{3,}", name) if w.lower() not in ("und", "herrn", "frau", "herr")]
+    if not name or not words:
+        return None
+    low = (text or "").lower()
+    return name if all(w.lower() in low for w in words) else None
+
+
+def refs_from(data: dict, text: str) -> dict | None:
+    """Nummern (Vertrag, Kunde, Aktenzeichen, Rechnung, sonstige) – nur, was so im Text steht."""
+    raw = data.get("references")
+    if not isinstance(raw, dict):
+        return None
+    flat = _alnum(text)
+    out = {}
+    for k in REF_KEYS:
+        v = re.sub(r"\s+", " ", str(raw.get(k) or "")).strip()[:60]
+        a = _alnum(v)
+        if len(a) >= 3 and any(ch.isdigit() for ch in a) and a in flat:
+            out[k] = v
+    return out or None
+
+
+def kind_fields(con, doc_id: int, data: dict, refill: bool = False) -> dict:
+    """Dokumentart, Empfänger und Nummern. refill (Bestand nachtragen): Art nur, wo bisher keine oder „Mitteilung“
+    stand (die Geld-Arten sind erprobt), Empfänger und Nummern nur, wo noch nichts steht."""
+    row = con.execute("SELECT text, doc_kind, recipient, refs FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if not row:
+        return {}
+    text = row["text"] or ""
+    out = {}
+    kind = KINDS.get(str(data.get("kind") or "").strip().lower())
+    if kind and (not refill or row["doc_kind"] in (None, "info")):
+        out["doc_kind"] = kind
+    rec = recipient_from(data, text)
+    if rec and (not refill or not row["recipient"]):
+        out["recipient"] = rec
+    refs = refs_from(data, text)
+    if refs and (not refill or not row["refs"]):
+        out["refs"] = json.dumps(refs, ensure_ascii=False)
+    return out
+
+
+def apply_kind(con, doc_id: int, data: dict) -> None:
+    """Bestand nachtragen (llm_status='refill_k', 26.11.2026): nur Art, Empfänger, Nummern."""
+    fields = kind_fields(con, doc_id, data, refill=True)
+    if fields:
+        con.execute(f"UPDATE documents SET {', '.join(f'{k}=?' for k in fields)} WHERE id=?", (*fields.values(), doc_id))
+
+
 def apply_llm(con, doc_id: int, data: dict, allowed: set[str] | None = None) -> None:
     """allowed: wenn gesetzt, werden nur Tags daraus (case-insensitive) übernommen."""
     fields = money_fields(data)
+    fields.update({k: v for k, v in kind_fields(con, doc_id, data).items() if k != "doc_kind"})
     if data.get("sender") not in (None, ""):
         from .extras import canonical_sender   # späte Bindung: extras importiert processing
         fields["sender"] = canonical_sender(con, str(data["sender"]).strip()[:120])

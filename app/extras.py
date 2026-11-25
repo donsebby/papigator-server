@@ -21,9 +21,9 @@ log = logging.getLogger("papigator.extras")
 # Richtung eines Betrags: „out“ = Ausgabe, „in“ = Einnahme (Gehalt, Erstattung, Guthaben, Gutschrift), „none“ = bewegt
 # selbst kein Geld (Vertrag, Mahnung zu einer Rechnung, Info). Ältere Dokumente ohne Richtung zählen als Ausgabe,
 # außer ihrer Art nach. Summen nur in Euro – andere Währungen würden sonst einfach mitaddiert.
-NO_FLOW_KINDS = ("mahnung", "vertrag", "kuendigung", "info")
+NO_FLOW_KINDS = ("mahnung", "vertrag", "police", "kuendigung", "info") + processing.NON_MONEY_KINDS
 _SQL_OUT = ("(COALESCE(currency,'EUR')='EUR' AND (direction='out' OR (direction IS NULL AND COALESCE(doc_kind,'') "
-            "NOT IN ('mahnung','vertrag','kuendigung','info','gehalt','gutschrift'))))")
+            "NOT IN (" + ",".join(f"'{k}'" for k in NO_FLOW_KINDS + ("gehalt", "gutschrift")) + "))))")
 _SQL_IN = "(COALESCE(currency,'EUR')='EUR' AND direction='in')"
 
 
@@ -401,7 +401,7 @@ def contracts(con, owners: list[int], today: date | None = None) -> list[dict]:
         # der etwas kostet (auch wenn der Arbeitsvertrag beim Nachtragen als „monatlich“ erkannt wurde)
         employer = any(r["doc_kind"] == "gehalt" for r in docs)
         if not item and not employer:
-            declared = [r for r in docs if r["recurring"] in PER_MONTH and r["doc_kind"] in ("vertrag", "bescheid")
+            declared = [r for r in docs if r["recurring"] in PER_MONTH and r["doc_kind"] in ("vertrag", "police", "bescheid")
                         and r["amount"] and r["amount"] > 0 and not processing._INCOME_CONTRACT.search(r["title"] or "")
                         and flow(r) != "in" and r["doc_kind"] != "gehalt" and (r["currency"] or "EUR") == "EUR" and _d(r["d"])]
             if declared:

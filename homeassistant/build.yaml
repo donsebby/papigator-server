@@ -1,5 +1,5 @@
 # Baut auf dem fertigen Papigator-Image auf (amd64 + arm64); das Add-on legt nur das Startskript dazu.
 # Tag = version aus config.yaml (fester Server-Stand statt :latest).
 build_from:
-  aarch64: ghcr.io/donsebby/papigator:2026.11.25.1
-  amd64: ghcr.io/donsebby/papigator:2026.11.25.1
+  aarch64: ghcr.io/donsebby/papigator:2026.11.25.2
+  amd64: ghcr.io/donsebby/papigator:2026.11.25.2

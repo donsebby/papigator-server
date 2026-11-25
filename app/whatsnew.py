@@ -38,6 +38,12 @@ TOUR = [
 
 # Neueste zuerst
 RELEASES = [
+    {"id": "2026-11-25.2", "label": {"de": "November 2026", "en": "November 2026"}, "cards": [
+        {"anim": "kinds", "de": ("Jedes Dokument, nicht nur Rechnungen", "Papigator erkennt jetzt auch Art, Empfänger und "
+                                 "Nummern – vom Zeugnis bis zum Befund. Filtern kannst du über „Art“."),
+         "en": ("Every document, not just invoices", "Papigator now also recognizes the type, recipient and reference "
+                "numbers – from school reports to medical reports. Filter by “Type”.")},
+    ]},
     {"id": "2026-11-25", "label": {"de": "November 2026", "en": "November 2026"}, "cards": [
         {"anim": "notes", "de": ("Notizen am Dokument", "Schreib dazu, was wichtig ist – alle, die das Dokument sehen, "
                                                         "lesen mit."),
@@ -95,7 +101,7 @@ def whatsnew(client: str = "web", lang: str = "de", show: Optional[str] = None, 
     if mode == "news":
         # auf Wunsch nur die neueste Ausgabe, sonst alles seit der zuletzt gesehenen
         rel = RELEASES[:1] if show == "news" else ([r for r in RELEASES if r["id"] > (seen or "")] or RELEASES[:1])
-        cards = [c for r in rel for c in _cards(r["cards"], client, lang)][:6]
+        cards = [c for r in rel for c in _cards(r["cards"], client, lang)][:8]
         return {"mode": "news", "cards": cards, "release": LATEST, "label": rel[0]["label"][lang]}
     return {"mode": None, "cards": [], "release": LATEST, "label": None}
 

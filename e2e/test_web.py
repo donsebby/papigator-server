@@ -1472,3 +1472,49 @@ def test_whatsnew_tour_and_news_from_settings(page):
     page.go_back()                                                    # Browser-Zurück schließt den Dialog
     expect(dlg).to_be_hidden()
     expect(page.locator("#settings")).to_be_visible()
+
+
+def test_kind_recipient_refs_edit_and_filter(page):
+    """Detail: Dokumentart, Empfänger und Nummern ändern und speichern; Filter „Art“ zeigt nur diese Art."""
+    doc_id = _upload(page, "Zeugnis Mia", "2026-01-30")
+    page.reload()
+    page.locator(".card", has_text="Zeugnis Mia").click()
+    shown(page, "#detail")
+    expect(page.locator("#m-kind option[value=zeugnis]")).to_have_count(1)
+    page.select_option("#m-kind", "zeugnis")
+    page.fill("#m-recipient", "Mia Muster")
+    page.locator("#m-refs-box summary").click()
+    page.fill("#m-refs input[data-ref=other]", "S-2231")
+    page.click("#save-btn")
+    expect(page.locator("#save-state")).to_have_text("Gespeichert")
+    doc = page.evaluate("async (id) => (await fetch(`/documents/${id}`)).json()", doc_id)
+    assert doc["doc_kind"] == "zeugnis" and doc["recipient"] == "Mia Muster" and doc["refs"] == {"other": "S-2231"}
+    page.go_back()
+    shown(page, "#main")
+    page.reload()
+    page.locator("#tagbar .chip", has_text="Art").click()
+    page.locator("#popover .chip", has_text="Zeugnis").click()
+    expect(page.locator(".card")).to_have_count(1)
+    expect(page.locator(".card", has_text="Zeugnis Mia")).to_be_visible()
+    page.locator("#tagbar .chip", has_text="Zeugnis").click()       # Filter wieder weg
+    expect(page.locator(".card", has_text="Zeugnis Mia")).to_be_visible()
+    expect(page.locator(".card").nth(1)).to_be_visible()                 # wieder alle
+
+
+def test_progress_shows_backfill(page):
+    """Ältere Dokumente werden still ergänzt: der Fortschritt oben sagt es, auch wenn nichts Neues verarbeitet wird."""
+    real = page.evaluate("async () => (await fetch('/health')).json()")
+    fake = {**real, "documents": {"done": 12}, "backfill": 40, "backfill_total": 100}
+    page.route("**/health", lambda r: r.fulfill(json=fake))
+    page.evaluate("updateProgress()")
+    expect(page.locator("#progress")).to_be_visible()
+    expect(page.locator("#progress-label")).to_contain_text("60 von 100 fertig")
+    # neue Scans und Nachtragen gleichzeitig: beides steht da
+    fake = {**fake, "documents": {"done": 12, "pending": 2}}
+    page.evaluate("updateProgress()")
+    expect(page.locator("#progress-label")).to_contain_text("2 warten")
+    expect(page.locator("#progress-label")).to_contain_text("40 ältere werden ergänzt")
+    fake = {**fake, "documents": {"done": 14}, "backfill": 0}
+    page.evaluate("updateProgress()")
+    expect(page.locator("#progress")).to_be_hidden()
+    page.unroute("**/health")

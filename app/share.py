@@ -117,7 +117,8 @@ def link_docs(con, row) -> list:
         from .main import _doc_filter  # späte Bindung gegen Zirkel
         p = json.loads(row["target"] or "{}")
         f = _doc_filter(con, owner, q=p.get("q"), tag=p.get("tag"), year=p.get("year"), review=bool(p.get("review")),
-                        due=bool(p.get("due")), sender=p.get("sender"), scope="mine", warranty=bool(p.get("warranty")))
+                        due=bool(p.get("due")), sender=p.get("sender"), scope="mine", warranty=bool(p.get("warranty")),
+                        kind=p.get("kind"))
         if not f:
             return []
         where, params, _ = f

@@ -125,7 +125,7 @@ def money_rule(d, rule):
     stand in einer Steuererklärung und bleibt mindestens so lange wie Steuerunterlagen."""
     if rule is None:
         return None
-    if d["recurring"] or (d["doc_kind"] or "") in ("vertrag", "gehalt"):
+    if d["recurring"] or (d["doc_kind"] or "") in ("vertrag", "police", "gehalt", "urkunde", "zeugnis", "ausweis"):
         return None
     if (d["tax_35a"] or 0) > 0 and rule[2] < TAX_RULE[2]:
         return TAX_RULE

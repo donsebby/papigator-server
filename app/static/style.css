@@ -993,3 +993,20 @@ dialog[open]::backdrop { animation: fade-in .26s ease; }
   .wn-ill .wn-feed { opacity: 0 !important; }
   .wn-ill .wn-typed { width: 16ch; }
 }
+
+/* Detail: Nummern (Vertrag, Kunde, Aktenzeichen …) zum Aufklappen */
+.refs-box { margin: 2px 0 8px; }
+.refs-box > summary { cursor: pointer; font-size: 13px; color: var(--text-2); padding: 4px 0; }
+.refs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; padding-top: 6px; }
+@media (max-width: 520px) { .refs-grid { grid-template-columns: 1fr; } }
+
+/* Was ist neu: Dokumentart – ein Blatt, dessen Etikett wechselt */
+.wn-kinddoc { position: relative; width: 150px; height: 170px; background: #fff; border-color: #c8d8cd; padding: 26px 18px; }
+.wn-kinddoc i { display: block; height: 6px; border-radius: 3px; background: #cfe0d4; margin-bottom: 10px; }
+.wn-kinddoc i:nth-child(2) { width: 70%; } .wn-kinddoc i:nth-child(3) { width: 85%; }
+.wn-kinddoc span { position: absolute; left: 18px; bottom: 22px; font-size: 12px; color: #46604f; }
+.wn-kinddoc b { position: absolute; right: -22px; top: -14px; background: var(--accent); color: #fff; font-size: 13px; padding: 6px 12px;
+  border-radius: 999px; opacity: 0; transform: scale(.4) rotate(-8deg); animation: wn-kind 4.8s infinite; }
+@keyframes wn-kind { 0% { opacity: 0; transform: scale(.4) rotate(-8deg); } 4% { opacity: 1; transform: scale(1.12) rotate(6deg); }
+  8%, 22% { opacity: 1; transform: scale(1) rotate(6deg); } 25%, 100% { opacity: 0; transform: scale(.9) rotate(6deg); } }
+@media (prefers-reduced-motion: reduce) { .wn-ill .wn-kinddoc b:first-of-type { opacity: 1 !important; transform: rotate(6deg) !important; } }

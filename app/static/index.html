@@ -209,6 +209,12 @@
         <label style="flex:3"><span class="k">Absender</span><input id="m-sender"></label>
         <label style="flex:1"><span class="k">Währung</span><input id="m-currency" maxlength="3"></label>
       </div>
+      <!-- Dokumentart, Empfänger und Nummern (erkennt die KI, nur was im Text steht; app/processing.py kind_fields) -->
+      <div class="row">
+        <label><span class="k">Art</span><select id="m-kind"></select></label>
+        <label><span class="k">Empfänger</span><input id="m-recipient" placeholder="An wen?"></label>
+      </div>
+      <details id="m-refs-box" class="refs-box"><summary id="m-refs-sum">Nummern</summary><div id="m-refs" class="refs-grid"></div></details>
       <!-- Richtung des Betrags: zählt in Summen als Ausgabe, Einnahme oder gar nicht (Vertrag, Mahnung zu einer Rechnung) -->
       <label><span class="k">Betrag ist</span><select id="m-direction">
         <option value="">– noch nicht erkannt –</option>

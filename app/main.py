@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request,
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import threading
 
@@ -99,6 +99,10 @@ def serialize(con, row, user: User) -> dict:
     d = dict(row)
     d.pop("text", None)
     d["tags"] = tags
+    try:   # Nummern (Vertrag, Kunde, Aktenzeichen …) als Objekt, gespeichert als JSON
+        d["refs"] = _json.loads(row["refs"]) if "refs" in row.keys() and row["refs"] else {}
+    except ValueError:
+        d["refs"] = {}
     d["thumbnail_url"] = f"/documents/{row['id']}/thumbnail"
     d["file_url"] = f"/documents/{row['id']}/file"
     d["is_own"] = row["owner_id"] == user.id
@@ -517,7 +521,7 @@ REVIEW_SQL = ("(d.status='error' OR d.llm_status='failed' OR (d.document_date IS
 
 def _doc_filter(con, user: User, q=None, tag=None, status=None, year=None, review=False, due=False,
                 sender=None, trash=False, scope=None, date_from=None, date_to=None, owner=None, mine_due=False,
-                warranty=False):
+                warranty=False, kind=None):
     """WHERE-Teile für die Dokumentliste: (where, params, fts_query) oder None, wenn nichts sichtbar ist."""
     where, params = [], []
     if user.id != 0:
@@ -567,6 +571,10 @@ def _doc_filter(con, user: User, q=None, tag=None, status=None, year=None, revie
     if sender:
         where.append("d.sender = ? COLLATE NOCASE")
         params.append(sender)
+    if kind:   # Dokumentart (Codes aus processing.KIND_LABELS, mehrere mit Komma)
+        kinds = [k for k in str(kind).split(",") if k in processing.KIND_LABELS]
+        where.append(f"d.doc_kind IN ({','.join('?' * len(kinds))})" if kinds else "0")
+        params += kinds
     where.append("d.deleted_at IS NOT NULL" if trash else "d.deleted_at IS NULL")
     return where, params, fq
 
@@ -581,6 +589,7 @@ def list_documents(
     due: bool = Query(False, description="Nur Dokumente mit offener Frist, nach Frist sortiert"),
     warranty: bool = Query(False, description="Nur Käufe mit laufender Gewährleistung/Garantie, nach Ende sortiert"),
     sender: Optional[str] = Query(None, description="Nur Dokumente dieses Absenders"),
+    kind: Optional[str] = Query(None, max_length=200, description="Nur diese Dokumentart(en), Codes aus /documents/kinds"),
     trash: bool = Query(False, description="Papierkorb anzeigen"),
     sort: str = Query("date", description="date | added | title | sender | amount | due"),
     dir: str = Query("desc", description="asc | desc"),
@@ -602,7 +611,7 @@ def list_documents(
     with connect() as con:
         f = _doc_filter(con, user, q=q, tag=tag, status=status, year=year, review=review, due=due, sender=sender, trash=trash,
                         scope=scope, date_from=date_from, date_to=date_to, owner=owner, mine_due=mine_due,
-                        warranty=warranty)
+                        warranty=warranty, kind=kind)
         if f is None:
             if with_total and response is not None:
                 response.headers["X-Total-Count"] = "0"
@@ -658,7 +667,7 @@ def smart_search(q: str = Query(..., min_length=1, max_length=300), limit: int =
     p = dict(r["params"])
 
     def run(p):
-        return list_documents(q=p.get("q"), tag=None, status=None, year=None, review=False, due=bool(p.get("due")), sender=None,
+        return list_documents(q=p.get("q"), tag=None, status=None, year=None, review=False, due=bool(p.get("due")), sender=None, kind=None,
                               trash=False, sort="date", dir="desc", scope="all", limit=limit, offset=0,
                               date_from=p.get("date_from"), date_to=p.get("date_to"), owner=p.get("owner"), mine_due=False, warranty=False,
                               user=user)
@@ -847,6 +856,21 @@ def owner_counts(user: User = Depends(current_user)):
             f"AND owner_id IN ({','.join('?' * len(owners))}) GROUP BY owner_id", owners)]
 
 
+@app.get("/documents/kinds")
+def document_kinds(lang: str = "de", scope: Optional[str] = None, user: User = Depends(current_user)):
+    """Dokumentarten zum Auswählen und Filtern (Code → Bezeichnung), in der Reihenfolge der Auswahl; `count` = sichtbare
+    Dokumente dieser Art (für den Filter nur Arten mit Treffern zeigen)."""
+    i = 1 if lang.lower().startswith("en") else 0
+    counts = {}
+    with connect() as con:
+        f = _doc_filter(con, user, scope=scope)
+        if f:
+            where, params, _ = f
+            counts = {r[0]: r[1] for r in con.execute(
+                "SELECT d.doc_kind, COUNT(*) FROM documents d WHERE " + " AND ".join(where) + " GROUP BY d.doc_kind", params)}
+    return [{"code": c, "label": labels[i], "count": counts.get(c, 0)} for c, labels in processing.KIND_LABELS.items()]
+
+
 @app.get("/documents/{doc_id}")
 def get_document(doc_id: int, include_text: bool = False, user: User = Depends(current_user)):
     with connect() as con:
@@ -876,6 +900,9 @@ class DocumentUpdate(BaseModel):
     expires_on: Optional[str] = None       # Ausweis/Karte gültig bis (YYYY-MM-DD), "" löscht
     service_next: Optional[str] = None     # nächste Prüfung/Wartung (YYYY-MM-DD), "" = erledigt/kein Termin
     refund_state: Optional[str] = None     # open | done | none (nicht einreichen)
+    doc_kind: Optional[str] = None         # Dokumentart (Code aus /documents/kinds), "" = offen
+    recipient: Optional[str] = Field(None, max_length=120)   # an wen, "" löscht
+    refs: Optional[dict[str, str]] = None  # Nummern: contract/customer/case/invoice/other, leere Werte fallen weg
 
 
 @app.patch("/documents/{doc_id}")
@@ -948,6 +975,17 @@ def update_document(doc_id: int, body: DocumentUpdate, user: User = Depends(curr
                 fields[k] = v or None
                 if k == "expires_on" and not v:
                     fields["expires_what"] = None
+        if "doc_kind" in fields:
+            k = (fields["doc_kind"] or "").strip() or None
+            if k is not None and k not in processing.KIND_LABELS:
+                raise HTTPException(400, "Unbekannte Dokumentart")
+            fields["doc_kind"] = k
+        if "recipient" in fields:
+            fields["recipient"] = re.sub(r"\s+", " ", fields["recipient"] or "").strip() or None
+        if "refs" in fields:
+            refs = {k: re.sub(r"\s+", " ", str(v)).strip()[:60] for k, v in (fields["refs"] or {}).items()
+                    if k in processing.REF_KEYS and str(v or "").strip()}
+            fields["refs"] = _json.dumps(refs, ensure_ascii=False) if refs else None
         if "refund_state" in fields and fields["refund_state"] not in ("open", "done", "none"):
             raise HTTPException(400, "Erstattung: open, done oder none")
         if "warranty_months" in fields or "document_date" in fields:
@@ -1192,7 +1230,7 @@ def merge(body: MergeRequest, user: User = Depends(current_user)):
 
 # ---------- Gespeicherte Suchen („intelligente Ordner“) ----------
 
-VIEW_KEYS = {"q", "tag", "year", "sender", "due", "warranty", "review", "scope", "sort", "dir"}
+VIEW_KEYS = {"q", "tag", "year", "sender", "kind", "due", "warranty", "review", "scope", "sort", "dir"}
 
 
 class ViewIn(BaseModel):
@@ -1207,7 +1245,7 @@ def _clean_params(p: dict) -> dict:
             out["year"] = int(out["year"])
         except (TypeError, ValueError):
             out.pop("year")
-    if not any(k in out for k in ("q", "tag", "year", "sender", "due", "warranty", "review")):
+    if not any(k in out for k in ("q", "tag", "year", "sender", "kind", "due", "warranty", "review")):
         raise HTTPException(400, "Eine gespeicherte Suche braucht mindestens einen Filter oder Suchbegriff")
     return out
 
@@ -1215,7 +1253,8 @@ def _clean_params(p: dict) -> dict:
 def _view_out(con, user: User, r) -> dict:
     p = _json.loads(r["params"] or "{}")
     f = _doc_filter(con, user, q=p.get("q"), tag=p.get("tag"), year=p.get("year"), review=bool(p.get("review")),
-                    due=bool(p.get("due")), sender=p.get("sender"), scope=p.get("scope"), warranty=bool(p.get("warranty")))
+                    due=bool(p.get("due")), sender=p.get("sender"), scope=p.get("scope"), warranty=bool(p.get("warranty")),
+                    kind=p.get("kind"))
     n = 0
     if f:
         where, params, _ = f
@@ -2006,9 +2045,14 @@ def health(user: User = Depends(current_user)):
             "SELECT status, COUNT(*) AS n FROM documents WHERE deleted_at IS NULL GROUP BY status")}
         llm_failed = con.execute("SELECT COUNT(*) FROM documents WHERE llm_status='failed' AND deleted_at IS NULL").fetchone()[0]
         users = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        # Bestand still nachtragen (Art/Empfänger/Nummern, refill_k): Status bleibt „done“, zählt also nicht oben mit
+        backfill = con.execute("SELECT COUNT(*) FROM documents WHERE llm_status='refill_k' AND status='done' "
+                               "AND deleted_at IS NULL").fetchone()[0]
+        backfill_total = max(backfill, int(get_setting(con, "kinds_v1", "0") or 0))
     bs = backupmod.settings()
     cfg = config.llm_config()
     return {"ok": True, "version": app.version, "documents": counts, "llm_failed": llm_failed, "users": users,
+            "backfill": backfill, "backfill_total": backfill_total,
             "llm": cfg["enabled"] and bool(cfg["url"]), "llm_paused_until": worker.paused_until(),
             "backup": {"configured": bool(bs["dir"]), "stale": backupmod.is_stale(bs), "last": bs["last"], "ok": bs["last_ok"]}}
 
