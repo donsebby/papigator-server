@@ -15,6 +15,7 @@ _ROOT = Path(tempfile.mkdtemp(prefix="papigator-test-"))
 os.environ["PAPIGATOR_DATA"] = str(_ROOT / "data")
 os.environ["PAPIGATOR_TOKEN"] = "boot-token"
 os.environ["PAPIGATOR_INBOX"] = str(_ROOT / "inbox")
+os.environ["PAPIGATOR_DISCOVERY"] = "0"   # kein Bonjour aus Tests ins echte Netz (test_discovery mockt Zeroconf)
 os.environ.pop("PAPIGATOR_LLM_URL", None)
 os.environ.pop("BEIBERLESS_LLM_URL", None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

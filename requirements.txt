@@ -8,3 +8,4 @@ ocrmypdf>=16.0
 bcrypt>=4.0
 pillow>=11
 cryptography>=42
+zeroconf>=0.132

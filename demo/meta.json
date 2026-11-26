@@ -19,7 +19,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "261973069"
+  }
  },
  {
   "i": 1,
@@ -41,7 +46,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "798935572"
+  }
  },
  {
   "i": 2,
@@ -63,7 +73,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "177777868"
+  }
  },
  {
   "i": 3,
@@ -85,7 +100,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "201071364"
+  }
  },
  {
   "i": 4,
@@ -107,7 +127,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "725763863"
+  }
  },
  {
   "i": 5,
@@ -129,7 +154,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "644854973"
+  }
  },
  {
   "i": 6,
@@ -151,7 +181,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "140260662"
+  }
  },
  {
   "i": 7,
@@ -173,7 +208,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "565623510"
+  }
  },
  {
   "i": 8,
@@ -195,7 +235,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "175006691"
+  }
  },
  {
   "i": 9,
@@ -217,7 +262,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "197402358"
+  }
  },
  {
   "i": 10,
@@ -239,7 +289,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "555824009"
+  }
  },
  {
   "i": 11,
@@ -261,7 +316,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "987825707"
+  }
  },
  {
   "i": 12,
@@ -283,7 +343,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "232931336"
+  }
  },
  {
   "i": 13,
@@ -305,7 +370,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "777129422"
+  }
  },
  {
   "i": 14,
@@ -327,7 +397,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "725988156"
+  }
  },
  {
   "i": 15,
@@ -349,7 +424,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "719659571"
+  }
  },
  {
   "i": 16,
@@ -371,7 +451,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "525932421"
+  }
  },
  {
   "i": 17,
@@ -393,7 +478,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "337384804"
+  }
  },
  {
   "i": 18,
@@ -415,7 +505,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "697714383"
+  }
  },
  {
   "i": 19,
@@ -437,7 +532,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "410965605"
+  }
  },
  {
   "i": 20,
@@ -459,7 +559,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "254892713"
+  }
  },
  {
   "i": 21,
@@ -481,7 +586,12 @@
    "Handy",
    "Rechnung",
    "Telekommunikation"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "226478448"
+  }
  },
  {
   "i": 22,
@@ -504,7 +614,8 @@
    "Rechnung",
    "Telekommunikation",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Alex Muster"
  },
  {
   "i": 23,
@@ -524,7 +635,11 @@
    "Gehalt",
    "Steuer",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 24,
@@ -544,7 +659,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 25,
@@ -564,7 +683,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 26,
@@ -584,7 +707,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 27,
@@ -604,7 +731,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 28,
@@ -624,7 +755,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 29,
@@ -644,7 +779,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 30,
@@ -664,7 +803,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 31,
@@ -684,7 +827,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 32,
@@ -704,7 +851,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 33,
@@ -724,7 +875,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 34,
@@ -744,7 +899,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 35,
@@ -764,7 +923,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 36,
@@ -784,7 +947,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 37,
@@ -804,7 +971,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 38,
@@ -824,7 +995,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 39,
@@ -844,7 +1019,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 40,
@@ -864,7 +1043,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 41,
@@ -884,7 +1067,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 42,
@@ -904,7 +1091,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 43,
@@ -924,7 +1115,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 44,
@@ -944,7 +1139,11 @@
    "Abrechnung",
    "Gehalt",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "20417"
+  }
  },
  {
   "i": 45,
@@ -967,7 +1166,11 @@
    "Rechnung",
    "Versicherung",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "contract": "123/456789-K"
+  }
  },
  {
   "i": 46,
@@ -990,7 +1193,11 @@
    "Rechnung",
    "Versicherung",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "contract": "123/456789-K"
+  }
  },
  {
   "i": 47,
@@ -1013,7 +1220,11 @@
    "Rechnung",
    "Versicherung",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "contract": "123/456789-K"
+  }
  },
  {
   "i": 48,
@@ -1037,7 +1248,11 @@
    "Steuer",
    "Versicherung",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Sam Muster",
+  "refs": {
+   "contract": "AS-998877"
+  }
  },
  {
   "i": 49,
@@ -1061,7 +1276,11 @@
    "Steuer",
    "Versicherung",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Sam Muster",
+  "refs": {
+   "contract": "AS-998877"
+  }
  },
  {
   "i": 50,
@@ -1085,7 +1304,11 @@
    "Steuer",
    "Versicherung",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Sam Muster",
+  "refs": {
+   "contract": "AS-998877"
+  }
  },
  {
   "i": 51,
@@ -1104,7 +1327,11 @@
   "tags": [
    "Behörde",
    "Rechnung"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "412 345 678"
+  }
  },
  {
   "i": 52,
@@ -1126,7 +1353,11 @@
    "Rechnung",
    "Strom",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "contract": "300 445 112"
+  }
  },
  {
   "i": 53,
@@ -1146,7 +1377,11 @@
    "Abrechnung",
    "Rechnung",
    "Strom"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "contract": "300 445 112"
+  }
  },
  {
   "i": 54,
@@ -1166,7 +1401,8 @@
    "Steuer",
    "Vertrag",
    "Wohnung"
-  ]
+  ],
+  "recipient": "Alex Muster"
  },
  {
   "i": 55,
@@ -1189,7 +1425,8 @@
    "Rechnung",
    "Vertrag",
    "Wohnung"
-  ]
+  ],
+  "recipient": "Alex Muster"
  },
  {
   "i": 56,
@@ -1207,7 +1444,11 @@
   "tags": [
    "Behörde",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex und Sam Muster",
+  "refs": {
+   "case": "34/123/45678"
+  }
  },
  {
   "i": 57,
@@ -1229,7 +1470,11 @@
    "Handwerker",
    "Rechnung",
    "Wohnung"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "invoice": "2025-0918"
+  }
  },
  {
   "i": 58,
@@ -1247,7 +1492,8 @@
   "tags": [
    "Spende",
    "Steuer"
-  ]
+  ],
+  "recipient": "Alex Muster"
  },
  {
   "i": 59,
@@ -1265,7 +1511,8 @@
   "tags": [
    "Spende",
    "Zuwendung"
-  ]
+  ],
+  "recipient": "Alex Muster"
  },
  {
   "i": 60,
@@ -1283,7 +1530,8 @@
   "tags": [
    "Spende",
    "Zuwendung"
-  ]
+  ],
+  "recipient": "Alex Muster"
  },
  {
   "i": 61,
@@ -1303,7 +1551,8 @@
   "tags": [
    "Arzt",
    "Rechnung"
-  ]
+  ],
+  "recipient": "Sam Muster"
  },
  {
   "i": 62,
@@ -1322,7 +1571,8 @@
   "tags": [
    "Fitness",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Sam Muster"
  },
  {
   "i": 63,
@@ -1340,7 +1590,11 @@
   "tags": [
    "Fitness",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Sam Muster",
+  "refs": {
+   "contract": "7781234"
+  }
  },
  {
   "i": 64,
@@ -1359,7 +1613,8 @@
    "Behörde",
    "Gebühren",
    "Kinder"
-  ]
+  ],
+  "recipient": "Sam Muster"
  },
  {
   "i": 65,
@@ -1379,7 +1634,11 @@
    "Finanzen",
    "KFZ",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "other": "DEMO0K4XLA012345"
+  }
  },
  {
   "i": 66,
@@ -1399,7 +1658,11 @@
    "Finanzierung",
    "KFZ",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "contract": "9 123 456 789"
+  }
  },
  {
   "i": 67,
@@ -1419,7 +1682,11 @@
    "KFZ",
    "Rechnung",
    "Werkstatt"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "invoice": "59353"
+  }
  },
  {
   "i": 68,
@@ -1439,7 +1706,11 @@
    "KFZ",
    "Rechnung",
    "Werkstatt"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "invoice": "55054"
+  }
  },
  {
   "i": 69,
@@ -1461,7 +1732,11 @@
    "Werkstatt"
   ],
   "service_what": "Hauptuntersuchung",
-  "service_next": "2028-03-09"
+  "service_next": "2028-03-09",
+  "recipient": "Alex Muster",
+  "refs": {
+   "invoice": "59179"
+  }
  },
  {
   "i": 70,
@@ -1482,7 +1757,10 @@
    "Rechnung"
   ],
   "warranty_months": 24,
-  "warranty_kind": "legal"
+  "warranty_kind": "legal",
+  "refs": {
+   "invoice": "302-4032085-2728987"
+  }
  },
  {
   "i": 71,
@@ -1504,7 +1782,10 @@
    "Rechnung"
   ],
   "warranty_months": 24,
-  "warranty_kind": "legal"
+  "warranty_kind": "legal",
+  "refs": {
+   "invoice": "302-4151952-7247794"
+  }
  },
  {
   "i": 72,
@@ -1525,7 +1806,10 @@
    "Rechnung"
   ],
   "warranty_months": 24,
-  "warranty_kind": "legal"
+  "warranty_kind": "legal",
+  "refs": {
+   "invoice": "302-2634613-2053424"
+  }
  },
  {
   "i": 73,
@@ -1544,7 +1828,10 @@
    "Online",
    "Rechnung",
    "Werkzeug"
-  ]
+  ],
+  "refs": {
+   "invoice": "302-1999941-4455413"
+  }
  },
  {
   "i": 74,
@@ -1565,7 +1852,10 @@
    "Spielzeug"
   ],
   "warranty_months": 24,
-  "warranty_kind": "legal"
+  "warranty_kind": "legal",
+  "refs": {
+   "invoice": "302-9328453-9920785"
+  }
  },
  {
   "i": 75,
@@ -1606,7 +1896,11 @@
    "Handwerker",
    "Rechnung",
    "Werkstatt"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "invoice": "2025-0918"
+  }
  },
  {
   "i": 77,
@@ -1626,7 +1920,11 @@
    "Rechnung",
    "Software",
    "Vertrag"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "invoice": "PW-2026-0001234"
+  }
  },
  {
   "i": 78,
@@ -1649,7 +1947,11 @@
    "Rechnung",
    "Werkstatt",
    "Wohnung"
-  ]
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "invoice": "2025-0918"
+  }
  },
  {
   "i": 79,
@@ -1670,7 +1972,8 @@
   "tags": [
    "Gebühren",
    "Rechnung"
-  ]
+  ],
+  "recipient": "Alex Muster"
  },
  {
   "i": 80,
@@ -1709,7 +2012,11 @@
    "Rechnung"
   ],
   "warranty_months": 36,
-  "warranty_kind": "garantie"
+  "warranty_kind": "garantie",
+  "recipient": "Alex Muster",
+  "refs": {
+   "invoice": "2025-118734"
+  }
  },
  {
   "i": 82,
@@ -1727,7 +2034,8 @@
    "Karte"
   ],
   "expires_what": "Kreditkarte",
-  "expires_on": "2027-01-31"
+  "expires_on": "2027-01-31",
+  "recipient": "Sam Muster"
  },
  {
   "i": 83,
@@ -1748,7 +2056,11 @@
    "Wohnung"
   ],
   "service_what": "Heizungswartung",
-  "service_next": "2026-12-01"
+  "service_next": "2026-12-01",
+  "recipient": "Alex Muster",
+  "refs": {
+   "invoice": "W-2025-311"
+  }
  },
  {
   "i": 84,
@@ -1769,6 +2081,286 @@
    "Arzt",
    "Rechnung"
   ],
-  "refund_state": "open"
+  "refund_state": "open",
+  "recipient": "Sam Muster"
+ },
+ {
+  "i": 85,
+  "file": "Arbeitszeugnis_Moewe_Spedition.pdf",
+  "title": "Arbeitszeugnis Möwe Spedition",
+  "document_date": "2018-03-31",
+  "sender": "Möwe Spedition GmbH",
+  "amount": null,
+  "summary": "Arbeitszeugnis für die Tätigkeit als Disponent von 2012 bis 2018.",
+  "doc_kind": "zeugnis",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Arbeit",
+   "Zeugnis"
+  ],
+  "recipient": "Alex Muster"
+ },
+ {
+  "i": 86,
+  "file": "Halbjahresinformation_Mia.pdf",
+  "title": "Halbjahresinformation Mia 2025/2026",
+  "document_date": "2026-01-30",
+  "sender": "Grundschule am Lindenplatz",
+  "amount": null,
+  "summary": "Halbjahresinformation der Klasse 1b mit Einschätzungen zu Verhalten, Deutsch und Mathematik.",
+  "doc_kind": "zeugnis",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Kinder",
+   "Schule",
+   "Zeugnis"
+  ],
+  "recipient": "Mia Muster"
+ },
+ {
+  "i": 87,
+  "file": "Geburtsurkunde_Mia.pdf",
+  "title": "Geburtsurkunde Mia Muster",
+  "document_date": "2018-08-21",
+  "sender": "Standesamt Karlsruhe",
+  "amount": null,
+  "summary": "Geburtsurkunde von Mia Muster, geboren am 16.08.2018 in Karlsruhe.",
+  "doc_kind": "urkunde",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Behörde",
+   "Kinder",
+   "Urkunde"
+  ],
+  "recipient": "Mia Muster",
+  "refs": {
+   "case": "G 1234/2018"
+  }
+ },
+ {
+  "i": 88,
+  "file": "Meldebescheinigung_Alex.pdf",
+  "title": "Meldebescheinigung Alex Muster",
+  "document_date": "2025-03-04",
+  "sender": "Stadt Karlsruhe",
+  "amount": null,
+  "summary": "Bescheinigung, dass Alex Muster seit dem 01.10.2019 im Lindenweg 12 gemeldet ist.",
+  "doc_kind": "bescheinigung",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Behörde",
+   "Wohnung"
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "case": "MB-2025-118842"
+  }
+ },
+ {
+  "i": 89,
+  "file": "AU_Bescheinigung_2025-11.pdf",
+  "title": "Arbeitsunfähigkeitsbescheinigung Alex",
+  "document_date": "2025-11-10",
+  "sender": "Dr. med. Paul Brenner",
+  "amount": null,
+  "summary": "Krankschreibung für fünf Tage zur Vorlage beim Arbeitgeber.",
+  "doc_kind": "bescheinigung",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Arbeit",
+   "Arzt"
+  ],
+  "recipient": "Alex Muster"
+ },
+ {
+  "i": 90,
+  "file": "Befund_MRT_Sam.pdf",
+  "title": "MRT-Befund Lendenwirbelsäule",
+  "document_date": "2025-11-18",
+  "sender": "Radiologie am Schloss",
+  "amount": null,
+  "summary": "Befund der MRT der Lendenwirbelsäule ohne Bandscheibenvorfall.",
+  "doc_kind": "befund",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Arzt",
+   "Befund"
+  ],
+  "recipient": "Dr. med. Paul Brenner"
+ },
+ {
+  "i": 91,
+  "file": "Terminbestaetigung_Buergerbuero.pdf",
+  "title": "Terminbestätigung Bürgerbüro Personalausweis",
+  "document_date": "2026-02-02",
+  "sender": "Stadt Karlsruhe",
+  "amount": null,
+  "summary": "Bestätigung des Termins zum Beantragen des Personalausweises am 16.02.2026.",
+  "doc_kind": "bestaetigung",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Ausweis",
+   "Behörde"
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "case": "T-48213"
+  }
+ },
+ {
+  "i": 92,
+  "file": "Antrag_Kindergeld.pdf",
+  "title": "Antrag auf Kindergeld für Mia",
+  "document_date": "2018-09-05",
+  "sender": null,
+  "amount": null,
+  "summary": "Ausgefüllter Antrag auf Kindergeld für Mia bei der Familienkasse.",
+  "doc_kind": "antrag",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Behörde",
+   "Kinder",
+   "Kindergeld"
+  ],
+  "recipient": "Familienkasse Baden-Württemberg West"
+ },
+ {
+  "i": 93,
+  "file": "Hausverwaltung_Wasserabsperrung.pdf",
+  "title": "Information Wasserabsperrung Lindenweg 12",
+  "document_date": "2026-04-08",
+  "sender": "Hausverwaltung Kern & Partner",
+  "amount": null,
+  "summary": "Hinweis, dass am 21.04.2026 von 8 bis 13 Uhr das Wasser im Haus abgestellt wird.",
+  "doc_kind": "info",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Wohnung"
+  ]
+ },
+ {
+  "i": 94,
+  "file": "HU_Pruefbericht_2026.pdf",
+  "title": "Prüfbericht Hauptuntersuchung Avero K4",
+  "document_date": "2026-03-09",
+  "sender": "Kfz-Prüfstelle Karlsruhe-Ost",
+  "amount": null,
+  "summary": "Hauptuntersuchung ohne Mängel bestanden, die nächste ist in zwei Jahren fällig.",
+  "doc_kind": "bericht",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Fahrzeug",
+   "KFZ"
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "other": "7714 2026 0309 0042"
+  }
+ },
+ {
+  "i": 95,
+  "file": "Uebergabeprotokoll_Wohnung.pdf",
+  "title": "Übergabeprotokoll Wohnung Lindenweg 12",
+  "document_date": "2019-10-01",
+  "sender": "Hausverwaltung Kern & Partner",
+  "amount": null,
+  "summary": "Protokoll der Wohnungsübergabe mit Zählerständen, Schlüsseln und Zustand.",
+  "doc_kind": "bericht",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Wohnung"
+  ],
+  "recipient": "Alex Muster und Sam Muster"
+ },
+ {
+  "i": 96,
+  "file": "Masernschutz_Mia.pdf",
+  "title": "Nachweis Masernschutz Mia",
+  "document_date": "2025-07-15",
+  "sender": "Kinderarztpraxis Dr. Yilmaz",
+  "amount": null,
+  "summary": "Ärztliche Bescheinigung über den Masernschutz von Mia zur Vorlage in der Schule.",
+  "doc_kind": "bescheinigung",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Arzt",
+   "Kinder",
+   "Schule"
+  ],
+  "recipient": "Mia Muster"
+ },
+ {
+  "i": 97,
+  "file": "Personalausweis_Alex.pdf",
+  "title": "Personalausweis Alex Muster",
+  "document_date": "2026-02-21",
+  "sender": "Stadt Karlsruhe",
+  "amount": null,
+  "summary": "Personalausweis von Alex Muster, gültig bis 21.02.2036.",
+  "doc_kind": "ausweis",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Ausweis",
+   "Behörde"
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "other": "L01X00T47"
+  },
+  "expires_what": "Personalausweis",
+  "expires_on": "2036-02-21"
+ },
+ {
+  "i": 98,
+  "file": "Zertifikat_Python_Kurs.pdf",
+  "title": "Zertifikat Python for Data Analysis",
+  "document_date": "2025-09-19",
+  "sender": "CodeCamp Online Academy",
+  "amount": null,
+  "summary": "Teilnahmezertifikat über den Onlinekurs „Python for Data Analysis“ mit Auszeichnung.",
+  "doc_kind": "zeugnis",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Weiterbildung",
+   "Zeugnis"
+  ],
+  "recipient": "Sam Muster",
+  "refs": {
+   "other": "CC-PY-2025-88314"
+  }
+ },
+ {
+  "i": 99,
+  "file": "Versicherungsbescheinigung_Krankenkasse.pdf",
+  "title": "Versicherungsbescheinigung Gesundheitskasse Lindenau",
+  "document_date": "2025-02-17",
+  "sender": "Gesundheitskasse Lindenau",
+  "amount": null,
+  "summary": "Bescheinigung der Krankenversicherung für Alex, Mia ist familienversichert.",
+  "doc_kind": "bescheinigung",
+  "direction": "none",
+  "autopay": 0,
+  "tags": [
+   "Krankenkasse",
+   "Versicherung"
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "A123456780"
+  }
  }
 ]

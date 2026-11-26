@@ -1,5 +1,6 @@
 """Web-App im echten Browser: Laden, Dokument, Ordner, Papierkorb, Einstellungen, Dialoge – und vor allem
 Browser-Zurück/Vor überall (Taste im Browser = page.go_back)."""
+import json
 import re
 
 from playwright.sync_api import expect
@@ -76,8 +77,10 @@ def test_new_folder(page):
 def test_trash_back_returns_to_folder(page):
     page.click('#mode-seg button[data-mode="folders"]')
     page.locator(".folder", has_text="Haus").click()
-    page.locator(".chip", has_text="Papierkorb").click()
+    expect(page.locator("#tagbar .chip", has_text="Papierkorb")).to_have_count(0)   # kein Chip mehr – ein Ort
+    page.click("#trash-btn")
     shown(page, "#trash-bar")
+    expect(page.locator("#trash-btn")).to_have_attribute("aria-pressed", "true")
     expect(page.locator(".card", has_text="Altes Schreiben")).to_be_visible()
     expect(page.locator("#trash-close-btn")).to_have_count(0)  # kein eigener Zurück-Knopf mehr
     page.go_back()
@@ -85,7 +88,7 @@ def test_trash_back_returns_to_folder(page):
     expect(page.locator(".crumbs b")).to_have_text("Haus")
     page.go_forward()
     shown(page, "#trash-bar")
-    page.locator(".chip", has_text="Papierkorb").click()      # Chip schaltet aus
+    page.click("#trash-btn")                                   # Knopf schaltet aus
     hidden(page, "#trash-bar")
     page.click('#mode-seg button[data-mode="tiles"]')
 
@@ -118,14 +121,32 @@ def test_settings_and_dialog_back(page):
     page.click('#mode-seg button[data-mode="tiles"]')
 
 
+def _fake_ask(page, answer="Die Grundsteuer beträgt 312 € [Dok 1]."):
+    """Frag Papigator ohne LLM: /ask beantwortet der Test; die Bodies landen in der zurückgegebenen Liste."""
+    bodies = []
+
+    def handle(route):
+        bodies.append(route.request.post_data_json)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(
+            {"answer": answer, "sources": [], "keywords": ["Grundsteuer"], "lang": "de"}))
+    page.route(re.compile(r"/ask$"), handle)
+    return bodies
+
+
+def _ask(page, q="Wie hoch ist die Grundsteuer?"):
+    """Antwort-Ebene öffnen, ohne das Suchfeld anzufassen (wie Antippen von „Papigator fragen“)."""
+    page.evaluate("(q) => askNow(q)", q)
+    shown(page, "#ask-panel")
+
+
 def test_ask_panel_back(page):
+    _fake_ask(page)
     page.click('#mode-seg button[data-mode="folders"]')
     page.locator(".folder", has_text="Haus").click()          # ein Schritt im Verlauf vor dem Panel
-    page.click("#ask-btn")
-    shown(page, "#ask-panel")
+    _ask(page)
     page.go_back()
     hidden(page, "#ask-panel")
-    page.click("#ask-btn")
+    _ask(page)
     page.click("#ask-close")
     hidden(page, "#ask-panel")
     page.wait_for_function("!(history.state && history.state.layer)")
@@ -239,7 +260,8 @@ def test_folder_view_has_no_filter_chips_and_searches_in_folder(page):
     bar = page.locator("#tagbar")
     for label in ("Tag", "Jahr", "Absender"):
         expect(bar.locator(".chip", has_text=label)).to_have_count(0)
-    expect(bar.locator(".chip", has_text="Papierkorb")).to_be_visible()      # ein Ort, kein Filter
+    expect(bar.locator(".chip", has_text="Papierkorb")).to_have_count(0)     # ein Ort, kein Filter – Knopf in der Leiste
+    shown(page, "#trash-btn")
     page.locator(".folder", has_text="Haus").click()
     expect(page.locator("#search")).to_have_attribute("placeholder", "In „Haus“ suchen …")
     page.fill("#search", "Arztbrief")                                         # liegt nicht in „Haus“
@@ -380,10 +402,14 @@ def test_repeating_deadline_and_calendar_link(page, tmp_path):
     if len(page.request.get("/users").json()) == 1:                          # test_invite.py legt vorher „Kim“ an
         hidden(page, "#m-due-assignee-row")                                  # allein: niemand zum Zuteilen
     day = dt.date.today() + dt.timedelta(days=5)
+    hidden(page, "#m-due-done")                                              # ohne Frist nichts abzuhaken
     page.fill("#m-due", day.strftime("%d.%m.%Y"))
+    page.press("#m-due", "Enter")                                            # speichert sofort, ohne Knopf
+    shown(page, "#m-due-done")
+    page.locator("#m-more summary").click()                                  # Wiederholen steht unter „Mehr Angaben“
     page.select_option("#m-due-repeat", "yearly")
-    page.check("#m-due-done")
-    page.click("#save-btn")
+    shown(page, "#m-due-rep")
+    page.click("#m-due-done")
     expect(page.locator("#toast")).to_contain_text("nächste Frist")
     nxt = day.replace(year=day.year + 1, day=min(day.day, 28 if day.month == 2 else 31))
     expect(page.locator("#m-due")).to_have_value(nxt.strftime("%d.%m.%Y"))
@@ -431,8 +457,11 @@ def test_undated_document_shows_ohne_datum(page):
     expect(page.locator("#m-date")).to_have_value("")
     shown(page, "#m-date-hint")
     expect(page.locator("#m-info")).to_contain_text(f"hinzugefügt {today}")
-    page.fill("#m-date", "01.02.2018")                          # Eintippen blendet den Hinweis aus (nicht gespeichert)
+    page.fill("#m-date", "01.02.2018")                          # Eintippen blendet den Hinweis aus
     hidden(page, "#m-date-hint")
+    page.press("#m-date", "Escape")                             # Esc im Feld nimmt es zurück (nichts gespeichert)
+    expect(page.locator("#m-date")).to_have_value("")
+    shown(page, "#detail")
     page.go_back()
     shown(page, "#main")
     page.locator(".card", has_text="Kaufvertrag datiert").click()
@@ -460,8 +489,9 @@ def test_confirm_no_date_leaves_review(page):
     hidden(page, "#m-no-date")
     expect(page.locator("#m-date")).to_have_value("")
     expect(page.locator("#m-reasons")).not_to_contain_text("Kein Datum")
-    page.click("#save-btn")                                    # Speichern mit leerem Datum lässt es dabei
     expect(page.locator("#save-state")).to_have_text("Gespeichert")
+    page.focus("#m-date")                                      # leeres Datum verlassen lässt es dabei
+    page.press("#m-date", "Enter")
     expect(page.locator("#m-date-hint-text")).to_have_text("Ohne Datum abgelegt")
     page.go_back()
     shown(page, "#main")
@@ -507,13 +537,14 @@ def test_warranty_chip_card_and_detail(page):
     expect(card.locator(".sub.warranty")).to_contain_text("Gewährleistung bis")
     expect(page.locator(".card")).to_have_count(1)
     card.click()
+    expect(page.locator("#m-chip-warranty")).to_contain_text("Gewährleistung bis")   # als Chip in der Karte
+    page.click("#m-chip-warranty")                             # öffnet „Mehr Angaben“
+    expect(page.locator("#m-warranty")).to_be_visible()
     expect(page.locator("#m-warranty")).to_have_value("24:legal")
     expect(page.locator("#m-warranty-hint")).to_contain_text("Gewährleistung bis")
-    page.click("#save-btn")                                    # Speichern ohne Änderung
-    expect(page.locator("#save-state")).to_have_text("Gespeichert")
     page.select_option("#m-warranty", "36:garantie")
-    page.click("#save-btn")
     expect(page.locator("#m-warranty-hint")).to_contain_text("Garantie bis")
+    expect(page.locator("#m-chip-warranty")).to_contain_text("Garantie bis")
     page.go_back()
     shown(page, "#main")
     expect(page.locator("#tagbar .chip", has_text="Garantie")).to_have_class(re.compile(r"\bactive\b"))
@@ -528,11 +559,12 @@ def test_warranty_chip_card_and_detail(page):
     page.locator(".card", has_text="Brief Gemeinde").click()
     expect(page.locator("#m-title")).to_have_value("Brief Gemeinde")
     hidden(page, "#m-warranty-hint")
-    page.click("#save-btn")
-    expect(page.locator("#save-state")).to_have_text("Gespeichert")
-    assert _patch(page, other, {})["warranty_months"] is None
+    hidden(page, "#m-chip-warranty")
+    page.click("#m-title")                                     # Feld betreten und verlassen ändert nichts
+    page.press("#m-title", "Enter")
     page.go_back()
     shown(page, "#main")
+    assert _patch(page, other, {})["warranty_months"] is None
 
 
 def test_review_reasons_on_cards_and_detail(page):
@@ -615,9 +647,63 @@ def test_own_avatar_in_settings_and_family(page):
     page.go_back()
 
 
-def test_family_settings(page):
-    # Familie (am Ende, weil es Ordner anlegt): Person hinzufügen, Notfallmappe füllen und teilen, Aufräumen
+def test_weekly_digest_settings(page):
+    """Wochenübersicht (25.11.2026): Abschnitt lädt ohne JS-Fehler, ohne SMTP der Hinweis; ohne Adresse springt der
+    Schalter zurück, mit Adresse bleiben Schalter, Wochentag und Adresse nach dem Neuladen gespeichert."""
     page.click("#settings-btn")
+    shown(page, "#s-smtp")                                     # Admin: Mail-Versand im Server-Bereich
+    page.locator("#s-digest-sect summary").click()
+    shown(page, "#s-digest-nosmtp")
+    expect(page.locator("#s-digest-day option")).to_have_count(7)
+    expect(page.locator("#s-digest-test")).to_be_disabled()
+    page.click("#s-digest-on")                                 # noch keine Adresse: der Server lehnt ab
+    expect(page.locator("#s-digest-status")).to_contain_text("Empfängeradresse")
+    expect(page.locator("#s-digest-on")).not_to_be_checked()
+    page.fill("#s-digest-email", "alex@example.org")
+    page.press("#s-digest-email", "Tab")
+    expect(page.locator("#toast")).to_contain_text("Wochenübersicht gespeichert")
+    page.select_option("#s-digest-day", "4")
+    page.click("#s-digest-on")
+    expect(page.locator("#s-digest-status")).to_contain_text("Freitag")
+    page.reload()
+    page.wait_for_selector("#main:not(.hidden)")
+    page.click("#settings-btn")
+    page.locator("#s-digest-sect summary").click()
+    expect(page.locator("#s-digest-on")).to_be_checked()
+    expect(page.locator("#s-digest-day")).to_have_value("4")
+    expect(page.locator("#s-digest-email")).to_have_value("alex@example.org")
+    page.click("#s-digest-on")                                 # wieder aus – für die übrigen Tests
+    expect(page.locator("#s-digest-status")).to_contain_text("Aus")
+    page.go_back()
+
+
+def test_links_from_weekly_mail_open_document_and_review(page):
+    """Links aus der Mail: /app/#doc-<id> öffnet das Dokument (Zurück → Übersicht), /app/#review „Zu prüfen“, /app/#weekly die Einstellung."""
+    doc = next(d for d in page.request.get("/documents").json() if d["title"] == "Grundsteuer")
+    page.goto("about:blank")
+    page.goto(f"/app/#doc-{doc['id']}")
+    shown(page, "#detail")
+    expect(page.locator("#m-title")).to_have_value("Grundsteuer")
+    page.go_back()
+    shown(page, "#main")
+    hidden(page, "#detail")
+    page.goto("about:blank")
+    page.goto("/app/#review")
+    shown(page, "#main")
+    expect(page).not_to_have_url(re.compile("#review"))
+    assert page.evaluate("state.review") is True                 # Liste „Zu prüfen“
+    page.goto("about:blank")
+    page.goto("/app/#weekly")
+    shown(page, "#settings")
+    expect(page.locator("#s-digest-sect")).to_have_attribute("open", "")
+
+
+def test_family_settings(page):
+    # Familie (am Ende, weil es Ordner anlegt): Person hinzufügen, Notfallmappe füllen und teilen, Aufräumen – seit
+    # 26.11.2026 in der Ansicht „Familie“ wie in der App; die Fristen pro Ordner (Admin) bleiben in den Einstellungen
+    _upload(page, "Patientenverfügung Alex")                    # für die Checkliste der Notfallmappe
+    page.click('#mode-seg button[data-mode="family"]')
+    shown(page, "#family-manage")
     page.locator("#s-persons-sect summary").click()
     expect(page.locator("#s-persons")).to_contain_text("Noch keine Personen")
     page.fill("#s-person-name", "Lena")
@@ -638,17 +724,30 @@ def test_family_settings(page):
     page.locator("#s-emergency-results button", has_text="Hinzufügen").first.click()
     expect(page.locator("#s-emergency")).to_contain_text("Grundsteuer")
     expect(page.locator("#s-emergency-share")).to_be_enabled()
+    # Checkliste: zählt, was drin ist, schlägt Passendes aus der Ablage vor – ein Klick legt es hinein
+    check = page.locator("#s-emergency-check")
+    expect(check).to_contain_text("Checkliste")
+    expect(check).to_contain_text("0 von")
+    check.locator("[data-add]", has_text="Patientenverfügung Alex").click()
+    expect(page.locator("#s-emergency")).to_contain_text("Patientenverfügung Alex")
+    expect(check).to_contain_text("1 von")
+    expect(check.locator(".em-item.done")).to_contain_text("Patientenverfügung")
     page.click("#s-emergency-share")
     expect(page.locator("#sh-expiry")).to_have_value("365")
     page.click("#sh-create")
     expect(page.locator("#sh-result")).to_be_visible()
     page.go_back()                                             # Browser-Zurück schließt den Dialog
     expect(page.locator("#share-dialog")).not_to_be_visible()
-    shown(page, "#settings")
+    shown(page, "#familyview")
     page.locator("#s-cleanup-sect summary").click()
-    shown(page, "#s-cleanup-admin")
     page.click("#s-cleanup-run")
     expect(page.locator("#s-cleanup-state")).to_contain_text("Nichts zum Aufräumen")
+    page.click("#settings-btn")
+    page.locator("#s-sect-retention summary").click()
+    shown(page, "#s-cleanup-admin")
+    expect(page.locator("#s-cleanup-rules")).to_contain_text("Vorgabe:")
+    page.go_back()
+    page.evaluate("localStorage.setItem('bl.mode', 'tiles')")
 
 
 # ---------- Geld ist zurück (16.11.2026): Betrag im Dokument, Sortieren, Steuer-Paket, Verträge & Abos ----------
@@ -664,24 +763,31 @@ def test_amount_fields_save_and_reload(page):
     page.locator(".card", has_text="Rechnung mit Betrag").click()
     shown(page, "#detail")
     expect(page.locator("#m-amount")).to_have_value("")
-    page.fill("#m-amount", "547.88")
+    page.fill("#m-amount", "547,88")                           # deutsch mit Komma
+    page.press("#m-amount", "Enter")
+    page.locator("#m-more summary").click()
     page.fill("#m-currency", "eur")
+    page.press("#m-currency", "Enter")
     page.select_option("#m-direction", "out")
-    page.click("#save-btn")
     expect(page.locator("#save-state")).to_have_text("Gespeichert")
     page.go_back()
     shown(page, "#main")
     page.reload()
     page.locator(".card", has_text="Rechnung mit Betrag").click()
     expect(page.locator("#m-title")).to_have_value("Rechnung mit Betrag")
-    expect(page.locator("#m-amount")).to_have_value("547.88")
+    expect(page.locator("#m-amount")).to_have_value(re.compile(r"^547,88\s€$"))
     expect(page.locator("#m-currency")).to_have_value("EUR")
     expect(page.locator("#m-direction")).to_have_value("out")
+    expect(page.locator("#m-chip-direction")).to_have_text("Ausgabe")
     # Einnahme und leerer Betrag
+    page.locator("#m-more summary").click()
     page.select_option("#m-direction", "in")
+    page.focus("#m-amount")                                    # antippen zeigt die nackte Zahl, dann leeren
+    expect(page.locator("#m-amount")).to_have_value("547,88")
     page.fill("#m-amount", "")
-    page.click("#save-btn")
+    page.press("#m-amount", "Enter")
     expect(page.locator("#save-state")).to_have_text("Gespeichert")
+    hidden(page, "#m-chip-direction")                          # ohne Betrag keine Richtung als Chip
     doc = page.evaluate("async (id) => (await fetch(`/documents/${id}`)).json()", doc_id)
     assert doc["amount"] is None and doc["direction"] == "in"
     page.go_back()
@@ -740,6 +846,7 @@ def test_contracts_section_renders(page):
     expect(page.locator("#s-contracts")).to_contain_text("pro Monat")
     contract.click()                                             # führt zu den Belegen dieses Absenders
     shown(page, "#main")
+    page.wait_for_function("!(history.state && history.state.layer)")   # Einstellungen samt Verlaufseintrag zu
     expect(page.locator(".card", has_text="Streaming Rechnung")).to_have_count(3)
 
 
@@ -883,6 +990,9 @@ def test_today_im_blick_and_detail_fields(page):
     expect(blick).to_contain_text("Erstattung offen")
     blick.locator(".t-row", has_text="Bankkarte Sparkasse").locator(".t-open").click()
     expect(page.locator("#m-title")).to_have_value("Bankkarte Sparkasse")
+    expect(page.locator("#m-chip-expires")).to_contain_text("Gültig bis")
+    hidden(page, "#m-chip-refund")
+    page.locator("#m-more summary").click()
     shown(page, "#m-expires-row")
     hidden(page, "#m-refund-row")
     page.go_back()
@@ -890,8 +1000,10 @@ def test_today_im_blick_and_detail_fields(page):
     page.locator(".t-blick .t-row", has_text="Erstattung offen").locator(".t-open").click()
     expect(page.locator("#m-title")).to_have_value("Arztrechnung Dr. Muster")
     expect(page.locator("#m-refund")).to_have_value("open")
+    expect(page.locator("#m-chip-refund")).to_have_text("Erstattung offen")
+    page.click("#m-chip-refund")                               # öffnet „Mehr Angaben“
     page.select_option("#m-refund", "done")
-    page.click("#save-btn")
+    expect(page.locator("#m-chip-refund")).to_have_text("Erstattet")
     expect(page.locator("#save-state")).to_have_text("Gespeichert")
     page.go_back()
     shown(page, "#todayview")
@@ -1245,6 +1357,18 @@ def test_money_yearly_costs_layer_mark_and_pot(page):
     mv.locator('[data-mact="yearly"]').click()
     mv.locator('[data-mact="closeyearly"]').click()            # ‹ Geld
     expect(mv).to_contain_text("Wofür")
+    # Fragen offen, darüber Jährliche Kosten: ein Esc schließt nur die Ebene, das Panel bleibt (dann das nächste Esc)
+    _fake_ask(page)
+    _ask(page)
+    mv.locator('[data-mact="yearly"]').click()
+    expect(mv.locator(".m-layer")).to_contain_text("Jährliche Kosten")
+    page.locator("#moneyview h2").first.click()                # Fokus aus dem Suchfeld
+    page.keyboard.press("Escape")
+    expect(mv).to_contain_text("Wofür")
+    shown(page, "#ask-panel")
+    page.keyboard.press("Escape")
+    hidden(page, "#ask-panel")
+    page.wait_for_function("!(history.state && history.state.layer)")
     # Esc unter den Einstellungen lässt die Ebenen in Ruhe; Zurück schließt erst die Einstellungen, dann die Ebene
     mv.locator('[data-mact="yearly"]').click()
     page.click("#settings-btn")
@@ -1268,7 +1392,7 @@ def test_money_yearly_costs_layer_mark_and_pot(page):
     # … und aus dem Papierkorb
     page.click('#mode-seg button[data-mode="folders"]')
     page.locator(".folder", has_text="Haus").click()
-    page.locator(".chip", has_text="Papierkorb").click()
+    page.click("#trash-btn")
     shown(page, "#trash-bar")
     page.click("#brand-home")
     hidden(page, "#trash-bar")
@@ -1434,11 +1558,19 @@ def test_family_view(page):
     expect(fv).to_contain_text("Wer kümmert sich?")
     expect(fv.locator(".f-group", has_text="Noch niemand")).to_contain_text("Familienfrist")
     expect(fv).to_contain_text("Notfallmappe")
-    fv.locator('[data-sect="s-persons-sect"]').click()
-    shown(page, "#settings")
+    fv.locator('[data-sect="s-persons-sect"]').click()          # Personen stehen gleich darunter, nicht in den Einstellungen
+    hidden(page, "#settings")
     expect(page.locator("#s-persons-sect")).to_have_attribute("open", "")
-    page.go_back()
+    expect(page.locator("#s-persons")).to_be_in_viewport()
+    for sect in ("s-persons-sect", "s-emergency-sect", "s-cleanup-sect", "s-invite-sect"):
+        shown(page, f"#family-manage #{sect}")                  # Einladen: Admin (der Testnutzer ist Admin)
+    # Aus den Einstellungen führt der Verweis hierher
+    page.click("#settings-btn")
+    page.locator("#s-family-sect summary").click()
+    page.locator('#s-family-sect [data-family-sect]').click()
+    hidden(page, "#settings")
     shown(page, "#familyview")
+    assert not page.evaluate("history.state && history.state.layer")   # Einstellungen samt Verlaufseintrag zu
     _patch(page, doc, {"due_date": ""})
     page.evaluate("localStorage.setItem('bl.mode', 'tiles')")
 
@@ -1483,9 +1615,11 @@ def test_kind_recipient_refs_edit_and_filter(page):
     expect(page.locator("#m-kind option[value=zeugnis]")).to_have_count(1)
     page.select_option("#m-kind", "zeugnis")
     page.fill("#m-recipient", "Mia Muster")
-    page.locator("#m-refs-box summary").click()
+    page.press("#m-recipient", "Enter")
+    page.locator("#m-more summary").click()
     page.fill("#m-refs input[data-ref=other]", "S-2231")
-    page.click("#save-btn")
+    page.press("#m-refs input[data-ref=other]", "Enter")
+    expect(page.locator("#m-refs-sum")).to_have_text("Nummern · 1")
     expect(page.locator("#save-state")).to_have_text("Gespeichert")
     doc = page.evaluate("async (id) => (await fetch(`/documents/${id}`)).json()", doc_id)
     assert doc["doc_kind"] == "zeugnis" and doc["recipient"] == "Mia Muster" and doc["refs"] == {"other": "S-2231"}
@@ -1518,3 +1652,287 @@ def test_progress_shows_backfill(page):
     page.evaluate("updateProgress()")
     expect(page.locator("#progress")).to_be_hidden()
     page.unroute("**/health")
+
+
+def test_kind_label_person_hint_and_kind_chip(page):
+    """Dokumentart auf der Kachel (nicht bei Rechnungen), Empfänger → Person als Vorschlag im Detail, Chip „Art“ in der
+    Satz-Suche. „Jo“ hat als kurzer Name keine Namensregel – genau dort hilft der Empfänger."""
+    person = page.evaluate("""async () => (await fetch('/persons', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Jo' }) })).json()""")
+    doc_id = _upload(page, "Anmeldung Schwimmkurs", "2026-02-10")
+    _patch(page, doc_id, {"doc_kind": "antrag", "recipient": "Jo Muster"})
+    bill = _upload(page, "Rechnung Sportverein", "2026-02-11")
+    _patch(page, bill, {"doc_kind": "rechnung"})
+    page.reload()
+    card = page.locator(".card", has_text="Anmeldung Schwimmkurs")
+    expect(card.locator(".kind-tag")).to_have_text("Antrag")
+    expect(page.locator(".card", has_text="Rechnung Sportverein").locator(".kind-tag")).to_have_count(0)
+    # Detail: Vorschlag annehmen – Tag gesetzt, Personen-Zeile zeigt Jo, Vorschlag weg; Speichern behält den Tag
+    card.click()
+    shown(page, "#detail")
+    hint = page.locator("#m-persons [data-person-add]")
+    expect(hint).to_have_text("Person Jo zuordnen?")
+    expect(page.locator("#m-persons")).to_contain_text("An Jo –")
+    hint.click()
+    expect(page.locator("#m-persons .person-pill")).to_have_text("Jo")
+    expect(page.locator("#m-persons [data-person-add]")).to_have_count(0)
+    expect(page.locator("#m-tags .chip", has_text="Jo")).to_have_count(1)
+    doc = page.evaluate("async (id) => (await fetch(`/documents/${id}`)).json()", doc_id)
+    assert "Jo" in {t["name"] for t in doc["tags"]} and doc["person_hints"] == []
+    page.go_back()
+    shown(page, "#main")
+    # „Nein“ blendet den Vorschlag in diesem Browser aus
+    other = _upload(page, "Kursbestätigung", "2026-02-12")
+    _patch(page, other, {"doc_kind": "bestaetigung", "recipient": "Jo Muster"})
+    page.reload()
+    page.locator(".card", has_text="Kursbestätigung").click()
+    page.locator("#m-persons [data-person-no]").click()
+    expect(page.locator("#m-persons [data-person-add]")).to_have_count(0)
+    page.go_back()
+    page.reload()
+    page.locator(".card", has_text="Kursbestätigung").click()
+    shown(page, "#detail")
+    expect(page.locator("#m-recipient")).to_have_value("Jo Muster")
+    expect(page.locator("#m-persons [data-person-add]")).to_have_count(0)
+    page.go_back()
+    shown(page, "#main")
+    # Satz-Suche: „Alle Anträge“ wird zum Chip „Art: Antrag“, entfernen führt zurück zur Übersicht
+    page.fill("#search", "Alle Anträge")
+    page.press("#search", "Enter")
+    chip = page.locator('#smartbar .chip[data-kind="doc_kind"]')
+    expect(chip).to_have_text("Art: Antrag")
+    expect(page.locator(".card", has_text="Anmeldung Schwimmkurs")).to_be_visible()
+    expect(page.locator(".card", has_text="Grundsteuer")).to_have_count(0)
+    chip.click()
+    hidden(page, "#smartbar")
+    expect(page.locator(".card", has_text="Grundsteuer")).to_be_visible()
+    # Auch ein einzelnes Wort wird zum Chip, wenn es eine Art mit Dokumenten ist – sonst bleibt es die Live-Suche
+    page.fill("#search", "Anträge")
+    page.press("#search", "Enter")
+    expect(page.locator('#smartbar .chip[data-kind="doc_kind"]')).to_have_text("Art: Antrag")
+    expect(page.locator(".card", has_text="Grundsteuer")).to_have_count(0)
+    page.fill("#search", "Urkunden")                                      # keine Urkunde im Bestand
+    page.press("#search", "Enter")
+    hidden(page, "#smartbar")
+    page.fill("#search", "")
+    expect(page.locator(".card", has_text="Grundsteuer")).to_be_visible()
+    page.evaluate(f"fetch('/persons/{person['id']}', {{ method: 'DELETE' }})")
+
+
+# ---------- Prüf-Funde 26.11.2026: Esc, Start-Links, Zeitzone, Dialoge ----------
+def test_escape_closes_document_and_ask_panel(page):
+    """Esc im Dokument wirkt wie Browser-Zurück, ohne Nachfrage (gespeichert wird beim Verlassen jedes Felds); Esc in
+    einem Feld nimmt nur dessen Änderung zurück. Esc schließt „Fragen“."""
+    page.locator(".card", has_text="Grundsteuer").click()
+    shown(page, "#detail")
+    expect(page.locator("#m-title")).to_have_value("Grundsteuer")
+    page.keyboard.press("Escape")
+    shown(page, "#main"); hidden(page, "#detail")
+    page.locator(".card", has_text="Grundsteuer").click()
+    shown(page, "#detail")
+    asked = []
+    page.on("dialog", lambda d: (asked.append(d.message), d.dismiss()))
+    page.fill("#m-sender", "Gemeinde Musterstadt")
+    page.keyboard.press("Escape")                                    # im Feld: Änderung zurück, Dokument bleibt offen
+    shown(page, "#detail")
+    expect(page.locator("#m-sender")).to_have_value("")
+    page.keyboard.press("Escape")                                    # jetzt schließt es
+    shown(page, "#main"); hidden(page, "#detail")
+    assert asked == []
+    doc = next(d for d in page.request.get("/documents").json() if d["title"] == "Grundsteuer")
+    assert doc["sender"] != "Gemeinde Musterstadt"
+    # Fragen-Panel: Esc schließt es samt Verlaufseintrag
+    _fake_ask(page)
+    _ask(page)
+    page.keyboard.press("Escape")
+    hidden(page, "#ask-panel")
+    page.wait_for_function("!(history.state && history.state.layer)")
+
+
+def _fake_whatsnew(page):
+    """„Was ist neu“ für den Testnutzer erzwingen (Alex hat es schon gesehen) – nur die Antwort, nichts gespeichert."""
+    body = json.dumps({"mode": "news", "release": "2099-01-01", "label": "Test",
+                       "cards": [{"title": "Neu im Test", "text": "Nur ein Test.", "anim": None}]})
+    page.route(re.compile(r"/whatsnew\?"), lambda route: route.fulfill(status=200, content_type="application/json", body=body))
+    page.route(re.compile(r"/whatsnew/seen"), lambda route: route.fulfill(status=200, content_type="application/json", body="{}"))
+
+
+def test_start_link_is_not_covered_by_whatsnew(page):
+    """Start-Link aus der Mail + neue Version: kein „Was ist neu“ über dem Link (Esc/Überspringen schlossen sonst das
+    Dokument mit); es kommt erst, wenn man in die Übersicht zurückkehrt – und schließt nur sich selbst."""
+    _fake_whatsnew(page)
+    dlg = page.locator("#whatsnew-dialog")
+    doc = next(d for d in page.request.get("/documents").json() if d["title"] == "Grundsteuer")
+    page.goto("about:blank")
+    page.goto(f"/app/#doc-{doc['id']}")
+    shown(page, "#detail")
+    page.wait_for_timeout(400)
+    expect(dlg).to_be_hidden()
+    page.go_back()
+    shown(page, "#main"); hidden(page, "#detail")
+    # Wochenübersicht: Einstellungen offen, kein Dialog; zurück in die Übersicht → jetzt „Was ist neu“, Esc schließt nur ihn
+    page.goto("about:blank")
+    page.goto("/app/#weekly")
+    shown(page, "#settings")
+    page.wait_for_timeout(400)
+    expect(dlg).to_be_hidden()
+    page.click("#settings-back")
+    shown(page, "#main")
+    expect(dlg).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(dlg).to_be_hidden()
+    shown(page, "#main")
+    page.wait_for_function("!(history.state && history.state.layer)")
+    # Ein Dialog unter einer später geöffneten Ebene (hier: Einstellungen darüber) nimmt beim Schließen nicht die
+    # Einstellungen mit: nur er wird ausgetragen, die Einstellungen bleiben samt ihrem Verlaufseintrag
+    page.evaluate("checkWhatsNew('news')")
+    expect(dlg).to_be_visible()
+    page.evaluate("openSettings()")
+    page.wait_for_function("history.state && history.state.layer === 'settings'")
+    page.click("#wn-next")                                           # „Alles klar“ (eine Karte)
+    expect(dlg).to_be_hidden()
+    page.wait_for_timeout(300)
+    shown(page, "#settings")
+    assert page.evaluate("history.state && history.state.layer") == "settings"
+    assert page.evaluate("layers.map((l) => l.name)") == ["settings"]
+    page.go_back()                                                    # Zurück schließt die Einstellungen
+    shown(page, "#main"); hidden(page, "#settings")
+    page.unroute(re.compile(r"/whatsnew\?"))
+
+
+def test_start_links_in_an_open_tab(page):
+    """Link aus der Mail in einen offenen Tab eingefügt (nur der Hash ändert sich): Dokument bzw. „Zu prüfen“ öffnen."""
+    doc = next(d for d in page.request.get("/documents").json() if d["title"] == "Arztbrief")
+    page.evaluate(f"location.hash = '#doc-{doc['id']}'")
+    shown(page, "#detail")
+    expect(page.locator("#m-title")).to_have_value("Arztbrief")
+    n = page.evaluate("history.length")
+    page.go_back()
+    shown(page, "#main"); hidden(page, "#detail")
+    page.go_forward()                                                 # „Vor“ öffnet nicht ein zweites Mal über den Hash
+    page.wait_for_timeout(300)
+    assert page.evaluate("history.length") == n
+    page.goto("/app/")
+    page.wait_for_selector("#main:not(.hidden)")
+    page.evaluate("location.hash = '#review'")
+    page.wait_for_function("state.review === true")
+    expect(page).not_to_have_url(re.compile("#review"))
+    page.locator("#tagbar .chip", has_text="Alle").click()
+
+
+def test_dates_west_of_utc_are_not_a_day_early(browser, server):
+    """Reine Daten (JJJJ-MM-TT) erscheinen am selben Tag – auch in einer Zeitzone westlich von UTC."""
+    from conftest import PASSWORD, USER
+    ctx = browser.new_context(base_url=server, viewport={"width": 1280, "height": 860}, locale="de-DE",
+                              timezone_id="America/Los_Angeles")
+    ctx.add_init_script("try { localStorage.setItem('bl.mode', 'tiles') } catch (e) {}")
+    pg = ctx.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto("/app/")
+    pg.fill("#login-user", USER)
+    pg.fill("#login-pass", PASSWORD)
+    pg.click("#login-form button[type=submit]")
+    pg.wait_for_selector(".card")
+    assert pg.evaluate("fmtDate('2026-11-14')") == "14.11.2026"
+    assert pg.evaluate("fmtDate('2026-01-01')") == "01.01.2026"
+    iso = next(d for d in pg.request.get("/documents").json() if d["title"] == "Grundsteuer")["document_date"][:10]
+    y, m, d = iso.split("-")
+    expect(pg.locator(".card", has_text="Grundsteuer")).to_contain_text(f"{d}.{m}.{y}")
+    ctx.close()
+    assert not errors, errors
+
+
+def test_cancel_dialog_closes_with_browser_back(page):
+    """Kündigungshelfer ist ein Dialog wie die anderen: Browser-Zurück schließt ihn, die Einstellungen bleiben."""
+    page.click("#settings-btn")
+    shown(page, "#settings")
+    page.evaluate("openCancelDialog({ sender: 'Stromwerk Süd GmbH', documents: [] })")
+    expect(page.locator("#cancel-dialog")).to_be_visible()
+    page.go_back()
+    expect(page.locator("#cancel-dialog")).to_be_hidden()
+    shown(page, "#settings")
+    page.go_back()
+    shown(page, "#main")
+
+
+def test_amount_is_shown_formatted_in_detail(page):
+    """Der Betrag steht lesbar in der Karte (Tausenderpunkt, Komma, Währung); antippen zeigt die nackte Zahl."""
+    doc_id = _upload(page, "Kaufvertrag Auto", "2025-03-01")
+    _patch(page, doc_id, {"amount": 18658.56, "currency": "EUR"})
+    page.reload()
+    page.fill("#search", "Kaufvertrag Auto")                          # (viele Dokumente aus anderen Tests – Seite 1 reicht nicht)
+    page.locator(".card", has_text="Kaufvertrag Auto").click()
+    shown(page, "#detail")
+    expect(page.locator("#m-amount")).to_have_value(re.compile(r"^18\.658,56\s€$"))
+    page.focus("#m-amount")
+    expect(page.locator("#m-amount")).to_have_value("18658,56")
+    page.press("#m-amount", "Enter")                                   # unverändert: nichts gespeichert, wieder lesbar
+    expect(page.locator("#m-amount")).to_have_value(re.compile(r"^18\.658,56\s€$"))
+    assert page.evaluate("fmtMoney(18658.56, 'XX')") == "18.658,56 XX"   # ungültiger Code bricht nichts
+    page.keyboard.press("Escape")
+    shown(page, "#main")
+    page.fill("#search", "")
+    page.evaluate(f"fetch('/documents/{doc_id}', {{ method: 'DELETE' }})")
+
+
+def test_phone_width_settings_switch_money_bars_and_long_words(page):
+    """390 px: Umschalter „Startansicht“ bricht um (Gleiter in der richtigen Zeile), Geld-Balken behalten Breite,
+    lange Wörter sprengen keine Kachel."""
+    doc_id = _upload(page, "Versicherungsunterlagen", "2025-04-01")
+    _patch(page, doc_id, {"sender": "Donaudampfschifffahrtsgesellschaftskapitänswitwenrentenversicherung"})
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.reload()
+    page.fill("#search", "Versicherungsunterlagen")
+    expect(page.locator(".card", has_text="Versicherungsunterlagen")).to_be_visible()
+    assert page.evaluate("[...document.querySelectorAll('.card')].every((c) => c.scrollWidth <= c.clientWidth + 1)")
+    page.click("#settings-btn")
+    page.evaluate("document.querySelector('#start-seg').closest('details').open = true")
+    seg = page.locator("#start-seg")
+    expect(seg).to_be_visible()
+    box = seg.bounding_box()
+    assert box["x"] + box["width"] <= 390, box
+    page.locator('#start-seg button[data-start="family"]').click()    # letzte Taste – nach dem Umbruch unten
+    page.wait_for_timeout(600)
+    knob = page.locator("#start-seg .seg-knob").bounding_box()
+    btn = page.locator('#start-seg button[data-start="family"]').bounding_box()
+    assert abs(knob["y"] - btn["y"]) < 2 and abs(knob["x"] - btn["x"]) < 2, (knob, btn)
+    page.locator('#start-seg button[data-start="last"]').click()
+    page.evaluate("localStorage.removeItem('bl.start')")
+    page.go_back()
+    shown(page, "#main")
+    page.fill("#search", "")
+    # Geld-Balken (Kategorie mit langem Namen): der Balken schrumpft nicht auf 0
+    w = page.evaluate("""() => {
+      const b = document.createElement('button'); b.className = 'm-bar';
+      b.innerHTML = '<span class="n">Haushalt, Lebensmittel & Drogerie</span><span class="track"><i class="fill" style="width:50%"></i></span><span class="v">1.234,56 €</span>';
+      const box = document.createElement('div'); box.style.width = '358px'; box.appendChild(b); document.body.appendChild(box);
+      const r = b.querySelector('.track').getBoundingClientRect().width; box.remove(); return r; }""")
+    assert w >= 40, w
+    page.evaluate(f"fetch('/documents/{doc_id}', {{ method: 'DELETE' }})")
+
+
+def test_kind_word_with_folder_of_same_name_keeps_chip_results(page):
+    """Einzelnes Art-Wort im Plural („Zeugnisse“) bei einem Ordner gleichen Namens: kein Chip „Art“ (der Ordner geht
+    vor), aber die Treffer der Satz-Suche werden genommen statt auf die Live-Suche zurückzufallen."""
+    doc_id = _upload(page, "Zeugnisse Mia Grundschule", "2026-07-01")
+    _patch(page, doc_id, {"doc_kind": "zeugnis", "tags": ["Zeugnisse"]})
+    page.fill("#search", "Zeugnisse")
+    page.press("#search", "Enter")
+    shown(page, "#smartbar")
+    expect(page.locator('#smartbar .chip[data-kind="word"]')).to_have_text("Zeugnisse")
+    expect(page.locator(".card", has_text="Zeugnisse Mia Grundschule")).to_be_visible()
+    page.fill("#search", "")
+    hidden(page, "#smartbar")
+    page.evaluate(f"fetch('/documents/{doc_id}', {{ method: 'DELETE' }})")
+
+
+def test_search_placeholder_fits_on_phones(page):
+    """390 px: ein Feld für Suchen und Fragen – sein Platzhalter passt ganz hinein (kein eigenes Fragen-Feld mehr)."""
+    page.set_viewport_size({"width": 390, "height": 844})
+    inp = page.locator("#search")
+    expect(inp).to_have_attribute("placeholder", "Suchen oder fragen …")
+    expect(page.locator("#ask-btn")).to_have_count(0)
+    assert page.evaluate("(() => { const i = document.querySelector('#search'); const c = document.createElement('canvas').getContext('2d');"
+                         " c.font = getComputedStyle(i).font; return c.measureText(i.placeholder).width <= i.clientWidth - 50; })()")
+    page.set_viewport_size({"width": 1280, "height": 860})

@@ -13,6 +13,10 @@ from . import config, llm, processing
 from .db import connect, get_setting
 
 log = logging.getLogger("papigator.worker")
+
+# Nachtragen statt neu erkennen: nur bestimmte Felder schreiben, nie „fehlgeschlagen“ melden (siehe llm_one)
+REFILL = ("refill", "refill_w", "refill_k", "refill_p")
+REFILL_SQL = "(" + ", ".join(f"'{r}'" for r in REFILL) + ")"
 _wake_ocr = threading.Event()
 _wake_llm = threading.Event()
 _llm_idle = threading.Event()   # gesetzt = kein interaktiver LLM-Nutzer (Fragen) aktiv
@@ -65,7 +69,8 @@ def ocr_one(doc_id: int) -> None:
         processing.make_thumbnail(pdf, processing.thumb_path(doc_id))
         with connect() as con:
             con.execute(
-                "UPDATE documents SET text=?, text_source=?, page_count=?, status='tagging', llm_status='pending' WHERE id=?",
+                "UPDATE documents SET text=?, text_source=?, page_count=?, status='tagging', "
+                "llm_status=CASE WHEN llm_status='refill_p' THEN 'refill_p' ELSE 'pending' END WHERE id=?",
                 (text, source, pages, doc_id),
             )
             processing.apply_rules(con, doc_id, text)
@@ -84,7 +89,7 @@ def ocr_loop() -> None:
         with connect() as con:
             # Von außen Eingeworfenes zuletzt – es soll Scanner und Mail nicht aufhalten
             row = con.execute("SELECT id FROM documents WHERE status='pending' AND deleted_at IS NULL "
-                              "ORDER BY ext_pending, llm_status IN ('refill', 'refill_w', 'refill_k'), id LIMIT 1").fetchone()
+                              f"ORDER BY ext_pending, llm_status IN {REFILL_SQL}, id LIMIT 1").fetchone()
         if row:
             try:
                 ocr_one(row["id"])
@@ -102,12 +107,13 @@ def ocr_loop() -> None:
 def llm_one(doc_id: int) -> bool:
     """True = LLM erreichbar (Ergebnis oder leer), False = Verbindung fehlgeschlagen."""
     with connect() as con:
-        row = con.execute("SELECT text, llm_status FROM documents WHERE id=?", (doc_id,)).fetchone()
+        row = con.execute("SELECT text, status, llm_status FROM documents WHERE id=?", (doc_id,)).fetchone()
     # Nachtragen der Geld-Felder (Altbestand): nur diese Felder schreiben, nie „fehlgeschlagen“ melden –
     # sonst würde das Nachholen später ein komplettes Neu-Erkennen anstoßen und Korrekturen überschreiben
     # refill: Geld-Felder; refill_w: Zusatzfelder (Gewährleistung, Ablaufdaten, Wartungen; Bestand, 17.11.2026)
     # refill_k: Dokumentart, Empfänger, Nummern (Bestand, 26.11.2026)
-    refill = row["llm_status"] if row and row["llm_status"] in ("refill", "refill_w", "refill_k") else None
+    # refill_p: aus Paperless-ngx übernommen – alles außer Titel, Datum, Absender, Art und Tags (26.11.2026)
+    refill = row["llm_status"] if row and row["llm_status"] in REFILL else None
     with connect() as con:
         existing = [r["name"] for r in con.execute("SELECT name FROM tags ORDER BY name")]
         restricted = get_setting(con, "llm_tag_mode", "free") == "restricted"
@@ -117,7 +123,11 @@ def llm_one(doc_id: int) -> bool:
     cfg = config.llm_config()
     if not cfg["enabled"] or not cfg["url"] or not (row and row["text"]) or not llm.usable("tag"):
         with connect() as con:
-            if refill:   # bleibt vorgemerkt, bis eine KI da ist
+            if refill and row and not row["text"]:
+                # ohne Text gibt es nichts nachzutragen – sonst nähme next_llm_doc es sofort wieder (Dauerschleife)
+                con.execute("UPDATE documents SET status='done', llm_status='done' WHERE id=? AND llm_status=?",
+                            (doc_id, refill))
+            elif refill:   # bleibt vorgemerkt, bis eine KI da ist
                 con.execute("UPDATE documents SET status='done' WHERE id=?", (doc_id,))
             else:
                 con.execute("UPDATE documents SET status='done', llm_status='skipped', updated_at=datetime('now') WHERE id=?", (doc_id,))
@@ -126,17 +136,24 @@ def llm_one(doc_id: int) -> bool:
     with connect() as con:
         # Während das LLM lief, kann das Dokument gelöscht worden sein: dann nichts mehr schreiben
         # (Tags auf ein endgültig gelöschtes Dokument scheitern am Fremdschlüssel)
-        if not con.execute("SELECT 1 FROM documents WHERE id=?", (doc_id,)).fetchone():
+        now = con.execute("SELECT status, llm_status FROM documents WHERE id=?", (doc_id,)).fetchone()
+        if not now:
             log.info("Dokument %s: während des Taggings gelöscht – Ergebnis verworfen", doc_id)
+            return reachable
+        # Während das LLM lief, wurde „Neu erkennen“ gedrückt (Status/llm_status anders als beim Start): das alte
+        # Ergebnis verwerfen – sonst überschriebe es das Neu-Erkennen still (oder ließe ein Dokument ohne Text liegen)
+        if (now["status"], now["llm_status"]) != (row["status"], row["llm_status"]):
+            log.info("Dokument %s: während des Taggings neu angestoßen – Ergebnis verworfen", doc_id)
             return reachable
         if refill:
             if data:
-                {"refill_w": processing.apply_extras, "refill_k": processing.apply_kind}.get(
-                    refill, processing.apply_money)(con, doc_id, data)
+                {"refill_w": processing.apply_extras, "refill_k": processing.apply_kind,
+                 "refill_p": processing.apply_missing}.get(refill, processing.apply_money)(con, doc_id, data)
             # leer, aber erreichbar: aufgeben; nicht erreichbar: vorgemerkt lassen, das Nachholen versucht es wieder
             con.execute("UPDATE documents SET status='done', llm_status=? WHERE id=?",
                         ("done" if data or reachable else refill, doc_id))
-            log.info("Dokument %s: %s %s", doc_id, {"refill_w": "Zusatzfelder", "refill_k": "Art/Empfänger/Nummern"}.get(
+            log.info("Dokument %s: %s %s", doc_id, {"refill_w": "Zusatzfelder", "refill_k": "Art/Empfänger/Nummern",
+                                                   "refill_p": "fehlende Felder"}.get(
                 refill, "Geld-Felder"),
                      "nachgetragen" if data else "nicht nachgetragen")
             return reachable
@@ -178,9 +195,11 @@ unreachable_until = 0.0
 
 
 def ai_usable() -> bool:
-    """KI eingeschaltet, eingetragen, fürs Erkennen freigegeben und gerade nicht als unerreichbar zurückgestellt."""
+    """KI eingeschaltet, eingetragen, fürs Erkennen freigegeben, nicht pausiert und gerade nicht als unerreichbar
+    zurückgestellt."""
     cfg = config.llm_config()
-    return bool(cfg["enabled"] and cfg["url"] and llm.usable("tag")) and time.time() >= unreachable_until
+    return (bool(cfg["enabled"] and cfg["url"] and llm.usable("tag")) and time.time() >= unreachable_until
+            and not paused_until())
 
 
 def next_llm_doc(con):
@@ -191,7 +210,7 @@ def next_llm_doc(con):
                       "ORDER BY ext_pending, id LIMIT 1").fetchone()
     if not row and ai_usable():
         row = con.execute("SELECT id FROM documents WHERE status='done' AND llm_status='refill_k' "
-                          "AND deleted_at IS NULL ORDER BY id DESC LIMIT 1").fetchone()
+                          "AND deleted_at IS NULL AND COALESCE(text, '') != '' ORDER BY id DESC LIMIT 1").fetchone()
     return row
 
 
@@ -200,7 +219,7 @@ def give_up(doc_id: int) -> None:
     erledigt, ein neuer Scan als fehlgeschlagen. Auch still nachgetragene (Status „done“) – sonst nähme next_llm_doc
     dasselbe Dokument gleich wieder, ohne Pause, immer wieder."""
     with connect() as con:
-        con.execute("UPDATE documents SET status='done', llm_status=CASE WHEN llm_status IN ('refill', 'refill_w', 'refill_k') "
+        con.execute(f"UPDATE documents SET status='done', llm_status=CASE WHEN llm_status IN {REFILL_SQL} "
                     "THEN 'done' ELSE 'failed' END WHERE id=? AND (status='tagging' OR llm_status='refill_k')", (doc_id,))
 
 
@@ -214,7 +233,7 @@ def llm_loop() -> None:
             last_retry = now
             with connect() as con:
                 n = con.execute(
-                    "UPDATE documents SET status='tagging' WHERE status='done' AND llm_status IN ('failed', 'refill', 'refill_w') AND deleted_at IS NULL"
+                    "UPDATE documents SET status='tagging' WHERE status='done' AND llm_status IN ('failed', 'refill', 'refill_w', 'refill_p') AND deleted_at IS NULL"
                 ).rowcount
             if n:
                 log.info("Tagging-Nachholen: %d Dokument(e) eingereiht", n)
@@ -242,8 +261,8 @@ def llm_loop() -> None:
             if not ok:
                 # LLM nicht erreichbar: alle wartenden auf failed setzen, 2 Minuten Pause
                 with connect() as con:
-                    con.execute("UPDATE documents SET status='done', llm_status='failed' WHERE status='tagging' AND llm_status NOT IN ('refill', 'refill_w', 'refill_k')")
-                    con.execute("UPDATE documents SET status='done' WHERE status='tagging' AND llm_status IN ('refill', 'refill_w', 'refill_k')")
+                    con.execute(f"UPDATE documents SET status='done', llm_status='failed' WHERE status='tagging' AND llm_status NOT IN {REFILL_SQL}")
+                    con.execute(f"UPDATE documents SET status='done' WHERE status='tagging' AND llm_status IN {REFILL_SQL}")
                 backoff_until = time.time() + 120
                 global unreachable_until
                 unreachable_until = backoff_until

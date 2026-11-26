@@ -78,9 +78,14 @@ def _connect(s: dict) -> imaplib.IMAP4_SSL:
 def test(override: dict | None = None) -> dict:
     """Verbindung prüfen und ungelesene Mails zählen; override erlaubt Werte aus dem noch ungespeicherten Formular."""
     s = settings(with_password=True)
+    stored = dict(s)
     for k, v in (override or {}).items():
         if k in DEFAULTS and v not in (None, ""):
             s[k] = str(v)
+    # Gespeichertes Passwort nur an den gespeicherten Server (sonst ließe es sich an einen fremden Host schicken)
+    if any(str(s.get(k) or "") != str(stored.get(k) or "") for k in ("mail_host", "mail_port", "mail_user")) \
+            and not (override or {}).get("mail_password"):
+        s["mail_password"] = ""
     if not s["mail_host"] or not s["mail_user"] or not s["mail_password"]:
         return {"ok": False, "error": "Server, Benutzer und Passwort angeben"}
     try:

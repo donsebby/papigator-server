@@ -17,5 +17,8 @@ configuration:
   llm_model:
     name: KI-Modell
     description: Name des Modells auf dem KI-Server.
+  language:
+    name: Sprache
+    description: Sprache der Texte, die die KI schreibt (Titel, Zusammenfassung, neue Tags), und der Wochenübersicht per Mail. Lässt sich auch später in der Weboberfläche ändern (Einstellungen → KI-Erkennung); die Weboberfläche selbst richtet sich nach der Sprache des Browsers.
 network:
   8000/tcp: Weboberfläche und Schnittstelle (auch für die iPhone-/iPad-App)

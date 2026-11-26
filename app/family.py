@@ -217,11 +217,62 @@ def remove_from_emergency(doc_id: int, user: User = Depends(current_user)):
             con.execute("DELETE FROM document_tags WHERE document_id=? AND tag_id=?", (doc_id, tag_id))
 
 
+def _known_persons(con, user: User) -> list:
+    """Personen (Tag-ID, Name), die der Nutzer kennen darf – angelegt von ihm oder einem Bestand, den er sieht."""
+    if user.id == 0:
+        return []
+    visible = auth.visible_owner_ids(con, user, "all")
+    return con.execute(
+        f"SELECT DISTINCT t.id, t.name FROM persons p JOIN tags t ON t.id=p.tag_id WHERE p.user_id IN ({_marks(visible)})",
+        visible).fetchall()
+
+
 def person_names(con, user: User) -> set[str]:
     """Namen der Personen, die der Nutzer kennen darf (für die Satz-Suche)."""
-    if user.id == 0:
-        return set()
-    visible = auth.visible_owner_ids(con, user, "all")
-    return {r[0] for r in con.execute(
-        f"SELECT DISTINCT t.name FROM persons p JOIN tags t ON t.id=p.tag_id WHERE p.user_id IN ({_marks(visible)})", visible)}
+    return {r["name"] for r in _known_persons(con, user)}
+
+
+# ---------- Empfänger → Person (Vorschlag) ----------
+# Die Namensregel trägt eine Person schon überall ein, wo ihr Vorname im Text steht. Der Empfänger bringt nur dort etwas,
+# wo die Regel nicht greift: Bestände, die der Anlegende nicht bearbeiten darf (processing.rule_allowed), Namen unter
+# drei Buchstaben (keine Regel), gelöschte Regel, von Hand eingetragener Empfänger. Darum nur ein Vorschlag im Detail,
+# nie automatisch; Besitzer und Sichtbarkeit bleiben, wie sie sind. Konto-Nutzer als Empfänger: kein Vorschlag – ein
+# Dokument gehört dem, der es ablegt, und umhängen soll nur, wer es bewusst tut.
+
+def _name_in(name: str, recipient: str) -> bool:
+    """Vorname als ganzes Wort im Empfänger („Mia Muster“, „Herrn Ben Muster“), Groß/klein egal."""
+    return re.search(r"(?<!\w)" + re.escape(name.lower()) + r"(?!\w)", recipient.lower()) is not None
+
+
+def person_hints(con, user: User, row) -> list[dict]:
+    """Personen, die zum Empfänger passen, aber am Dokument fehlen – nur mit Schreibrecht und nur bekannte Namen."""
+    rec = (row["recipient"] or "").strip() if "recipient" in row.keys() else ""
+    if not rec or row["ext_pending"] or row["deleted_at"] or not auth.can_edit(con, user, row["owner_id"]):
+        return []
+    have = {r[0] for r in con.execute("SELECT tag_id FROM document_tags WHERE document_id=?", (row["id"],))}
+    return [{"id": p["id"], "name": p["name"]} for p in _known_persons(con, user)
+            if p["id"] not in have and _name_in(p["name"], rec)]
+
+
+class PersonTagIn(BaseModel):
+    tag_id: int
+
+
+@router.post("/documents/{doc_id}/person")
+def add_person_to_document(doc_id: int, body: PersonTagIn, user: User = Depends(current_user)):
+    """Vorschlag annehmen: Person (Tag) an das Dokument hängen. Nur Personen, die ich kenne, nur mit Schreibrecht –
+    eine fremde oder unbekannte Tag-ID sieht aus wie eine, die es nicht gibt."""
+    from .main import get_doc, serialize
+    with connect() as con:
+        row = get_doc(con, doc_id, user, edit=True)
+        if body.tag_id not in {p["id"] for p in _known_persons(con, user)}:
+            raise HTTPException(404, "Person nicht gefunden")
+        con.execute("INSERT OR IGNORE INTO document_tags(document_id, tag_id, source) VALUES (?,?,'user')", (doc_id, body.tag_id))
+        con.execute("UPDATE document_tags SET source='user' WHERE document_id=? AND tag_id=? AND source='parent'", (doc_id, body.tag_id))
+        if row["ext_pending"]:
+            con.execute("UPDATE documents SET ext_pending=0 WHERE id=?", (doc_id,))   # wie PATCH: angesehen
+        con.execute("UPDATE documents SET updated_at=datetime('now') WHERE id=?", (doc_id,))
+        out = serialize(con, get_doc(con, doc_id, user), user)
+        out["person_hints"] = person_hints(con, user, get_doc(con, doc_id, user))
+        return out
 

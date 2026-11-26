@@ -3,9 +3,9 @@ from playwright.sync_api import expect
 
 
 def test_invite_create_and_welcome_page(page, browser, server):
-    # Admin: Einstellungen → Nutzer → Einladen zeigt Link und QR-Code; Zurück schließt nur den Dialog
-    page.click("#settings-btn")
-    page.locator("#s-admin summary").click()
+    # Admin: Familie → Einladen (wie in der App) zeigt Link und QR-Code; Zurück schließt nur den Dialog
+    page.click('#mode-seg button[data-mode="family"]')
+    page.locator("#s-invite-sect summary").click()
     page.fill("#s-inv-name", "Kim")
     page.select_option("#s-inv-share", "read")
     page.click("#s-inv-add")
@@ -17,7 +17,8 @@ def test_invite_create_and_welcome_page(page, browser, server):
     expect(page.locator("#s-invites")).to_contain_text("Kim")
     page.go_back()
     expect(page.locator("#invite-dialog")).to_be_hidden()
-    expect(page.locator("#settings")).to_be_visible()
+    expect(page.locator("#familyview")).to_be_visible()
+    page.evaluate("localStorage.setItem('bl.mode', 'tiles')")
 
     # Eingeladene Person: eigener Browser, nicht angemeldet
     ctx = browser.new_context(base_url=server, viewport={"width": 1280, "height": 860}, locale="de-DE")

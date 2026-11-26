@@ -24,6 +24,7 @@ from .auth import User, current_user, require_admin
 from .db import connect, refresh_parent_tags, get_setting, init_db, search_where, set_setting
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+log = logging.getLogger("papigator.main")
 
 # API-Doku (/docs, /redoc, /openapi.json) nur auf Wunsch – sonst sieht sie jeder ohne Anmeldung (PAPIGATOR_API_DOCS=1)
 from .version import VERSION  # noqa: E402
@@ -54,6 +55,8 @@ app.include_router(duplicates.router)
 from . import family, cleanup  # noqa: E402  Personen, Notfallmappe (/persons, /emergency), Aufräumen (/cleanup)
 app.include_router(family.router)
 app.include_router(cleanup.router)
+from . import checklist  # noqa: E402  Checkliste für die Notfallmappe (/emergency/checklist, 26.11.2026)
+app.include_router(checklist.router)
 from . import bank  # noqa: E402  Geld: Kontoumsätze aus CSV (/bank)
 app.include_router(bank.router)
 from . import invites  # noqa: E402  Einladungen (/invites) – nur im Hauptdienst, nie in share_app
@@ -72,6 +75,15 @@ from . import cancel  # noqa: E402  Kündigungshelfer (25.11.2026)
 app.include_router(cancel.router)
 from . import whatsnew  # noqa: E402  Willkommen und „Was ist neu“ (25.11.2026)
 app.include_router(whatsnew.router)
+from . import digest  # noqa: E402  Wochenübersicht per Mail und SMTP-Versand (25.11.2026)
+app.include_router(digest.router)
+from . import onboarding  # noqa: E402  „Los geht’s“ für neue Konten (26.11.2026)
+app.include_router(onboarding.router)
+from . import payment  # noqa: E402  Bezahlen per QR (EPC/GiroCode, 26.11.2026)
+app.include_router(payment.router)
+from . import import_paperless  # noqa: E402  Übernahme aus Paperless-ngx (26.11.2026, nur Admin)
+app.include_router(import_paperless.router)
+from . import discovery  # noqa: E402  Bonjour/mDNS „_papigator._tcp“ (26.11.2026)
 
 
 @app.on_event("startup")
@@ -83,6 +95,13 @@ def startup() -> None:
     security.harden_files()
     worker.start()
     inbox.start()
+    digest.start()
+    discovery.start()   # Bonjour: App findet den Server beim Anmelden (nur hier, nie in share_app)
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    discovery.stop()
 
 
 # ---------- Helpers ----------
@@ -99,10 +118,7 @@ def serialize(con, row, user: User) -> dict:
     d = dict(row)
     d.pop("text", None)
     d["tags"] = tags
-    try:   # Nummern (Vertrag, Kunde, Aktenzeichen …) als Objekt, gespeichert als JSON
-        d["refs"] = _json.loads(row["refs"]) if "refs" in row.keys() and row["refs"] else {}
-    except ValueError:
-        d["refs"] = {}
+    d["refs"] = _refs_obj(row["refs"]) if "refs" in row.keys() else {}   # Nummern (Vertrag, Kunde …), gespeichert als JSON
     d["thumbnail_url"] = f"/documents/{row['id']}/thumbnail"
     d["file_url"] = f"/documents/{row['id']}/file"
     d["is_own"] = row["owner_id"] == user.id
@@ -243,18 +259,20 @@ def me(user: User = Depends(current_user)):
                 "WHERE p.from_user=?", (user.id,))
         ]
         needs_setup = con.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+        pq = con.execute("SELECT pay_qr FROM users WHERE id=?", (user.id,)).fetchone()
     return {
         "id": user.id, "username": user.username, "display_name": user.display_name,
         "is_admin": user.is_admin, "show_partner_in_overview": user.show_partner_in_overview,
         "avatar": avatars.version("u", user.id) if user.id else None,
         "shared_with_me": partners_in, "shared_by_me": partners_out, "needs_setup": needs_setup,
-        "demo": config.DEMO,
+        "demo": config.DEMO, "pay_qr": bool(pq and pq["pay_qr"]),
     }
 
 
 class SettingsIn(BaseModel):
     display_name: Optional[str] = None
     show_partner_in_overview: Optional[bool] = None
+    pay_qr: Optional[bool] = None   # Bezahlen per QR anzeigen (app/payment.py), Standard aus
     password: Optional[str] = None
     current_password: Optional[str] = None   # Pflicht beim Passwortwechsel, außer für Admins
 
@@ -280,6 +298,8 @@ def update_me(body: SettingsIn, request: Request, user: User = Depends(current_u
                 raise HTTPException(403, "Das aktuelle Passwort stimmt nicht")
         if body.display_name:
             con.execute("UPDATE users SET display_name=? WHERE id=?", (body.display_name.strip(), user.id))
+        if body.pay_qr is not None:
+            con.execute("UPDATE users SET pay_qr=? WHERE id=?", (int(body.pay_qr), user.id))
         if body.show_partner_in_overview is not None:
             con.execute("UPDATE users SET show_partner_in_overview=? WHERE id=?",
                         (int(body.show_partner_in_overview), user.id))
@@ -441,15 +461,21 @@ def remove_share(user_id: int, user: User = Depends(current_user)):
 
 # ---------- Documents ----------
 
+IMPORT_FIELDS = {"document_date", "sender", "doc_kind", "llm_status", "text_source"}
+
+
 def import_pdf(pdf_path: Path, owner_id: int, original_name: str, title: Optional[str] = None,
                text: Optional[str] = None, tags: Optional[list[str]] = None,
-               ext_link_id: Optional[int] = None, ext_from: Optional[str] = None) -> int:
+               ext_link_id: Optional[int] = None, ext_from: Optional[str] = None, fields: Optional[dict] = None) -> int:
     """Legt ein PDF als Dokument an (verschiebt die Datei). Raises HTTPException(409) bei Duplikat,
     422 bei kaputtem oder passwortgeschütztem PDF.
 
     Mit ext_link_id (Briefkasten): Dokument ist „von außen, zu prüfen“. Eine schon vorhandene gleiche Datei
     wird dann still als angekommen gezählt – kein 409, kein Wiederherstellen aus dem Papierkorb –, damit
-    niemand von außen abfragen kann, was im Archiv liegt."""
+    niemand von außen abfragen kann, was im Archiv liegt.
+
+    fields: weitere Spalten, die gleich mit angelegt werden (Übernahme aus Paperless-ngx: Datum, Absender, Art,
+    llm_status) – in derselben Transaktion, damit der Worker das Dokument nie ohne sie sieht."""
     problem = processing.pdf_problem(pdf_path)
     if problem:
         raise HTTPException(422, problem)
@@ -477,15 +503,40 @@ def import_pdf(pdf_path: Path, owner_id: int, original_name: str, title: Optiona
              text or None, "client" if text else None, ext_link_id, ext_from, 1 if ext_link_id is not None else 0),
         )
         doc_id = cur.lastrowid
+        extra = {k: v for k, v in (fields or {}).items() if k in IMPORT_FIELDS and v is not None}
+        if extra:
+            con.execute(f"UPDATE documents SET {', '.join(f'{k}=?' for k in extra)} WHERE id=?", (*extra.values(), doc_id))
         shutil.move(str(pdf_path), processing.doc_path(doc_id))
         set_tags(con, doc_id, tags or [])
     worker.wake()
     return doc_id
 
 
+# Fotos statt PDF (26.11.2026): JPEG/PNG/TIFF werden wie im Import-Ordner zu einer PDF; mehrere Bilder (gleiches
+# Formularfeld „file“ mehrfach) werden eine mehrseitige PDF. Erkannt wird am Dateianfang, nicht am Namen.
+MAX_UPLOAD_IMAGES = 50
+HEIC_UNSUPPORTED = "HEIC wird nicht unterstützt – als JPEG senden"
+
+
+def sniff_upload(head: bytes, filename: str = "", content_type: str = "") -> str:
+    """'pdf' | 'image' | 'heic' | '' (unbekannt) – nach den ersten Bytes, PDF zur Not auch nach Name/Typ wie bisher."""
+    if head[:3] == b"\xff\xd8\xff" or head[:8] == b"\x89PNG\r\n\x1a\n" or head[:4] in (b"II*\x00", b"MM\x00*"):
+        return "image"
+    if head[4:8] == b"ftyp" and head[8:12] in (b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs",
+                                               b"mif1", b"msf1", b"avif"):
+        return "heic"
+    if b"%PDF-" in head[:1024]:
+        return "pdf"
+    if (filename or "").lower().endswith((".heic", ".heif")) or (content_type or "").lower() in ("image/heic", "image/heif"):
+        return "heic"
+    if (filename or "").lower().endswith(".pdf") or content_type == "application/pdf":
+        return "pdf"   # wie bisher: was kaputt ist, meldet import_pdf (422)
+    return ""
+
+
 @app.post("/documents", status_code=201)
 async def upload(
-    file: UploadFile = File(...),
+    file: list[UploadFile] = File(...),        # ein PDF oder ein bzw. mehrere Bilder (JPEG/PNG/TIFF)
     title: Optional[str] = Form(None),
     text: Optional[str] = Form(None),          # OCR-Text vom Client (Vision), optional
     tags: Optional[str] = Form(None),          # Komma-getrennt
@@ -493,22 +544,50 @@ async def upload(
 ):
     if user.id == 0:
         raise HTTPException(400, "Erst einen Nutzer anlegen (POST /users)")
-    if not (file.filename or "").lower().endswith(".pdf") and file.content_type != "application/pdf":
-        raise HTTPException(415, "Nur PDF. Bilder bitte clientseitig zu PDF wandeln.")
+    if len(file) > MAX_UPLOAD_IMAGES:
+        raise HTTPException(413, f"Höchstens {MAX_UPLOAD_IMAGES} Bilder auf einmal")
+    kinds = []
+    for f in file:
+        head = f.file.read(1024)
+        f.file.seek(0)
+        kinds.append(sniff_upload(head, f.filename or "", f.content_type or ""))
+    if "heic" in kinds:
+        raise HTTPException(415, HEIC_UNSUPPORTED)
+    if "" in kinds:
+        raise HTTPException(415, "Nur PDF oder Bilder (JPEG, PNG, TIFF)")
+    if len(file) > 1 and "pdf" in kinds:
+        raise HTTPException(415, "Mehrere Dateien nur als Bilder – PDFs bitte einzeln hochladen")
+    first = file[0]
 
     # Kopieren, Seiten zählen, Datenbank: im Thread – sonst stünde während eines großen Uploads alles andere
     def work():
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            shutil.copyfileobj(file.file, tmp)
-            tmp_path = Path(tmp.name)
-        if demo.too_big(tmp_path.stat().st_size):
-            tmp_path.unlink(missing_ok=True)
-            raise demo.too_big_error()
+        tmps: list[Path] = []
         try:
-            doc_id = import_pdf(tmp_path, user.id, file.filename or "Dokument.pdf", title, text,
+            for f in file:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=Path(f.filename or "x").suffix[:10] or ".bin") as tmp:
+                    tmps.append(Path(tmp.name))
+                    shutil.copyfileobj(f.file, tmp)
+            if demo.too_big(sum(t.stat().st_size for t in tmps)):
+                raise demo.too_big_error()
+            if kinds[0] == "image":
+                try:
+                    pdf_path = inbox.images_to_pdf(tmps)
+                except inbox.TooManyPixels:
+                    raise HTTPException(413, "Bilder zu groß – bitte weniger oder kleinere Fotos auf einmal")
+                except Exception as e:   # kaputtes Bild, zu groß (Pixel-Bombe) …
+                    log.info("Upload: Bild nicht lesbar: %s", e)
+                    raise HTTPException(422, "Bild lässt sich nicht lesen")
+                tmps.append(pdf_path)
+                if demo.too_big(pdf_path.stat().st_size):
+                    raise demo.too_big_error()
+                name = first.filename or "Foto.jpg"
+            else:
+                pdf_path, name = tmps[0], first.filename or "Dokument.pdf"
+            doc_id = import_pdf(pdf_path, user.id, name, title, text,
                                 [t for t in (tags or "").split(",") if t.strip()])
         finally:
-            tmp_path.unlink(missing_ok=True)
+            for t in tmps:
+                t.unlink(missing_ok=True)
         with connect() as con:
             return serialize(con, get_doc(con, doc_id, user), user)
     return await run_in_threadpool(work)
@@ -659,31 +738,42 @@ def list_documents(
 
 @app.get("/search")
 def smart_search(q: str = Query(..., min_length=1, max_length=300), limit: int = Query(50, ge=1, le=200),
-                 user: User = Depends(current_user)):
+                 lang: str = Query("de", max_length=10), user: User = Depends(current_user)):
     """Suche in ganzen Sätzen („Gehalt letzte 6 Monate“): Filter als Chips plus Treffer, ohne KI.
-    Findet sich nichts, werden Person, Zeitraum und Fristen nacheinander gelockert (in `dropped`), nie die Suchwörter."""
+    Findet sich nichts, werden Person, Zeitraum und Fristen nacheinander gelockert (in `dropped`), nie die Suchwörter.
+    lang: Sprache der Chip-Beschriftungen (de | en)."""
     with connect() as con:
-        r = smartsearch.interpret(con, user, q)
+        r = smartsearch.interpret(con, user, q, lang=lang)
     p = dict(r["params"])
 
     def run(p):
-        return list_documents(q=p.get("q"), tag=None, status=None, year=None, review=False, due=bool(p.get("due")), sender=None, kind=None,
-                              trash=False, sort="date", dir="desc", scope="all", limit=limit, offset=0,
+        # internes Aufrufen: alle Query-Parameter ausdrücklich, sonst stünde ein Query-Objekt als Wert drin
+        return list_documents(q=p.get("q"), tag=None, status=None, year=None, review=False, due=bool(p.get("due")), sender=None,
+                              kind=p.get("kind"), trash=False, sort="date", dir="desc", scope="all", limit=limit, offset=0,
                               date_from=p.get("date_from"), date_to=p.get("date_to"), owner=p.get("owner"), mine_due=False, warranty=False,
-                              user=user)
+                              with_total=False, response=None, user=user)
 
     docs, dropped = run(p), []
     chips = list(r["chips"])
-    for kind, keys in (("owner", ("owner",)), ("range", ("date_from", "date_to")), ("due", ("due",))):
+    if not docs and "kind" in p:
+        # Art ohne Treffer (Bestand noch nicht nachgetragen, Art anders erkannt): als Suchwort weiter – kein Hinweis
+        # „ohne …“, gesucht wird das Wort ja weiterhin
+        words = [c for c in chips if c["kind"] == "doc_kind"]
+        chips = [c if c["kind"] != "doc_kind" else {"kind": "word", "label": c.get("word") or c["label"], "value": c["value"],
+                                                    "tag": False} for c in chips]
+        p.pop("kind")
+        p["q"] = " ".join(filter(None, [p.get("q"), *(c["value"] for c in words)]))
+        docs = run(p)
+    for chip_kind, keys in (("owner", ("owner",)), ("range", ("date_from", "date_to")), ("due", ("due",))):
         if docs or not any(k in p for k in keys):
             continue
-        rest = [k for k in ("q", "owner", "date_from", "due") if k in p and k not in keys]
+        rest = [k for k in ("q", "kind", "owner", "date_from", "due") if k in p and k not in keys]
         if not rest:
             break   # ohne jeden übrigen Filter käme einfach alles – dann lieber „nichts gefunden“
         for k in keys:
             p.pop(k, None)
-        dropped += [c["label"] for c in chips if c["kind"] == kind]
-        chips = [c for c in chips if c["kind"] != kind]
+        dropped += [c["label"] for c in chips if c["kind"] == chip_kind]
+        chips = [c for c in chips if c["kind"] != chip_kind]
         docs = run(p)
     return {"query": r["query"], "chips": chips, "params": p, "documents": docs, "dropped": dropped}
 
@@ -691,6 +781,7 @@ def smart_search(q: str = Query(..., min_length=1, max_length=300), limit: int =
 class AskIn(BaseModel):
     question: str
     scope: Optional[str] = None
+    lang: Optional[str] = None      # Oberflächensprache (de | en); die Antwort folgt der Sprache der Frage
 
 
 @app.post("/ask")
@@ -704,7 +795,7 @@ def ask_documents(body: AskIn, user: User = Depends(current_user)):
         owners = auth.visible_owner_ids(con, user, scope) if user.id != 0 else []
     with worker.interactive_llm():
         return askmod.ask(q, owners, extra_facts=(lambda span: bank.ask_facts(user, q, span) + yearly.ask_facts(user, q))
-                          if user.id != 0 else None)
+                          if user.id != 0 else None, lang=body.lang)
 
 
 def assignable_users(con, user: User) -> list[dict]:
@@ -876,6 +967,7 @@ def get_document(doc_id: int, include_text: bool = False, user: User = Depends(c
     with connect() as con:
         row = get_doc(con, doc_id, user)
         d = serialize(con, row, user)
+        d["person_hints"] = family.person_hints(con, user, row)   # Empfänger passt zu einer Person ohne deren Tag
         if include_text:
             d["text"] = row["text"]
         return d
@@ -986,6 +1078,20 @@ def update_document(doc_id: int, body: DocumentUpdate, user: User = Depends(curr
             refs = {k: re.sub(r"\s+", " ", str(v)).strip()[:60] for k, v in (fields["refs"] or {}).items()
                     if k in processing.REF_KEYS and str(v or "").strip()}
             fields["refs"] = _json.dumps(refs, ensure_ascii=False) if refs else None
+        # Die Web-App schickt beim Speichern alle Felder mit – als geändert zählt nur, was sich vom Stand unterscheidet
+        def _changed(key):
+            if key not in fields:
+                return False
+            if key == "refs":
+                old_refs = _json.loads(row["refs"]) if row["refs"] else {}
+                return (_json.loads(fields["refs"]) if fields["refs"] else {}) != old_refs
+            return fields[key] != row[key]
+        # Art bewegt kein Geld (Zeugnis, Angebot, Kontoauszug …): Betrag zählt nicht mehr als Ausgabe – außer die
+        # Richtung wurde im selben Zug ausdrücklich geändert
+        if _changed("doc_kind") and fields["doc_kind"] in processing.NON_MONEY_KINDS and not _changed("direction"):
+            fields.update(direction="none", recurring=None)
+        if row["llm_status"] == "refill_k" and any(_changed(k) for k in ("doc_kind", "recipient", "refs")):
+            fields["llm_status"] = "done"   # von Hand gesetzt: das stille Nachtragen soll es nicht überschreiben
         if "refund_state" in fields and fields["refund_state"] not in ("open", "done", "none"):
             raise HTTPException(400, "Erstattung: open, done oder none")
         if "warranty_months" in fields or "document_date" in fields:
@@ -1017,7 +1123,10 @@ def update_document(doc_id: int, body: DocumentUpdate, user: User = Depends(curr
         if body.tags is not None:
             con.execute("DELETE FROM document_tags WHERE document_id=?", (doc_id,))
             set_tags(con, doc_id, body.tags)
-        return serialize(con, get_doc(con, doc_id, user), user)
+        row = get_doc(con, doc_id, user)
+        out = serialize(con, row, user)
+        out["person_hints"] = family.person_hints(con, user, row)   # iOS übernimmt die Antwort als neues Detail
+        return out
 
 
 @app.delete("/documents/{doc_id}", status_code=204)
@@ -1573,6 +1682,7 @@ class SettingsIn2(BaseModel):
     public_url: Optional[str] = None       # Adresse für Freigabe-Links, z. B. https://papigator.example.de
     return_window: Optional[bool] = None   # Online-Käufe: Rücksendefrist (14 Tage) als Frist eintragen
     update_check: Optional[bool] = None     # nach neuen Papigator-Versionen suchen (GitHub-Release)
+    llm_language: Optional[str] = None     # Sprache der KI-Texte (Titel, Zusammenfassung, neue Tags) und der Wochenübersicht: de | en
 
 
 @app.get("/settings")
@@ -1587,7 +1697,8 @@ def get_settings(user: User = Depends(require_admin)):
             "duplicate_mode": cfg["duplicate_mode"], "thumb_width": cfg["thumb_width"],
             **{f"backup_{k}": v for k, v in backupmod.settings().items() if k in ("dir", "hour", "keep_days", "keep_weeks")},
             "public_url": _public_url(), "llm_paused_until": worker.paused_until(),
-            "return_window": _setting_on("return_window"), "update_check": _update_check()}
+            "return_window": _setting_on("return_window"), "update_check": _update_check(),
+            "llm_language": cfg["language"]}
 
 
 def _update_check() -> bool:
@@ -1616,6 +1727,8 @@ def patch_settings(body: SettingsIn2, admin: User = Depends(require_admin)):
         _patch_llm_servers(con, body)
         if body.return_window is not None:
             set_setting(con, "return_window", "1" if body.return_window else "0")
+        if body.llm_language in ("de", "en"):
+            set_setting(con, "llm_language", body.llm_language)
         if body.update_check is not None:
             set_setting(con, "update_check", "1" if body.update_check else "0")
             set_setting(con, "update_checked", None)       # beim nächsten Blick neu nachsehen
@@ -1800,6 +1913,14 @@ def inbox_status(user: User = Depends(current_user)):
             "ftp": shutil.which("vsftpd") is not None}
 
 
+def _refs_obj(raw) -> dict:
+    try:
+        v = _json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    return v if isinstance(v, dict) else {}
+
+
 @app.get("/export.zip")
 def export_zip(scope: str = Query("mine", description="mine | all"),
                layout: str = Query("flat", description="flat | folders (Ordner/Jahr/Datum Titel.pdf)"),
@@ -1821,6 +1942,7 @@ def export_zip(scope: str = Query("mine", description="mine | all"),
             safe = "".join(c if c.isalnum() or c in " -_." else "_" for c in (r["title"] or ""))[:80].strip()
             meta.append({"id": r["id"], "title": r["title"], "document_date": r["document_date"], "sender": r["sender"],
                          "amount": r["amount"], "currency": r["currency"], "summary": r["summary"], "tags": tags,
+                         "doc_kind": r["doc_kind"], "recipient": r["recipient"], "refs": _refs_obj(r["refs"]),
                          "original_name": r["original_name"], "created_at": r["created_at"],
                          "owner": owner["username"] if owner else None,
                          "file": f"{r['id']} {safe}.pdf" if safe else f"{r['id']}.pdf"})
@@ -1933,7 +2055,9 @@ def retag_all(scope: str = Query("failed", description="failed | all"), admin: U
     """Tagging erneut anstoßen: nur fehlgeschlagene oder alle fertigen Dokumente."""
     with connect() as con:
         if scope == "all":
-            n = con.execute("UPDATE documents SET status='tagging' WHERE status='done'").rowcount
+            # Nachtragen (refill*) gilt danach als erledigt – sonst schriebe der Worker nur die Nachtrag-Felder
+            n = con.execute("UPDATE documents SET status='tagging', llm_status=CASE WHEN llm_status LIKE 'refill%' "
+                            "THEN 'pending' ELSE llm_status END WHERE status='done'").rowcount
         else:
             n = con.execute("UPDATE documents SET status='tagging' WHERE status='done' AND llm_status IN ('failed','skipped')").rowcount
     worker.wake()

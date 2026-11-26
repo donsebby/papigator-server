@@ -11,7 +11,7 @@ import calendar
 import datetime as dt
 import re
 
-from . import ask, auth, folders
+from . import ask, auth, folders, processing
 
 # Wörter, die nur Satzbau sind – als Suchwort würden sie die UND-Suche leerlaufen lassen
 _FILLER = {
@@ -62,6 +62,14 @@ def _de(d: dt.date) -> str:
     return d.strftime("%d.%m.%Y")
 
 
+_EN_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")   # nicht vom Locale abhängig
+
+
+def _day(d: dt.date, en: bool) -> str:
+    """Datum für die Chips: deutsch TT.MM.JJJJ, englisch „14 Nov 2026“ (in jeder englischen Region eindeutig)."""
+    return f"{d.day} {_EN_MONTHS[d.month - 1]} {d.year}" if en else _de(d)
+
+
 # Was hinter einem Tag-Namen stehen darf, damit das Wort nur diesen Tag meint: Endungen und Sammelwörter
 # („Gehaltsunterlagen“ → Gehalt). „Steuerbescheid“ bleibt dagegen ein eigenes Suchwort – sonst würde es zu „Steuer“.
 _TAG_TAIL = {"", "e", "en", "n", "s", "es", "er", "ern", "unterlagen", "sachen", "papiere", "dokumente", "zettel",
@@ -84,6 +92,34 @@ def _tag_for(word: str, tags: list[str]) -> str | None:
             if best is None or len(t) > len(best):
                 best = t
     return best
+
+
+# Dokumentart aus einem Wort („Zeugnisse“ → zeugnis). Feste Liste statt processing.KINDS: dort stehen auch Wörter wie
+# „Versicherung“, „Brief“, „Quittung“, die hier Suchwörter bleiben sollen (eine Versicherung ist mehr als ihr Schein).
+# „Gehalt“ bleibt Suchwort/Tag, nur „Lohnabrechnungen“ ist die Art. Englisch nur, wo das Wort eindeutig ist.
+_KIND_WORDS = {
+    "rechnung": ("rechnung", "rechnungen", "invoice", "invoices"),
+    "gutschrift": ("gutschrift", "gutschriften"),
+    "mahnung": ("mahnung", "mahnungen"),
+    "abrechnung": ("abrechnung", "abrechnungen"),
+    "gehalt": ("lohnabrechnung", "lohnabrechnungen", "gehaltsabrechnung", "gehaltsabrechnungen", "payslip", "payslips"),
+    "kontoauszug": ("kontoauszug", "kontoauszüge", "kontoauszuege"),
+    "bescheid": ("bescheid", "bescheide"),
+    "vertrag": ("vertrag", "verträge", "vertraege", "contract", "contracts"),
+    "police": ("versicherungsschein", "versicherungsscheine", "police", "policen"),
+    "kuendigung": ("kündigung", "kündigungen", "kuendigung", "kuendigungen"),
+    "angebot": ("angebot", "angebote"),
+    "bestaetigung": ("bestätigung", "bestätigungen", "bestaetigung", "bestaetigungen"),
+    "spende": ("spendenquittung", "spendenquittungen", "spendenbescheinigung", "spendenbescheinigungen"),
+    "bescheinigung": ("bescheinigung", "bescheinigungen", "certificate", "certificates"),
+    "zeugnis": ("zeugnis", "zeugnisse", "zeugnissen", "diploma", "diplomas"),
+    "urkunde": ("urkunde", "urkunden"),
+    "ausweis": ("ausweis", "ausweise"),
+    "befund": ("befund", "befunde", "befunden", "arztbrief", "arztbriefe"),
+    "bericht": ("bericht", "berichte"),
+    "antrag": ("antrag", "anträge", "antraege"),
+}
+_KIND_OF = {w: code for code, words in _KIND_WORDS.items() for w in words}
 
 
 def _stem(word: str) -> str:
@@ -110,10 +146,14 @@ def _stem(word: str) -> str:
     return w
 
 
-def interpret(con, user: auth.User, question: str, today: dt.date | None = None) -> dict:
+def interpret(con, user: auth.User, question: str, today: dt.date | None = None, lang: str = "de") -> dict:
     """Satz → {"chips": [...], "params": {...}} – params passen direkt zu GET /documents.
-    Chip-Arten: word (Suchwort, evtl. Tag), person (Person ohne Konto – wie ein Tag-Suchwort in q), range, owner, due."""
+    Chip-Arten: word (Suchwort, evtl. Tag), person (Person ohne Konto – wie ein Tag-Suchwort in q), doc_kind
+    (Dokumentart, `code` → Parameter kind, mehrere mit Komma), range, owner, due.
+    lang: Sprache der Beschriftungen (Zeitraum, Fristen, Art) – „en“ für die englische Oberfläche, sonst Deutsch
+    (ältere Apps schicken keine)."""
     today = today or dt.date.today()
+    en = (lang or "").lower().startswith("en")
     q = question.strip()
     visible = auth.visible_owner_ids(con, user, "all")
     chips, params = [], {"scope": "all"}
@@ -121,7 +161,7 @@ def interpret(con, user: auth.User, question: str, today: dt.date | None = None)
 
     span = _range(q, today)
     if span:
-        chips.append({"kind": "range", "label": f"{_de(span[0])} – {_de(span[1])}",
+        chips.append({"kind": "range", "label": f"{_day(span[0], en)} – {_day(span[1], en)}",
                       "from": span[0].isoformat(), "to": span[1].isoformat()})
         params["date_from"], params["date_to"] = span[0].isoformat(), span[1].isoformat()
         m = _YEAR.search(q)
@@ -129,7 +169,7 @@ def interpret(con, user: auth.User, question: str, today: dt.date | None = None)
             used.add(m.group(1))
 
     if _DUE.search(q):
-        chips.append({"kind": "due", "label": "Offene Fristen"})
+        chips.append({"kind": "due", "label": "Open deadlines" if en else "Offene Fristen"})
         params["due"] = True
         for m in _DUE.finditer(q):   # „to pay“: auch „pay“ ist kein Suchwort
             used.update(m.group(0).lower().split())
@@ -161,18 +201,34 @@ def interpret(con, user: auth.User, question: str, today: dt.date | None = None)
     # Personen ohne Konto (Familie, z. B. Kinder) sind Tags: Chip „person“, gesucht wird wie bei jedem Tag über q
     from .family import person_names   # späte Bindung gegen Zirkel
     persons = {n.lower() for n in person_names(con, user)}
-    keywords = []
+    # Dokumentarten nur anbieten, wenn es sichtbare Dokumente dieser Art gibt – solange der Bestand noch nachgetragen
+    # wird (refill_k), bliebe „Zeugnisse“ sonst leer, obwohl die Wortsuche sie fände
+    have_kinds = set()
+    if visible:
+        have_kinds = {r[0] for r in con.execute(
+            f"SELECT DISTINCT doc_kind FROM documents WHERE deleted_at IS NULL AND doc_kind IS NOT NULL "
+            f"AND owner_id IN ({','.join('?' * len(visible))})", visible)}
+    keywords, kinds = [], []
     for w in words:
         wl = w.lower()
         if wl in used or wl in _FILLER or len(w) < 3 or _DUE.fullmatch(w) or re.fullmatch(r"\d{1,2}", w):
             continue
         tag = _tag_for(w, tags)
+        code = _KIND_OF.get(wl)
+        if code and not tag and code in have_kinds:   # eigener Ordner gleichen Namens geht vor (wie bisher)
+            if code not in (k["code"] for k in kinds):
+                # value: das Wort, falls die Art gelockert werden muss (siehe main.smart_search)
+                kinds.append({"kind": "doc_kind", "label": processing.KIND_LABELS[code][1 if en else 0], "code": code, "value": _stem(w),
+                              "word": w})
+            continue
         value = tag or _stem(w)
         if value.lower() in (k["value"].lower() for k in keywords):
             continue
         kind = "person" if tag and tag.lower() in persons else "word"
         keywords.append({"kind": kind, "label": tag or w, "value": value, "tag": bool(tag)})
-    chips = keywords + chips
+    chips = keywords + kinds + chips
     if keywords:
         params["q"] = " ".join(k["value"] for k in keywords)
+    if kinds:
+        params["kind"] = ",".join(k["code"] for k in kinds)
     return {"query": q, "chips": chips, "params": params}

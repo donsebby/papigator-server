@@ -62,12 +62,13 @@
     <button type="button" id="brand-home" class="brand" title="Zur Startseite (Heute)" aria-label="Papigator – zur Startseite"><img class="logo" src="icon.png" alt=""><span>Papigator</span></button>
     <div class="search">
       <svg viewBox="0 0 24 24" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="2" d="M21 21l-4.3-4.3M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"/></svg>
-      <input id="search" type="search" placeholder="Suchen …" autocomplete="off" title="Minus vor einem Wort schließt es aus, z. B. „sam -alex“">
+      <input id="search" type="search" placeholder="Suchen oder fragen …" autocomplete="off" aria-label="Suchen oder fragen" title="Minus vor einem Wort schließt es aus, z. B. „sam -alex“">
     </div>
     <div id="scopebar" class="hidden"><div class="segmented" id="scope-seg"></div></div>
-    <button id="ask-btn" class="btn" title="Dokumente fragen"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" fill="currentColor"/></svg><span class="ask-label">Fragen</span></button>
     <label class="btn primary" for="file-input"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>Hochladen</label>
-    <input id="file-input" type="file" accept="application/pdf" multiple hidden>
+    <!-- PDFs und Fotos (Server macht aus Bildern eine PDF, mehrere Bilder = eine mehrseitige); am Handy bietet die
+         Auswahl auch die Kamera an – ohne capture, sonst gäbe es nur die Kamera -->
+    <input id="file-input" type="file" accept="application/pdf,image/jpeg,image/png,image/tiff" multiple hidden>
     <button id="settings-btn" class="btn icon-btn" aria-label="Einstellungen"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"/></svg></button>
   </header>
   <!-- Öffentliche Demo (Server mit PAPIGATOR_DEMO=1, /auth/me → demo) -->
@@ -79,7 +80,15 @@
   <!-- Suche in Sätzen: erkannte Filter als Chips (app.js → renderSmartBar) -->
   <!-- Begrüßung (app.js → renderHello): „Guten Abend, Alex“ mit Datum – das Logo steht schon oben links -->
   <div id="hello" class="hello">
-    <div class="hello-text"><div id="hello-date" class="hello-date"></div><h1 id="hello-title" class="hello-title"></h1></div>
+    <!-- Handy: der Gruß nur auf „Heute“, sonst steht dort der Name des Tabs (wie die großen Titel der App) -->
+    <div class="hello-text"><div id="hello-date" class="hello-date"></div><h1 id="hello-title" class="hello-title"></h1><h1 id="hello-tab" class="hello-title hello-tab"></h1></div>
+    <!-- Handy: Kacheln/Ordner neben dem Titel „Dokumente“ (breit stehen beide oben im Umschalter) -->
+    <div class="segmented docs-seg" id="docs-seg" role="group" aria-label="Ansicht der Dokumente">
+      <button type="button" data-mode="tiles" title="Alle Dokumente als Kacheln"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Kacheln</span></button>
+      <button type="button" data-mode="folders" title="Tags als Ordner durchblättern"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Ordner</span></button>
+    </div>
+    <!-- Handy: hierher wandert Meine/Partner (app.js → placeScope), wie in der App unter dem Titel „Dokumente“ -->
+    <div id="scope-slot" class="scope-slot"></div>
     <!-- Umschalter neben der Begrüßung (18.11.2026): steht so in jeder Ansicht an derselben Stelle, auch wenn
          Heute und Geld die Leisten für Dokumente nicht brauchen -->
     <div class="segmented" id="mode-seg" role="group" aria-label="Ansicht">
@@ -94,12 +103,14 @@
   <!-- Treffer im Konto zur Suche (Server: /bank/search) – Klick öffnet sie in „Geld“ -->
   <button id="bank-hint" class="bank-hint hidden" type="button"></button>
 
-  <div id="ask-panel" class="ask-panel hidden">
-    <form id="ask-form" class="ask-form">
-      <input id="ask-input" placeholder="z. B. Wie lautet meine Steuer-ID? · Welche Lohnsteuer stand 2025 auf der Bescheinigung?" autocomplete="off">
-      <button type="submit" class="primary" id="ask-submit">Fragen</button>
-      <button type="button" class="btn ghost" id="ask-close" aria-label="Schließen">✕</button>
-    </form>
+  <!-- Ein Feld für Suchen und Fragen (wie „Heute“ in der App): unter dem Suchfeld „Papigator fragen“; die KI antwortet
+       nur auf Enter bei einer Frage (Fragezeichen oder Fragewort vorne) oder beim Antippen (app.js → askNow) -->
+  <button type="button" id="ask-offer" class="ask-offer hidden"><span class="ask-ic" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" fill="currentColor"/></svg></span>
+    <span class="ask-offer-t"><b>Papigator fragen</b><small id="ask-offer-q"></small></span><span aria-hidden="true">›</span></button>
+  <div id="ask-panel" class="ask-panel hidden" aria-live="polite">
+    <div class="ask-head"><span class="ask-ic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" fill="currentColor"/></svg></span>
+      <b id="ask-question" class="ask-question"></b>
+      <button type="button" class="btn ghost icon-btn" id="ask-close" aria-label="Schließen">✕</button></div>
     <div id="ask-status" class="muted small hidden"></div>
     <div id="ask-answer" class="ask-answer hidden"></div>
     <div id="ask-sources" class="ask-sources hidden"></div>
@@ -127,6 +138,8 @@
       <svg id="dir-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
     <div class="spacer"></div>
+    <!-- Papierkorb: ein Ort, kein Filter – hier und unter Einstellungen › Dokumente -->
+    <button type="button" id="trash-btn" class="btn trash-btn" title="Papierkorb" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="trash-label">Papierkorb</span><span id="trash-btn-count" class="trash-count"></span></button>
     <div class="segmented" id="size-seg" aria-label="Kachelgröße">
       <button data-size="s" title="Klein"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h4v4H3zM10 3h4v4h-4zM17 3h4v4h-4zM3 10h4v4H3zM10 10h4v4h-4zM17 10h4v4h-4zM3 17h4v4H3zM10 17h4v4h-4zM17 17h4v4h-4z" fill="currentColor"/></svg></button>
       <button data-size="m" title="Mittel"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" fill="currentColor"/></svg></button>
@@ -156,8 +169,63 @@
   <div id="todayview" class="todayview hidden"></div>
   <!-- Geld (app.js → renderMoney): Kontoumsätze aus CSV, Kategorien, Einsortieren -->
   <div id="moneyview" class="moneyview hidden"></div>
-  <!-- Familie (app.js → renderFamily): Mitglieder, Wer kümmert sich?, Notfallmappe, Personen, Aufräumen -->
-  <div id="familyview" class="todayview familyview hidden"></div>
+  <!-- Familie (app.js → renderFamily): oben die Karten (Wer kümmert sich?, Mitglieder, Notfallmappe, Aufräumen), darunter
+       Verwalten wie im Familie-Tab der App: Personen, Notfallmappe, Aufräumen, Einladen (nur Admins) -->
+  <div id="familyview" class="todayview familyview hidden">
+    <div id="family-cards"></div>
+    <div id="family-manage" class="settings-body family-manage">
+      <h3 class="sgroup-h">Verwalten</h3>
+      <div class="sgroup-body">
+      <details class="sect" id="s-persons-sect">
+        <summary>Personen</summary>
+        <div class="sect-body">
+          <p class="muted small">Für Kinder und alle ohne eigenes Konto: Jede Person bekommt einen Ordner, und jedes Dokument, in dem ihr Vorname als ganzes Wort steht, landet darin – auch die schon vorhandenen. Wirkt nur auf Dokumente, die du bearbeiten darfst.</p>
+          <div id="s-persons"></div>
+          <div class="row"><input id="s-person-name" maxlength="40" placeholder="Vorname, z. B. Mia" autocomplete="off"><button id="s-person-add" class="btn">Person hinzufügen</button></div>
+        </div>
+      </details>
+      <details class="sect" id="s-emergency-sect">
+        <summary>Notfallmappe</summary>
+        <div class="sect-body">
+          <p class="muted small">Alles, was deine Angehörigen im Ernstfall brauchen: Vollmachten, Patientenverfügung, Versicherungen, wichtige Kontakte. Leg die Dokumente hier hinein und teile die Mappe per Link – der zeigt nur deine eigenen Dokumente.</p>
+          <div id="s-emergency"></div>
+          <div id="s-emergency-check" class="em-check"></div>
+          <div class="row"><input id="s-emergency-q" placeholder="Dokument hinzufügen – suchen, z. B. Vollmacht" autocomplete="off"><button id="s-emergency-search" class="btn">Suchen</button></div>
+          <div id="s-emergency-results"></div>
+          <div class="row"><button id="s-emergency-share" class="btn">Mit Angehörigen teilen …</button></div>
+          <p id="s-emergency-note" class="muted small"></p>
+        </div>
+      </details>
+      <details class="sect" id="s-cleanup-sect">
+        <summary>Aufräumen</summary>
+        <div class="sect-body">
+          <p class="muted small">Vorschläge, was nach den üblichen Aufbewahrungsfristen weg darf. Gelöscht wird nichts von selbst – „In den Papierkorb“ legt nur dorthin, von wo du es zurückholen kannst. Gehalt, Abrechnungen, Verträge, Versicherungen, Zeugnisse, Urkunden und Gesundheit werden nie vorgeschlagen.</p>
+          <div class="row"><button id="s-cleanup-run" class="btn">Vorschläge ansehen</button><span id="s-cleanup-state" class="muted small"></span></div>
+          <div id="s-cleanup-list"></div>
+        </div>
+      </details>
+      <details class="sect hidden" id="s-invite-sect">
+        <summary>Einladen</summary>
+        <div class="sect-body">
+        <div>
+          <div class="row">
+            <input id="s-inv-name" placeholder="Name, z. B. Sam" maxlength="80">
+            <select id="s-inv-share" title="Darf die neue Person deine Dokumente sehen?">
+              <option value="none">Ohne Freigabe</option>
+              <option value="read">Sieht meine Dokumente</option>
+              <option value="edit">Darf meine Dokumente bearbeiten</option>
+            </select>
+            <label class="small" style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" id="s-inv-admin"> Admin</label>
+            <button id="s-inv-add" class="btn primary">Einladen</button>
+          </div>
+        </div>
+        <p class="muted small">Ergibt einen Link und QR-Code, 7 Tage gültig und nur einmal nutzbar. Die eingeladene Person wählt Benutzername und Passwort selbst. Ohne Freigabe sieht sie nur ihre eigenen Dokumente.</p>
+        <div id="s-invites"></div>
+        </div>
+      </details>
+      </div>
+    </div>
+  </div>
   <div id="folderview" class="folderview hidden"></div>
   <main id="grid" class="grid"></main>
   <!-- Leere Ansicht: Titel und Satz je nach Lage (app.js → renderEmpty) -->
@@ -174,8 +242,19 @@
     <button id="pg-next" class="btn" type="button">Weiter ›</button>
     <label class="pg-size muted small">Pro Seite <select id="pg-size"><option>25</option><option>50</option><option>100</option></select></label>
   </nav>
-  <div id="dropzone" class="dropzone hidden">PDFs hier ablegen</div>
+  <div id="dropzone" class="dropzone hidden">PDFs oder Fotos hier ablegen</div>
 </section>
+
+<!-- Tab-Leiste am Handy (< 768 px) wie in der App: Heute · Dokumente · Ablegen · Geld · Familie. Liegt außerhalb von
+     #main, weil dessen Einblend-Animation (transform) eine feste Leiste sonst mitschieben würde; app.js → show()
+     zeigt sie nur zur Übersicht. „Dokumente“ = Kacheln oder Ordner, je nachdem, was zuletzt dort offen war. -->
+<nav id="tabbar" class="tabbar hidden" aria-label="Bereiche">
+  <button type="button" data-tab="today"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Heute</span></button>
+  <button type="button" data-tab="docs"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM14 3v5h5M9 13h6M9 17h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg><span>Dokumente</span></button>
+  <button type="button" id="tab-add" class="tab-add" title="PDF oder Foto hochladen"><span class="tab-plus"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg></span><span>Ablegen</span></button>
+  <button type="button" data-tab="money"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Geld</span></button>
+  <button type="button" data-tab="family"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17" cy="9.5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 19c.8-3.3 3.2-5 6-5s5.2 1.7 6 5M15.5 14.3c2.6-.4 4.6 1.2 5.5 4.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Familie</span></button>
+</nav>
 
 <!-- Detail -->
 <section id="detail" class="screen hidden">
@@ -188,7 +267,12 @@
     <button id="delete-btn" class="btn danger"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Löschen</button>
   </header>
   <div class="detail-body">
-    <div class="pdf-wrap"><iframe id="pdf-view" title="Dokument"></iframe></div>
+    <div class="pdf-wrap"><iframe id="pdf-view" title="Dokument"></iframe>
+      <!-- Handy: kein eingebettetes PDF, sondern das erste Blatt als Vorschau – antippen öffnet das PDF -->
+      <a id="pdf-preview" class="pdf-preview" target="_blank" rel="noopener" title="PDF öffnen"><img id="pdf-thumb" alt=""><span id="pdf-pages" class="pdf-pages"></span></a>
+    </div>
+    <!-- Lesekarte (26.11.2026, wie DocumentDetailView der App): Werte antippen und direkt ändern – jedes Feld speichert
+         beim Verlassen für sich (app.js → commitField/saveDoc), ohne „Speichern“-Knopf -->
     <aside class="meta">
       <p id="m-owner" class="muted small hidden" style="margin:0"></p>
       <p id="m-persons" class="persons-row hidden"></p>
@@ -198,81 +282,111 @@
         <p class="muted small">Kam über einen Briefkasten-Link. Erst ansehen, dann übernehmen – bis dahin bleibt es unter „Prüfen“ und erscheint in keiner Freigabe.</p>
         <div class="row"><button id="m-ext-accept" class="btn primary">Übernehmen</button><button id="m-ext-delete" class="btn ghost danger">In den Papierkorb</button></div>
       </div>
-      <label><span class="k">Titel</span><input id="m-title" class="title-input"></label>
-      <p id="m-summary" class="summary hidden"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8zM5 15l.8 2.2L8 18l-2.2.8L5 21l-.8-2.2L2 18l2.2-.8z" fill="var(--accent)"/></svg><span id="m-summary-text"></span></p>
-      <div class="row">
-        <label><span class="k">Datum</span><span class="datefield"><input id="m-date" class="dmy" inputmode="numeric" placeholder="TT.MM.JJJJ" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></label>
-        <label><span class="k">Betrag</span><input id="m-amount" type="number" step="0.01"></label>
+      <textarea id="m-title" class="title-input" rows="1" aria-label="Titel" placeholder="Titel" spellcheck="false"></textarea>
+      <!-- Absender · Datum · Betrag in einer Zeile -->
+      <div class="d-line">
+        <span class="d-part" id="m-sender-part"><input id="m-sender" class="fv" placeholder="Absender" aria-label="Absender" autocomplete="off"></span>
+        <span class="d-part" id="m-date-part"><span class="datefield fv-date"><input id="m-date" class="dmy fv" inputmode="numeric" placeholder="Datum" aria-label="Datum" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></span>
+        <span class="d-part" id="m-amount-part"><input id="m-amount" class="fv fv-amount" inputmode="decimal" placeholder="Betrag" aria-label="Betrag" autocomplete="off"></span>
       </div>
       <p id="m-date-hint" class="muted small hidden" style="margin:-4px 0 0"><span id="m-date-hint-text">Kein Datum erkannt – bitte eintragen</span> <button type="button" id="m-no-date" class="nodate-btn"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 10h17M8 3v4M16 3v4M9 15.5h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Hat kein Datum</button></p>
-      <div class="row">
-        <label style="flex:3"><span class="k">Absender</span><input id="m-sender"></label>
-        <label style="flex:1"><span class="k">Währung</span><input id="m-currency" maxlength="3"></label>
+      <p id="m-summary" class="summary hidden"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8zM5 15l.8 2.2L8 18l-2.2.8L5 21l-.8-2.2L2 18l2.2-.8z" fill="var(--accent)"/></svg><span id="m-summary-text"></span></p>
+      <!-- Chips: Art und Empfänger direkt änderbar; Richtung, Garantie und „Im Blick“ zeigen nur – Antippen öffnet „Mehr Angaben“ -->
+      <div class="d-chips">
+        <label class="d-chip" id="m-kind-chip"><span class="k">Art</span><select id="m-kind"></select></label>
+        <label class="d-chip" id="m-recipient-chip"><span class="k">An</span><input id="m-recipient" class="fv" placeholder="Empfänger" aria-label="Empfänger" autocomplete="off"></label>
+        <button type="button" class="d-chip d-info hidden" id="m-chip-direction" data-more="m-direction"></button>
+        <button type="button" class="d-chip d-info hidden" id="m-chip-warranty" data-more="m-warranty"></button>
+        <button type="button" class="d-chip d-info hidden" id="m-chip-expires" data-more="m-expires"></button>
+        <button type="button" class="d-chip d-info hidden" id="m-chip-service" data-more="m-service"></button>
+        <button type="button" class="d-chip d-info hidden" id="m-chip-refund" data-more="m-refund"></button>
       </div>
-      <!-- Dokumentart, Empfänger und Nummern (erkennt die KI, nur was im Text steht; app/processing.py kind_fields) -->
-      <div class="row">
-        <label><span class="k">Art</span><select id="m-kind"></select></label>
-        <label><span class="k">Empfänger</span><input id="m-recipient" placeholder="An wen?"></label>
+      <!-- Frist: Datum, wofür, erledigt und wer sich kümmert (nur, wer das Dokument sieht) in einer Zeile -->
+      <div id="m-due-box" class="d-due">
+        <span class="d-due-k">Frist</span>
+        <span class="datefield fv-date"><input id="m-due" class="dmy fv" inputmode="numeric" placeholder="Frist setzen" aria-label="Frist" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span>
+        <input id="m-due-note" class="fv" placeholder="Wofür?" aria-label="Wofür" autocomplete="off">
+        <span id="m-due-rep" class="d-rep hidden" title="Wiederholt sich"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 01-3 3H3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="d-due-end">
+          <label class="d-done" id="m-due-done-row"><input type="checkbox" id="m-due-done"> erledigt</label>
+          <label id="m-due-assignee-row" class="d-who hidden"><span>Wer?</span><select id="m-due-assignee"></select></label>
+          <a id="m-due-ics" class="d-ics hidden" href="#" download title="Zum Kalender (.ics)" aria-label="Zum Kalender (.ics)"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4M12 13v5M9.5 15.5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></a>
+        </span>
       </div>
-      <details id="m-refs-box" class="refs-box"><summary id="m-refs-sum">Nummern</summary><div id="m-refs" class="refs-grid"></div></details>
-      <!-- Richtung des Betrags: zählt in Summen als Ausgabe, Einnahme oder gar nicht (Vertrag, Mahnung zu einer Rechnung) -->
-      <label><span class="k">Betrag ist</span><select id="m-direction">
-        <option value="">– noch nicht erkannt –</option>
-        <option value="out">eine Ausgabe</option>
-        <option value="in">eine Einnahme (Gehalt, Erstattung, Guthaben)</option>
-        <option value="none">keine Zahlung (Vertrag, Mahnung, Info)</option>
-      </select></label>
-      <!-- Frist und „erledigt“ in einer Zeile, „Wofür“ darunter: neben dem Datumsfeld wurde es sonst zu schmal („Zah…“) -->
-      <div class="row">
-        <label style="flex:1"><span class="k">Frist</span><span class="datefield"><input id="m-due" class="dmy" inputmode="numeric" placeholder="TT.MM.JJJJ" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></label>
-        <label class="toggle" style="flex:0 0 auto; align-self:flex-end; padding-bottom:10px"><input type="checkbox" id="m-due-done"> erledigt</label>
-      </div>
-      <label><span class="k">Wofür</span><input id="m-due-note" placeholder="Zahlungsziel, Kündigungsfrist …"></label>
-      <!-- Wiederkehrend (beim Erledigen gleich der nächste Termin) und wer sich kümmert (nur, wer das Dokument sieht) -->
-      <div class="row">
-        <label><span class="k">Wiederholen</span><select id="m-due-repeat">
-          <option value="">Nie</option><option value="monthly">Monatlich</option><option value="quarterly">Vierteljährlich</option><option value="yearly">Jährlich</option>
-        </select></label>
-        <label id="m-due-assignee-row" class="hidden"><span class="k">Wer kümmert sich?</span><select id="m-due-assignee"></select></label>
-      </div>
-      <a id="m-due-ics" class="small hidden" href="#" download>Zum Kalender (.ics)</a>
-      <!-- Gewährleistung/Garantie (Kaufbelege): Dauer ab Belegdatum, das Ende steht darunter -->
-      <label><span class="k">Gewährleistung / Garantie</span><select id="m-warranty">
-        <option value="" disabled>nicht festgelegt</option>
-        <option value="0">keine</option>
-        <option value="24:legal">2 Jahre Gewährleistung (gesetzlich)</option>
-        <option value="12:garantie">1 Jahr Garantie</option>
-        <option value="24:garantie">2 Jahre Garantie</option>
-        <option value="36:garantie">3 Jahre Garantie</option>
-        <option value="60:garantie">5 Jahre Garantie</option>
-        <option value="120:garantie">10 Jahre Garantie</option>
-      </select></label>
-      <p id="m-warranty-hint" class="muted small hidden" style="margin:-4px 0 0"></p>
-      <!-- Im Blick (nur, wenn erkannt): Ausweis/Karte gültig bis, nächste Prüfung/Wartung, Erstattung bei Arztrechnungen -->
-      <div class="row">
-        <label id="m-expires-row" class="hidden" style="flex:1"><span class="k" id="m-expires-k">Gültig bis</span><span class="datefield"><input id="m-expires" class="dmy" inputmode="numeric" placeholder="TT.MM.JJJJ" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></label>
-        <label id="m-service-row" class="hidden" style="flex:1"><span class="k" id="m-service-k">Nächster Termin</span><span class="datefield"><input id="m-service" class="dmy" inputmode="numeric" placeholder="TT.MM.JJJJ" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></label>
-      </div>
-      <label id="m-refund-row" class="hidden"><span class="k">Erstattung</span><select id="m-refund">
-        <option value="open">offen – noch nicht erstattet</option><option value="done">erstattet</option><option value="none">nicht einreichen</option>
-      </select></label>
-      <label id="m-owner-row" class="hidden"><span class="k">Gehört</span><select id="m-owner-select"></select></label>
-      <label><span class="k">Tags</span>
+      <!-- Bezahlen per QR (GiroCode, Server: app/payment.py): nur, wenn im Konto eingeschaltet und der Server zu diesem
+           Dokument eine Zahlung findet (sonst 404 – dann nichts). Papigator überweist nichts selbst. -->
+      <section id="m-pay" class="d-pay hidden" aria-labelledby="m-pay-h">
+        <div class="d-pay-head"><b id="m-pay-h">Bezahlen per QR</b><span class="muted small">GiroCode für die Banking-App</span></div>
+        <p class="d-pay-check">Bitte Betrag und Empfänger mit dem Brief vergleichen.</p>
+        <div class="d-pay-body">
+          <div id="m-pay-qr" class="qr d-pay-qr"></div>
+          <dl class="d-pay-list">
+            <dt>Empfänger</dt><dd><span id="m-pay-name"></span><button type="button" class="btn ghost d-copy" data-copy="name" aria-label="Empfänger kopieren" title="Kopieren"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></dd>
+            <dt>IBAN</dt><dd><code id="m-pay-iban"></code><button type="button" class="btn ghost d-copy" data-copy="iban" aria-label="IBAN kopieren" title="Kopieren"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="2"/></svg></button><small id="m-pay-iban-src" class="d-pay-src"></small></dd>
+            <dt id="m-pay-bic-k">BIC</dt><dd id="m-pay-bic-v"><code id="m-pay-bic"></code></dd>
+            <dt>Betrag</dt><dd><b id="m-pay-amount"></b><button type="button" class="btn ghost d-copy" data-copy="amount" aria-label="Betrag kopieren" title="Kopieren"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="2"/></svg></button><small id="m-pay-amount-src" class="d-pay-src"></small></dd>
+            <dt>Verwendungszweck</dt><dd><span id="m-pay-ref"></span><button type="button" class="btn ghost d-copy" data-copy="reference" aria-label="Verwendungszweck kopieren" title="Kopieren"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></dd>
+          </dl>
+        </div>
+        <p id="m-pay-warn" class="d-pay-warn hidden" role="alert">Dieser Betrag steht so nicht im Brief – bitte prüfen.</p>
+        <p class="muted small" style="margin:0">Papigator überweist nichts selbst – du prüfst und gibst in deiner Banking-App frei.</p>
+      </section>
+      <div class="d-tags">
         <div id="m-tags" class="chips"></div>
-        <input id="m-tag-input" placeholder="Tag hinzufügen, Enter" list="tag-list">
+        <input id="m-tag-input" placeholder="Tag hinzufügen, Enter" list="tag-list" aria-label="Tag hinzufügen">
         <datalist id="tag-list"></datalist>
-      </label>
+      </div>
       <p id="m-llm-hint" class="llm-hint hidden" style="margin:0">Tags vom LLM vorgeschlagen – noch nicht bestätigt</p>
+      <!-- Seltenes: Nummern, Richtung, Währung, Wiederholen, Gewährleistung, Im Blick, Gehört -->
+      <details id="m-more" class="d-more">
+        <summary>Mehr Angaben</summary>
+        <div class="d-more-body">
+          <div id="m-refs-box" class="refs-box"><span class="k" id="m-refs-sum">Nummern</span><div id="m-refs" class="refs-grid"></div></div>
+          <div class="row">
+            <label><span class="k">Betrag ist</span><select id="m-direction">
+              <option value="">– noch nicht erkannt –</option>
+              <option value="out">eine Ausgabe</option>
+              <option value="in">eine Einnahme (Gehalt, Erstattung, Guthaben)</option>
+              <option value="none">keine Zahlung (Vertrag, Mahnung, Info)</option>
+            </select></label>
+            <label style="flex:0 0 96px"><span class="k">Währung</span><input id="m-currency" maxlength="3" placeholder="EUR" autocomplete="off"></label>
+          </div>
+          <label><span class="k">Frist wiederholen</span><select id="m-due-repeat">
+            <option value="">Nie</option><option value="monthly">Monatlich</option><option value="quarterly">Vierteljährlich</option><option value="yearly">Jährlich</option>
+          </select></label>
+          <label><span class="k">Gewährleistung / Garantie</span><select id="m-warranty">
+            <option value="" disabled>nicht festgelegt</option>
+            <option value="0">keine</option>
+            <option value="24:legal">2 Jahre Gewährleistung (gesetzlich)</option>
+            <option value="12:garantie">1 Jahr Garantie</option>
+            <option value="24:garantie">2 Jahre Garantie</option>
+            <option value="36:garantie">3 Jahre Garantie</option>
+            <option value="60:garantie">5 Jahre Garantie</option>
+            <option value="120:garantie">10 Jahre Garantie</option>
+          </select></label>
+          <p id="m-warranty-hint" class="muted small hidden" style="margin:-4px 0 0"></p>
+          <div class="row">
+            <label id="m-expires-row" class="hidden" style="flex:1"><span class="k" id="m-expires-k">Gültig bis</span><span class="datefield"><input id="m-expires" class="dmy" inputmode="numeric" placeholder="TT.MM.JJJJ" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></label>
+            <label id="m-service-row" class="hidden" style="flex:1"><span class="k" id="m-service-k">Nächster Termin</span><span class="datefield"><input id="m-service" class="dmy" inputmode="numeric" placeholder="TT.MM.JJJJ" autocomplete="off"><input type="date" class="dmy-picker" tabindex="-1" aria-hidden="true"><button type="button" class="dmy-btn" aria-label="Kalender öffnen"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span></label>
+          </div>
+          <label id="m-refund-row" class="hidden"><span class="k">Erstattung</span><select id="m-refund">
+            <option value="open">offen – noch nicht erstattet</option><option value="done">erstattet</option><option value="none">nicht einreichen</option>
+          </select></label>
+          <label id="m-owner-row" class="hidden"><span class="k">Gehört</span><select id="m-owner-select"></select></label>
+        </div>
+      </details>
       <!-- Notizen (app/notes.py): sehen alle, die das Dokument sehen -->
       <div id="m-notes-box"><span class="k">Notizen</span>
         <div id="m-notes"></div>
         <div class="note-add"><textarea id="m-note-text" rows="2" maxlength="2000" placeholder="z. B. Mit Versicherung telefoniert, Rückruf abwarten"></textarea>
           <button id="m-note-add" class="btn" type="button">Notiz hinzufügen</button></div>
       </div>
+      <!-- Speichern schlug fehl: Grund, das Feld steht wieder auf dem gespeicherten Stand; „Erneut versuchen“ schickt die Änderung noch einmal -->
+      <div id="m-error" class="d-error hidden" role="alert"><span id="m-error-text"></span>
+        <button type="button" id="m-error-retry" class="linkish">Erneut versuchen</button></div>
       <div class="spacer"></div>
-      <button id="save-btn" class="primary">Speichern</button>
       <p id="m-info" class="muted small" style="margin:0"></p>
-      <p id="save-state" class="muted small" style="margin:0"></p>
+      <p id="save-state" class="muted small" style="margin:0" aria-live="polite"></p>
     </aside>
   </div>
 </section>
@@ -319,6 +433,28 @@
           </details>
         </div>
       </details>
+      <!-- App verbinden: QR-Code mit papigator://connect?server=…(&user=…) – die App liest ihn beim Anmelden. Kein Passwort,
+           kein Token darin; Adresse = öffentliche Adresse (Admin-Einstellung), sonst die Adresse dieser Seite -->
+      <!-- Bezahlen per QR: pro Konto, Standard aus (Server: /auth/me pay_qr) -->
+      <details class="sect" id="s-pay-sect">
+        <summary>Bezahlen per QR</summary>
+        <div class="sect-body">
+          <label class="toggle"><input type="checkbox" id="s-pay-qr"> Bei offenen Rechnungen einen GiroCode zeigen</label>
+          <p class="muted small">Zeigt bei offenen Rechnungen einen GiroCode für die Banking-App. Papigator überweist nichts selbst – du prüfst und gibst in deiner Banking-App frei.</p>
+        </div>
+      </details>
+      <details class="sect" id="s-connect-sect">
+        <summary>App verbinden</summary>
+        <div class="sect-body">
+          <p class="muted small">In der App beim Anmelden „QR-Code scannen“ antippen und diesen Code scannen – dann steht die
+            Server-Adresse schon drin. Das Passwort gibst du in der App selbst ein; im Code steht keins.</p>
+          <div id="s-connect-qr" class="qr"></div>
+          <label><span class="k">Server-Adresse zum Abtippen</span>
+            <div class="row"><input id="s-connect-url" readonly aria-label="Server-Adresse"><button id="s-connect-copy" class="btn" type="button">Kopieren</button></div></label>
+          <label class="toggle small"><input type="checkbox" id="s-connect-user" checked> Benutzernamen mitgeben</label>
+          <p id="s-connect-warn" class="warn small hidden"></p>
+        </div>
+      </details>
       <details class="sect" id="s-cal-sect">
         <summary>Kalender-Abo</summary>
         <div class="sect-body">
@@ -335,6 +471,23 @@
               <button id="s-cal-del" class="btn ghost danger" type="button">Abschalten</button>
             </div>
           </div>
+        </div>
+      </details>
+      <details class="sect" id="s-digest-sect">
+        <summary>Wochenübersicht per Mail</summary>
+        <div class="sect-body">
+          <p class="muted small">Einmal pro Woche morgens eine Mail: offene Fristen, „Im Blick“, neue Dokumente der letzten
+            7 Tage und was zu prüfen ist – nur, was du hier auch siehst, mit Titel, Absender und Datum. Keine Beträge,
+            keine Kontoumsätze, keine Inhalte.</p>
+          <p id="s-digest-nosmtp" class="small warn hidden">Auf diesem Server ist noch kein Mail-Versand eingerichtet – bis ein
+            Admin ihn einträgt (Einstellungen → Server → Mail-Versand), kommt keine Mail.</p>
+          <label class="toggle"><input type="checkbox" id="s-digest-on"> Wochenübersicht schicken</label>
+          <div class="row">
+            <label style="flex:1"><span class="k">Wochentag</span><select id="s-digest-day"></select></label>
+            <label style="flex:2"><span class="k">An</span><input id="s-digest-email" type="email" placeholder="name@example.org" autocomplete="email"></label>
+          </div>
+          <p id="s-digest-status" class="small muted"></p>
+          <div class="row"><button id="s-digest-test" class="btn" type="button">Test-Mail senden</button></div>
         </div>
       </details>
       <details class="sect">
@@ -380,7 +533,14 @@
           <div id="s-dups-list"></div>
         </div>
       </details>
-      <details class="sect">
+      <details class="sect" id="s-trash-sect">
+        <summary>Papierkorb <span id="s-trash-count" class="muted small"></span></summary>
+        <div class="sect-body">
+          <p id="s-trash-text" class="muted small"></p>
+          <div class="row"><button type="button" id="s-trash-open" class="btn">Papierkorb öffnen</button></div>
+        </div>
+      </details>
+      <details class="sect" id="s-inbox-sect">
         <summary>Scanner-Eingang</summary>
         <div class="sect-body">
           <div id="s-inbox"></div>
@@ -419,40 +579,11 @@
     <div class="sgroup">
       <h3 class="sgroup-h">Familie</h3>
       <div class="sgroup-body">
-      <details class="sect" id="s-persons-sect">
-        <summary>Personen</summary>
+      <details class="sect" id="s-family-sect">
+        <summary>Personen, Notfallmappe, Aufräumen</summary>
         <div class="sect-body">
-          <p class="muted small">Für Kinder und alle ohne eigenes Konto: Jede Person bekommt einen Ordner, und jedes Dokument, in dem ihr Vorname als ganzes Wort steht, landet darin – auch die schon vorhandenen. Wirkt nur auf Dokumente, die du bearbeiten darfst.</p>
-          <div id="s-persons"></div>
-          <div class="row"><input id="s-person-name" maxlength="40" placeholder="Vorname, z. B. Mia" autocomplete="off"><button id="s-person-add" class="btn">Person hinzufügen</button></div>
-        </div>
-      </details>
-      <details class="sect" id="s-emergency-sect">
-        <summary>Notfallmappe</summary>
-        <div class="sect-body">
-          <p class="muted small">Alles, was deine Angehörigen im Ernstfall brauchen: Vollmachten, Patientenverfügung, Versicherungen, wichtige Kontakte. Leg die Dokumente hier hinein und teile die Mappe per Link – der zeigt nur deine eigenen Dokumente.</p>
-          <div id="s-emergency"></div>
-          <div class="row"><input id="s-emergency-q" placeholder="Dokument hinzufügen – suchen, z. B. Vollmacht" autocomplete="off"><button id="s-emergency-search" class="btn">Suchen</button></div>
-          <div id="s-emergency-results"></div>
-          <div class="row"><button id="s-emergency-share" class="btn">Mit Angehörigen teilen …</button></div>
-          <p id="s-emergency-note" class="muted small"></p>
-        </div>
-      </details>
-      <details class="sect" id="s-cleanup-sect">
-        <summary>Aufräumen</summary>
-        <div class="sect-body">
-          <p class="muted small">Vorschläge, was nach den üblichen Aufbewahrungsfristen weg darf. Gelöscht wird nichts von selbst – „In den Papierkorb“ legt nur dorthin, von wo du es zurückholen kannst. Gehalt, Abrechnungen, Verträge, Versicherungen, Zeugnisse, Urkunden und Gesundheit werden nie vorgeschlagen.</p>
-          <div class="row"><button id="s-cleanup-run" class="btn">Vorschläge ansehen</button><span id="s-cleanup-state" class="muted small"></span></div>
-          <div id="s-cleanup-list"></div>
-          <div id="s-cleanup-admin" class="hidden">
-            <p class="muted small" style="margin-top:12px">Fristen pro Ordner (Admin) – gelten vor den Vorgaben:</p>
-            <div id="s-cleanup-rules"></div>
-            <div class="row">
-              <input id="s-ret-tag" list="s-ret-tags" placeholder="Ordner, z. B. Handwerker"><datalist id="s-ret-tags"></datalist>
-              <select id="s-ret-years" style="width:auto"><option value="never">nie vorschlagen</option><option value="1">1 Jahr</option><option value="2">2 Jahre</option><option value="3">3 Jahre</option><option value="5">5 Jahre</option><option value="6">6 Jahre</option><option value="10">10 Jahre</option><option value="15">15 Jahre</option><option value="30">30 Jahre</option></select>
-              <button id="s-ret-save" class="btn">Speichern</button>
-            </div>
-          </div>
+          <p class="muted small">Personen ohne Konto, die Notfallmappe, Aufräumen und Einladen stehen jetzt – wie in der App – unter „Familie“.</p>
+          <div class="row"><button type="button" class="btn" data-family-sect="s-persons-sect">Zu „Familie“</button></div>
         </div>
       </details>
       </div>
@@ -477,6 +608,9 @@
               <button type="button" class="sw" role="radio" data-color="schlicht"><span class="dot"><i></i></span>Schlicht</button>
             </div>
             <p class="muted small" style="margin:0">Hintergrund und Akzentfarbe der ganzen App. Jeder in der Familie wählt auf seinem Gerät selbst – gilt für diesen Browser.</p>
+          </div>
+          <div class="field-row"><span>Sprache</span>
+            <div class="segmented" id="lang-seg"><button data-lang="auto">Automatisch</button><button data-lang="de" data-i18n-skip>Deutsch</button><button data-lang="en" data-i18n-skip>English</button></div>
           </div>
           <div class="field-row"><span>Startansicht</span>
             <div class="segmented" id="start-seg"><button data-start="last">Zuletzt benutzt</button><button data-start="today">Heute</button><button data-start="tiles">Kacheln</button><button data-start="folders">Ordner</button><button data-start="money">Geld</button><button data-start="family">Familie</button></div>
@@ -571,6 +705,20 @@
           <div id="s-sender-suggestions"></div>
         </div>
       </details>
+      <details class="sect" id="s-sect-retention">
+        <summary>Aufbewahrungsfristen</summary>
+        <div class="sect-body">
+          <div id="s-cleanup-admin">
+            <p class="muted small">Eigene Fristen pro Ordner – gelten vor den Vorgaben. Was weg darf, zeigt „Aufräumen“ unter „Familie“.</p>
+            <div id="s-cleanup-rules"></div>
+            <div class="row">
+              <input id="s-ret-tag" list="s-ret-tags" placeholder="Ordner, z. B. Handwerker"><datalist id="s-ret-tags"></datalist>
+              <select id="s-ret-years" style="width:auto"><option value="never">nie vorschlagen</option><option value="1">1 Jahr</option><option value="2">2 Jahre</option><option value="3">3 Jahre</option><option value="5">5 Jahre</option><option value="6">6 Jahre</option><option value="10">10 Jahre</option><option value="15">15 Jahre</option><option value="30">30 Jahre</option></select>
+              <button id="s-ret-save" class="btn">Speichern</button>
+            </div>
+          </div>
+        </div>
+      </details>
       <details class="sect" id="s-sect-rules">
         <summary>Schlagwort-Regeln</summary>
         <div class="sect-body">
@@ -603,21 +751,27 @@
             <input id="s-new-pass" type="password" placeholder="Passwort">
             <button id="s-new-add" class="btn">Anlegen</button>
           </div>
-          <label><span class="k">Einladen – ohne Passwort und Server-Adresse abzutippen</span>
-            <div class="row">
-              <input id="s-inv-name" placeholder="Name, z. B. Sam" maxlength="80">
-              <select id="s-inv-share" title="Darf die neue Person deine Dokumente sehen?">
-                <option value="none">Ohne Freigabe</option>
-                <option value="read">Sieht meine Dokumente</option>
-                <option value="edit">Darf meine Dokumente bearbeiten</option>
-              </select>
-              <label class="small" style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" id="s-inv-admin"> Admin</label>
-              <button id="s-inv-add" class="btn primary">Einladen</button>
-            </div>
-          </label>
-          <p class="muted small" style="margin-top:-4px">Ergibt einen Link und QR-Code, 7 Tage gültig und nur einmal nutzbar. Die eingeladene Person wählt Benutzername und Passwort selbst. Ohne Freigabe sieht sie nur ihre eigenen Dokumente.</p>
-          <div id="s-invites"></div>
+          <p class="muted small">Einladen per Link und QR-Code (ohne Passwort abzutippen): unter „Familie“ → Einladen.
+            <button type="button" class="linkish" data-family-sect="s-invite-sect">Zu „Familie“</button></p>
           <p class="muted small">Scanner-Eingang: pro Nutzer ein Ordner <code>inbox/&lt;benutzername&gt;</code> auf dem Server (FTP-Profil im Scanner).</p>
+        </div>
+      </details>
+      <!-- Paperless-ngx übernehmen (Admin, Server: app/import_paperless.py): erst Probelauf, dann Import derselben Datei -->
+      <details class="sect hidden" id="s-paperless-sect">
+        <summary>Aus Paperless-ngx übernehmen</summary>
+        <div class="sect-body">
+          <p class="muted small">Export aus Paperless-ngx (<code>document_exporter … --zip</code> oder den Export-Ordner als ZIP)
+            hochladen. Übernommen werden Dateien, Titel, Datum, Absender, Tags und Dokumentart samt erkanntem Text; gleiche
+            Dateien werden übersprungen. Erst zählt ein Probelauf, was käme – importiert wird erst danach.</p>
+          <label><span class="k">ZIP-Datei</span><input type="file" id="s-pl-file" accept=".zip,application/zip"></label>
+          <label><span class="k">Dokumente gehören</span><select id="s-pl-user"></select></label>
+          <div class="row">
+            <button type="button" id="s-pl-dry" class="btn" disabled>Probelauf</button>
+            <button type="button" id="s-pl-go" class="btn primary" disabled>Importieren</button>
+          </div>
+          <div id="s-pl-progress" class="progress pl-progress hidden"><div><div class="progress-text"><span id="s-pl-progress-label"></span></div>
+            <div class="progress-track"><div id="s-pl-progress-bar" class="progress-bar"></div></div></div></div>
+          <div id="s-pl-result" class="small hidden" aria-live="polite"></div>
         </div>
       </details>
       <details class="sect" id="s-storage">
@@ -662,7 +816,7 @@
             <label style="flex:1"><span class="k">Passwort</span><input id="s-mail-password" type="password" autocomplete="new-password" placeholder="••••••"></label>
           </div>
           <div class="row">
-            <label style="flex:1"><span class="k">Ordner</span><input id="s-mail-folder" list="s-mail-folders" placeholder="INBOX"><datalist id="s-mail-folders"></datalist></label>
+            <label style="flex:1"><span class="k" data-i18n="Ordner|mail">Ordner</span><input id="s-mail-folder" list="s-mail-folders" placeholder="INBOX"><datalist id="s-mail-folders"></datalist></label>
             <label style="flex:1"><span class="k">Nach dem Import verschieben nach (leer = nur als gelesen markieren)</span><input id="s-mail-done" list="s-mail-folders" placeholder="Papigator"></label>
           </div>
           <div class="row">
@@ -675,6 +829,30 @@
             <button id="s-mail-test" class="btn">Verbindung testen</button>
             <button id="s-mail-save" class="primary">Speichern</button>
             <button id="s-mail-check" class="btn">Jetzt abholen</button>
+          </div>
+        </div>
+      </details>
+      <details class="sect hidden" id="s-smtp">
+        <summary>Mail-Versand</summary>
+        <div class="sect-body">
+          <p class="muted small">Über diesen Mail-Server (SMTP) verschickt Papigator die Wochenübersicht. Ohne Eintrag sendet
+            Papigator keine Mails. Die Links darin führen zur öffentlichen Adresse (Einstellungen → Freigabe-Links) – ist
+            keine eingetragen, kommt die Mail ohne Links.</p>
+          <p id="s-smtp-suggest-row" class="hidden"><button id="s-smtp-suggest" class="btn ghost" type="button">Werte vom E-Mail-Eingang übernehmen</button></p>
+          <div class="row">
+            <label style="flex:3"><span class="k">SMTP-Server</span><input id="s-smtp-host" placeholder="smtp.example.org" autocomplete="off"></label>
+            <label style="flex:1"><span class="k">Port</span><input id="s-smtp-port" type="number" placeholder="587"></label>
+            <label style="flex:1"><span class="k">Verschlüsselung</span><select id="s-smtp-sec"><option value="starttls">STARTTLS</option><option value="ssl">SSL/TLS</option><option value="none">keine</option></select></label>
+          </div>
+          <div class="row">
+            <label style="flex:1"><span class="k">Benutzer</span><input id="s-smtp-user" autocomplete="off"></label>
+            <label style="flex:1"><span class="k">Passwort</span><input id="s-smtp-password" type="password" autocomplete="new-password"></label>
+          </div>
+          <label><span class="k">Absenderadresse</span><input id="s-smtp-from" type="email" placeholder="papigator@example.org" autocomplete="off"></label>
+          <p id="s-smtp-status" class="small muted"></p>
+          <div class="row">
+            <button id="s-smtp-test" class="btn" type="button">Verbindung testen</button>
+            <button id="s-smtp-save" class="primary" type="button">Speichern</button>
           </div>
         </div>
       </details>
@@ -750,6 +928,10 @@
             <label class="toggle"><input type="checkbox" id="s-llm-cloud-ask"> Fürs Fragen nutzen („Frag Papigator“)</label>
             <p class="muted small">Ausgeschaltet nutzt Papigator für diese Aufgabe nur Server im Heimnetz – gibt es keinen, ruht sie.</p>
           </div>
+          <label class="field-row"><span>Sprache der Erkennung</span>
+            <select id="s-llm-lang"><option value="de">Deutsch</option><option value="en">English</option></select>
+          </label>
+          <p class="muted small" style="margin-top:-4px">In dieser Sprache schreibt die KI Titel, Zusammenfassung und neue Tags. Bereits erkannte Dokumente bleiben, wie sie sind.</p>
           <label class="toggle"><input type="checkbox" id="s-llm-restricted"> LLM darf nur vorhandene Tags vergeben</label>
           <label class="toggle"><input type="checkbox" id="s-return-window"> Rücksendefrist bei Online-Käufen merken (14 Tage ab Rechnung, als Frist)</label>
           <p class="muted small">An: keine neuen Tags mehr durch die Erkennung. Aus: das LLM darf neue Tags anlegen.</p>
@@ -883,6 +1065,7 @@
     </div>
   </form>
 </dialog>
+<script src="i18n.js"></script>
 <script src="qr.js"></script>
 <script src="app.js"></script>
 </body>

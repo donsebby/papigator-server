@@ -30,7 +30,7 @@ def _permanent(request: Request, _body) -> bool:
 
 
 # Beim eigenen Konto nur Anzeige-Einstellungen – Passwort und Name gehören allen, die das Konto benutzen
-ME_FIELDS = {"show_partner_in_overview"}
+ME_FIELDS = {"show_partner_in_overview", "pay_qr"}
 
 
 def _me_change(_request: Request, body) -> bool:
@@ -82,6 +82,7 @@ DENY: list[tuple[str, str, Optional[Callable]]] = [
     ("POST", "/settings/mail/check", None),
     ("POST", "/settings/llm/test", None),
     ("POST", "/settings/llm/retag", None),
+    ("POST", "/import/paperless", None),          # Übernahme aus Paperless-ngx: großer Upload, viele Dokumente
     # Geld: die erfundenen Konten bleiben – ein Besucher leerte sonst den Reiter für alle bis zum Zurücksetzen
     ("DELETE", "/bank/accounts/{account_id}", None),
     ("DELETE", "/bank/imports/{import_id}", None),
@@ -95,6 +96,11 @@ DENY: list[tuple[str, str, Optional[Callable]]] = [
     # Notizen: in der öffentlichen Demo sähen alle Besucher, was einer schreibt
     ("POST", "/documents/{doc_id}/notes", None),
     ("DELETE", "/documents/{doc_id}/notes/{note_id}", None),
+    # Wochenübersicht und Mail-Versand: schickt Mails nach draußen (app/digest.py) – in der Demo gar nicht
+    ("PUT", "/digest", None),
+    ("POST", "/digest/test", None),
+    ("PATCH", "/settings/smtp", None),
+    ("POST", "/settings/smtp/test", None),
 ]
 
 # Zählen zum Tageslimit pro Nutzer: alles, was ein neues PDF anlegt oder OCR/KI erneut laufen lässt

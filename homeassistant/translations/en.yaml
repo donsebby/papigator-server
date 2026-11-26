@@ -17,5 +17,8 @@ configuration:
   llm_model:
     name: AI model
     description: Model name on the AI server.
+  language:
+    name: Language
+    description: Language of the texts the AI writes (titles, summaries, new tags) and of the weekly summary mail. Can also be changed later in the web app (Settings → AI recognition); the web app itself follows the browser language.
 network:
   8000/tcp: Web app and API (also used by the iPhone/iPad app)

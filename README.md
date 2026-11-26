@@ -7,7 +7,11 @@ titles, senders, dates, tags and due dates suggested by an AI model running on y
 This repository contains the server (FastAPI, SQLite with FTS5, OCRmyPDF/Tesseract) and the web app it
 serves. Everything stays on your machine; nothing is sent anywhere unless you configure it.
 
-> The web app's interface is currently in German.
+> The web app speaks German and English: it follows your browser's language (anything starting with
+> `de` is German, everything else English) and can be switched under *Settings → Display → Language*.
+> The texts the AI writes (titles, summaries, new tags) and the weekly summary mail are German by default –
+> set `PAPIGATOR_LANGUAGE=en` or *Settings → AI recognition → Recognition language* for English. Some server
+> messages (errors) and the public share pages are still German only.
 
 <!-- Screenshots: add images to docs/ and link them here, e.g. ![Overview](docs/overview.png) -->
 
@@ -25,7 +29,9 @@ serves. Everything stays on your machine; nothing is sent anywhere unless you co
 - **Deadlines**: payment due dates, notice periods, warranty ends – with an overview of what is overdue
   or due soon.
 - **Optional AI** (any OpenAI-compatible API, e.g. Ollama): suggests title, sender, date, tags, summary
-  and deadlines, and answers questions about your documents ("Ask Papigator"). Works without it.
+  and deadlines, recognises the document type (invoice, certificate, notice, medical report …), the
+  recipient and reference numbers (contract, customer, case), and answers questions about your documents
+  ("Ask Papigator"). Works without it.
 - **Several users**: everyone has their own documents; share your whole collection with a partner,
   read-only or editable.
 - **Share links** for people outside your network – a document, a selection, a folder or a saved search,
@@ -58,11 +64,11 @@ curl -s http://localhost:8000/ping
 # {"ok":true,"needs_setup":true}
 ```
 
-4. Open `http://<host>:8000/app`, click **Ersteinrichtung** (first-run setup), enter the
+4. Open `http://<host>:8000/app`, click the **first-run setup** link (*Ersteinrichtung* in German), enter the
    `PAPIGATOR_TOKEN` from your `.env` and create the first admin user. From then on the bootstrap
    token no longer works; further users are created by an admin in the settings.
-5. Under **Einstellungen** (settings) check *Ablage → Sicherung* (backup, `/backup` is preset) and,
-   if you like, *KI-Erkennung* (AI recognition).
+5. Under **Settings** (*Einstellungen*) check *Storage → Backup* (`/backup` is preset) and,
+   if you like, *AI recognition* (*KI-Erkennung*).
 
 Keep a copy of `PAPIGATOR_SECRET_KEY` in your password manager. Without it, a restored backup cannot
 decrypt the stored mail password and AI API keys, or show the addresses of existing share links
@@ -125,6 +131,30 @@ Assistant Green, Raspberry Pi, a VM). One container: web app, API, OCR, scanner 
 Data lives in the add-on and is part of Home Assistant backups (taken with the add-on paused); the scanner inbox is
 `/share/papigator/inbox`, reachable through the Samba add-on. Papigator's own nightly backup is off by default. Details: [`homeassistant/DOCS.md`](homeassistant/DOCS.md).
 
+## Find the server automatically
+
+The main service (port 8000, not the share service) announces itself in the local network via Bonjour/mDNS as
+`_papigator._tcp` with the TXT records `version`, `path=/` and `name` (the machine's host name – nothing about users
+or documents). The iPhone/iPad app lists it under *Im Netzwerk gefunden* (found in the network) on the sign-in screen;
+tapping it fills in the server address as `http://papigator-<host>.local:<port>`. Alternatively, scan the
+*App verbinden* (connect app) QR code from the web app. `PAPIGATOR_DISCOVERY=0` turns the announcement off.
+
+Multicast DNS only reaches devices in the same network segment, and it does not leave a Docker bridge network:
+
+| Setup | Found by the app? |
+|---|---|
+| Bare metal, VM, LXC container (bridged to your LAN) | Yes (LXC: expected, not tested on every setup) |
+| Docker Compose / `docker run` with the default bridge network | No – add `network_mode: host` to the `papigator` service (and drop its `ports:`), or enter the address by hand |
+| Unraid (template default *Bridge*) | No – switch *Network Type* to *Host* (a custom `br0` network with its own IP should work too, untested) |
+| Home Assistant add-on | No – add-ons run in Home Assistant's internal network; the add-on does not use `host_network` |
+| Server reachable only over VPN, other VLAN/subnet | No (unless your router reflects mDNS) |
+
+Papigator announces its own name `papigator-<host>.local` with the address of its default route instead of
+`<host>.local`, so it never competes with the system's own mDNS responder (Avahi on Unraid and Home Assistant OS,
+macOS). A `.local` name resolves only inside your home network – if you use the app over VPN, enter the server's IP
+address or a DNS name instead. When uvicorn listens on `127.0.0.1` only (its default without `--host`), nothing is
+announced.
+
 ## Configuration
 
 Environment variables are read at start. Values marked *starting value* can later be changed in the
@@ -137,9 +167,13 @@ web app; the setting stored in the database then wins.
 | `PAPIGATOR_DATA` | `/data` | Data folder (database, PDFs, thumbnails). |
 | `PAPIGATOR_BACKUP` | `/backup` in the image | Backup target folder; empty disables backups. *Starting value.* |
 | `PAPIGATOR_UPDATE_CHECK` | `1` | Admins see a notice when a newer Papigator release exists (one anonymous request to the GitHub API at most twice a day). `0` turns it off. *Starting value.* |
+| `PAPIGATOR_DISCOVERY` | `1` | Announce the server in the local network via Bonjour/mDNS (`_papigator._tcp`) so the iPhone/iPad app finds it at sign-in. `0` turns it off. Always off in the demo. See *Find the server automatically*. |
+| `PAPIGATOR_DISCOVERY_PORT` | port from `--port`, else `8000` | Port announced via Bonjour – set it if devices reach the server on a different port than the one it listens on. |
 | `PAPIGATOR_INBOX` | `$PAPIGATOR_DATA/inbox` | Scanner inbox; files in `<inbox>/<username>/` are imported for that user. |
 | `PAPIGATOR_INBOX_POLL` | `10` | Seconds between inbox scans. |
+| `PAPIGATOR_IMPORT_MAX_MB` | `4096` | Largest Paperless-ngx export ZIP accepted by `POST /import/paperless`; the command line importer has no limit. |
 | `PAPIGATOR_OCR_LANGS` | `deu+eng` | Tesseract languages. *Starting value.* |
+| `PAPIGATOR_LANGUAGE` | `de` | Language of AI-written titles, summaries and new tags, and of the weekly summary mail for accounts that have not chosen one (`de` or `en`). The web app follows the browser. *Starting value.* |
 | `PAPIGATOR_PUBLIC_URL` | – | External address used in share and upload links, e.g. `https://papigator.example.com`. *Starting value.* |
 | `PAPIGATOR_LLM_URL` | – | OpenAI-compatible API base URL, e.g. `http://ollama:11434/v1`. Empty = AI off. *Starting value.* |
 | `PAPIGATOR_LLM_MODEL` | `gemma4:12b-mlx` | Model name on that server. *Starting value.* |
@@ -161,9 +195,11 @@ Papigator talks to any server with an OpenAI-compatible chat API. Recommended is
 - **Another machine in your network**: e.g. `http://192.0.2.10:11434/v1`. LM Studio, vLLM and similar
   work too (`…/v1`).
 
-In the web app (*Einstellungen → KI-Erkennung*) you can set a main and a fallback server, a separate
+In the web app (*Settings → AI recognition*) you can set a main and a fallback server, a separate
 model for questions, test the connection and pause recognition. Small models (around 4–12B
-parameters) are enough for tagging.
+parameters) are enough for tagging. *Recognition language* (`PAPIGATOR_LANGUAGE`) chooses whether the
+AI writes titles, summaries and new tags in German or English; documents already recognised stay as
+they are. Document types, directions and other values the server evaluates are the same in both.
 
 **Cloud providers** with an OpenAI-compatible endpoint can be configured as well, but Papigator treats
 every address outside your private network as *cloud* and sends no document text there until an admin
@@ -180,6 +216,29 @@ encrypted and only sent to the host they were entered for.
 - **Mail**: *Einstellungen → E-Mail-Eingang* (admin): IMAP host, folder and interval. PDF and image
   attachments of unread mails are imported; mails without attachments can be stored as a text PDF.
   The mail password is stored encrypted with `PAPIGATOR_SECRET_KEY`.
+
+## Import from Paperless-ngx
+
+Papigator can take over an export made with Paperless-ngx' `document_exporter` (plain folder or `--zip`,
+also with `--split-manifest` / `--use-folder-prefix`). Per document it keeps the file (the original if it is a
+PDF, otherwise the archived PDF, otherwise an original image converted to PDF), title, created date,
+correspondent (as sender), tags (nested tags become folders; inbox tags are dropped) and the OCR text, so
+nothing is OCRed again. A document type becomes a Papigator kind when the name matches one ("Invoice",
+"Rechnung", "Bank statement" …), otherwise a tag. Afterwards the AI only fills in what is missing (amount,
+deadline, summary …). Files that are already in Papigator are skipped, as are documents in the Paperless trash.
+Users, permissions, custom fields, notes and saved views are not imported.
+
+```bash
+# in Paperless-ngx
+docker compose exec webserver document_exporter ../export --zip
+# in Papigator: copy the folder or ZIP next to the data, then (as the service user)
+docker compose exec -u papigator papigator python -m app.import_paperless /data/export.zip --user alex --dry-run
+docker compose exec -u papigator papigator python -m app.import_paperless /data/export.zip --user alex
+```
+
+Admins can also upload the ZIP through the API (`POST /import/paperless`, form fields `file`, optional `user`
+and `dry_run`; up to `PAPIGATOR_IMPORT_MAX_MB`, default 4096). The importer was built from the exporter's
+documentation and source, not yet tested against a real export – try `--dry-run` first.
 
 ## Backups and restore
 

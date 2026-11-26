@@ -94,6 +94,10 @@ curl -fsS -X POST "$B/users" -H "Authorization: Bearer $TOKEN" -H 'Content-Type:
 AUTH="Authorization: Bearer $(curl -fsS -X POST "$B/auth/login" -H 'Content-Type: application/json' \
   -d "{\"username\":\"check\",\"password\":\"$PW\"}" | jq -r .token)"
 
+LANGUAGE=$(sed -n 's/^PAPIGATOR_LANGUAGE=//p' "$WORK/args")
+[ -n "$LANGUAGE" ] || fail "template has no language"
+curl -fsS "$B/settings" -H "$AUTH" | jq -e --arg l "$LANGUAGE" '.llm_language == $l' >/dev/null || fail "language $LANGUAGE not applied"
+
 step "files belong to 99:100 (nobody:users)"
 [ "$(docker exec "$NAME" stat -c '%u:%g' /data/papigator.db)" = "99:100" ] || fail "database does not belong to 99:100"
 # (without PAPIGATOR_SECRET_KEY the key file is created on first use, e.g. when a mail password is saved)

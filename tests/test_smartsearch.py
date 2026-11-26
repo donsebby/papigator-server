@@ -99,3 +99,19 @@ def test_search_reveals_no_foreign_tags_or_people(admin, make_user):
     assert all(c["kind"] == "word" and not c["tag"] for c in r["chips"])       # weder Ordner noch Person erkannt
     # Ein fremder Besitzer per Parameter liefert nichts
     assert kim.get("/documents", params={"owner": admin.id, "scope": "all"}).json() == []
+
+
+def test_chip_labels_follow_language(family):
+    """Englische Oberfläche (lang=en): Zeitraum, „Offene Fristen“ und Art auf Englisch – auch im Hinweis „ohne …“."""
+    admin, _ = family
+    z = _dated(admin, "Zeugnis Mia", "2026-07-01")
+    admin.patch(f"/documents/{z}", json={"doc_kind": "zeugnis"})
+    with connect() as con:
+        user = SimpleNamespace(id=admin.id)
+        de = {c["kind"]: c["label"] for c in smartsearch.interpret(con, user, "Zeugnisse aus 2026 fällig", TODAY)["chips"]}
+        en = {c["kind"]: c["label"] for c in smartsearch.interpret(con, user, "Zeugnisse aus 2026 fällig", TODAY, lang="en")["chips"]}
+    assert de == {"doc_kind": "Zeugnis", "range": "01.01.2026 – 31.12.2026", "due": "Offene Fristen"}
+    assert en == {"doc_kind": "Report / diploma", "range": "1 Jan 2026 – 31 Dec 2026", "due": "Open deadlines"}
+    _dated(admin, "Grundsteuer", (dt.date.today() - dt.timedelta(days=30)).isoformat())
+    assert admin.get("/search", params={"q": "Grundsteuer aus 2020", "lang": "en"}).json()["dropped"] == ["1 Jan 2020 – 31 Dec 2020"]
+    assert admin.get("/search", params={"q": "Grundsteuer aus 2020"}).json()["dropped"] == ["01.01.2020 – 31.12.2020"]

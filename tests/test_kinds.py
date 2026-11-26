@@ -102,3 +102,11 @@ def test_idle_backfill_selection_and_give_up(admin, monkeypatch):
         assert worker.next_llm_doc(con) is None                       # nicht sofort wieder dasselbe
         r = con.execute("SELECT status, llm_status FROM documents WHERE id=?", (i,)).fetchone()
     assert (r["status"], r["llm_status"]) == ("done", "done")
+
+
+def test_compound_kind_words_map_to_their_base():
+    assert processing.kind_code("Beitragsrechnung") == "rechnung"
+    assert processing.kind_code("Kündigungsbestätigung") == "bestaetigung"
+    assert processing.kind_code("Schulzeugnis") == "zeugnis"
+    assert processing.kind_code("Rechnung") == "rechnung" and processing.kind_code("Quatsch") is None
+    assert processing.kind_code("") is None

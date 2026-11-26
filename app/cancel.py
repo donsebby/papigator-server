@@ -1,11 +1,12 @@
 """Kündigungshelfer (25.11.2026): aus einem erkannten Vertrag ein fertiges Kündigungsschreiben als PDF (DIN-Brief,
 schlicht, eine Seite) – zum Herunterladen/Teilen oder gleich als Dokument in Papigator abgelegt.
 
-Vorbelegt wird nur, was in den Dokumenten des Vertrags steht (Empfänger = Absender, Vertrags-/Kundennummer per
-Muster); eigene Anschrift und Empfänger-Anschrift trägt man selbst ein (Clients merken sich die eigene). Das PDF
-entsteht ohne zusätzliche Bibliothek: Helvetica (in jedem PDF-Leser eingebaut, WinAnsi für Umlaute und €).
+Vorbelegt wird nur, was in den Dokumenten des Vertrags steht (Empfänger = Absender, Vertrags-/Kundennummer aus den
+erkannten Nummern, sonst per Muster); eigene Anschrift und Empfänger-Anschrift trägt man selbst ein (Clients merken sich
+die eigene). Das PDF entsteht ohne zusätzliche Bibliothek: Helvetica (in jedem PDF-Leser eingebaut, WinAnsi für Umlaute und €).
 """
 import datetime as dt
+import json
 import re
 import tempfile
 import textwrap
@@ -46,15 +47,32 @@ def prefill(document_ids: str = Query(..., max_length=200), user: User = Depends
         raise HTTPException(400, "document_ids: Zahlen, durch Komma getrennt")
     out = {"to_name": None, "contract_number": None, "customer_number": None, "about": None}
     with connect() as con:
+        rows = []
         for i in ids:
-            r = con.execute("SELECT owner_id, sender, title, text FROM documents WHERE id=? AND deleted_at IS NULL", (i,)).fetchone()
-            if not r or not auth.can_view(con, user, r["owner_id"]):
-                continue
+            r = con.execute("SELECT owner_id, sender, title, text, refs FROM documents WHERE id=? AND deleted_at IS NULL", (i,)).fetchone()
+            if r and auth.can_view(con, user, r["owner_id"]):
+                rows.append(r)
+        # Nummern: zuerst die erkannten (refs – von der KI zugeordnet und geprüft, dass sie so im Text stehen) aus allen
+        # Dokumenten, erst danach das eigene Muster. Ein Muster-Treffer im jüngsten Brief („Ihre Kundennummer“ einer
+        # anderen Stelle) soll eine erkannte Nummer aus einem älteren nicht verdrängen.
+        for r in rows:
+            refs = _refs(r["refs"])
+            out["contract_number"] = out["contract_number"] or refs.get("contract")
+            out["customer_number"] = out["customer_number"] or refs.get("customer")
+        for r in rows:
             out["to_name"] = out["to_name"] or r["sender"]
             out["contract_number"] = out["contract_number"] or _find(_CONTRACT, r["text"])
             out["customer_number"] = out["customer_number"] or _find(_CUSTOMER, r["text"])
             out["about"] = out["about"] or re.sub(r"\s+(?:19|20)\d\d$", "", (r["title"] or "").strip()) or None
     return out
+
+
+def _refs(raw) -> dict:
+    try:
+        v = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    return {k: str(x).strip() for k, x in v.items() if str(x or "").strip()} if isinstance(v, dict) else {}
 
 
 class LetterIn(BaseModel):

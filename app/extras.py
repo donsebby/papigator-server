@@ -301,12 +301,12 @@ def _cancel_by(docs, interval: str, today: date) -> dict | None:
     best = None
     for r in docs:
         note = (r["due_note"] or "").lower()
-        if r["due_date"] and ("kündig" in note or "kündbar" in note) and (r["doc_kind"] or "") != "kuendigung":
+        if r["due_date"] and processing._CANCEL_NOTE.search(note) and (r["doc_kind"] or "") != "kuendigung":
             if best is None or r["due_date"] > best["due_date"]:
                 best = r
     if not best or not (d := _d(best["due_date"])):
         return None
-    once = "sonder" in (best["due_note"] or "").lower()
+    once = bool(re.search(r"sonder|special|extraordinary", best["due_note"] or "", re.I))
     if d < today and interval == "jährlich" and not once:
         n = 0
         while d < today and n < 10:

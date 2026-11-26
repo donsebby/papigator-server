@@ -14,6 +14,8 @@ ADMIN_ONLY = [
     ("get", "/rules", None),
     ("get", "/rules/preview?pattern=Telekom", None),
     ("patch", "/settings", {"llm_url": "http://evil"}),
+    ("get", "/settings", None),
+    ("patch", "/settings", {"llm_language": "en"}),
     ("get", "/settings/backup", None),
     ("post", "/settings/backup/run", None),
     ("post", "/settings/backup/restore", {"name": "x", "confirm": "WIEDERHERSTELLEN"}),
@@ -21,6 +23,9 @@ ADMIN_ONLY = [
     ("patch", "/settings/mail", {"mail_host": "evil"}),
     ("post", "/settings/mail/test", {}),
     ("post", "/settings/mail/check", None),
+    ("get", "/settings/smtp", None),
+    ("patch", "/settings/smtp", {"smtp_host": "evil"}),
+    ("post", "/settings/smtp/test", {}),
     ("post", "/settings/llm/test", {}),
     ("post", "/settings/llm/retag", None),
     ("post", "/settings/llm/pause", {"until": "forever"}),
@@ -30,6 +35,7 @@ ADMIN_ONLY = [
     ("get", "/invites", None),
     ("get", "/updates", None),
     ("delete", "/invites/1", None),
+    ("post", "/import/paperless", None),
 ]
 
 

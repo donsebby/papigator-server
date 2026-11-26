@@ -24,6 +24,9 @@ LLM_BASE_URL = env("LLM_URL", "")  # z. B. http://192.168.1.50:11434/v1
 LLM_MODEL = env("LLM_MODEL", "gemma4:12b-mlx")
 LLM_API_KEY = env("LLM_KEY", "none")
 LLM_MAX_CHARS = int(env("LLM_MAX_CHARS", "6000"))
+# Sprache der KI-Texte (Titel, Zusammenfassung, neue Tags) und der Wochenübersicht: de | en. Nur Startwert:
+# die Einstellung „Sprache der Erkennung“ (Einstellungen → KI-Erkennung) hat Vorrang.
+LANGUAGE = "en" if env("LANGUAGE", "de").strip().lower().startswith("en") else "de"
 # Reverse-Proxys, deren X-Forwarded-For/X-Real-IP geglaubt wird (kommagetrennt, IPs oder Netze wie 10.0.0.0/8).
 # Standard: Loopback und private Netze – direkt aus dem Internet erreicht niemand den Dienst, nur über den Proxy.
 TRUSTED_PROXIES = env("TRUSTED_PROXIES", "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7")
@@ -79,4 +82,18 @@ def llm_config() -> dict:
             "trash_days": int(get_setting(con, "trash_days", "30") or 30),
             "duplicate_mode": get_setting(con, "duplicate_mode", "reject"),   # reject | allow
             "thumb_width": int(get_setting(con, "thumb_width", str(THUMB_WIDTH)) or THUMB_WIDTH),
+            "language": _language(get_setting(con, "llm_language", LANGUAGE)),
         }
+
+
+def _language(v) -> str:
+    return "en" if str(v or "").strip().lower() == "en" else "de"
+
+
+def language(con=None) -> str:
+    """Sprache der Erkennung (de | en): Einstellung in der DB, sonst PAPIGATOR_LANGUAGE."""
+    from .db import connect, get_setting
+    if con is not None:
+        return _language(get_setting(con, "llm_language", LANGUAGE))
+    with connect() as c:
+        return _language(get_setting(c, "llm_language", LANGUAGE))

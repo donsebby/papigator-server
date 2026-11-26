@@ -54,10 +54,14 @@ def server():
     port = _free_port()
     env = {**os.environ, "PAPIGATOR_DATA": str(data / "data"), "PAPIGATOR_TOKEN": "boot-e2e",
            "PAPIGATOR_INBOX": str(data / "inbox"), "PAPIGATOR_BACKUP": str(data / "backup"),
-           "PAPIGATOR_UPDATE_CHECK": "0"}   # keine echten Anfragen an GitHub; die Meldung testet test_update_banner
+           "PAPIGATOR_UPDATE_CHECK": "0",   # keine echten Anfragen an GitHub; die Meldung testet test_update_banner
+           "PAPIGATOR_DISCOVERY": "0"}      # kein Bonjour aus den Browser-Tests
     env.pop("PAPIGATOR_LLM_URL", None)
+    # Server-Log in eine Datei, nicht in eine Pipe: die liest niemand, und nach vielen Uploads (je Dokument ein
+    # Traceback ohne OCR-Werkzeuge) war sie voll – dann hing jeder Thread, der loggt (z. B. der Paperless-Import)
+    log = open(data / "server.log", "wb")
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port)],
-                            cwd=SERVER, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                            cwd=SERVER, env=env, stdout=subprocess.DEVNULL, stderr=log)
     base = f"http://127.0.0.1:{port}"
     for _ in range(100):
         try:
@@ -68,7 +72,8 @@ def server():
         time.sleep(0.1)
     else:
         proc.kill()
-        raise RuntimeError("Server startet nicht: " + proc.stderr.read().decode()[-2000:])
+        log.close()
+        raise RuntimeError("Server startet nicht: " + (data / "server.log").read_text(errors="replace")[-2000:])
     _seed(base)
     yield base
     proc.terminate()
@@ -77,6 +82,7 @@ def server():
     except subprocess.TimeoutExpired:   # Verarbeitung vieler Test-Uploads läuft noch – dann hart beenden
         proc.kill()
         proc.wait(timeout=10)
+    log.close()
 
 
 def _seed(base: str) -> None:
@@ -86,6 +92,7 @@ def _seed(base: str) -> None:
     tok = c.post("/auth/login", json={"username": USER, "password": PASSWORD}).json()["token"]
     h = {"Authorization": f"Bearer {tok}"}
     c.post("/whatsnew/seen", headers=h).raise_for_status()   # Tour gesehen – sonst läge sie über jedem Test
+    c.post("/onboarding/dismiss", headers=h).raise_for_status()   # „Los geht’s“ aus – test_onboarding_card speist sie ein
     c.post("/tags", json={"name": "Haus"}, headers=h).raise_for_status()
     haus = next(t for t in c.get("/tags", headers=h).json() if t["name"] == "Haus")
     c.post("/tags", json={"name": "Strom", "parent_id": haus["id"]}, headers=h).raise_for_status()

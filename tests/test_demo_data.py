@@ -64,3 +64,37 @@ def test_demo_yearly_costs(admin, today):
         assert any(w in n for n in names), (w, names)
     assert len(names) == len(want), names
     assert y["pot"] and y["pot"]["name"] == "Jährlich" and y["pot"]["monthly"] == 8500
+
+
+def test_demo_meta_kinds_recipients_refs():
+    """meta.json (ohne fpdf2 prüfbar): jede Art ist ein bekannter Code, Nummern nur mit bekannten Schlüsseln, die Arten
+    ohne Geld sind vertreten und tragen keinen Betrag, und „Zu prüfen“ bleibt klein (seed.py bricht bei mehr als 6 ab)."""
+    from app.processing import KIND_LABELS, REF_KEYS
+    assert len({m["file"] for m in META}) == len(META)
+    assert [m["i"] for m in META] == list(range(len(META)))
+    for m in META:
+        assert m["doc_kind"] in KIND_LABELS, m["file"]
+        assert set(m.get("refs") or {}) <= set(REF_KEYS), m["file"]
+        assert all(isinstance(v, str) and v for v in (m.get("refs") or {}).values()), m["file"]
+    no_money = [m for m in META if m["doc_kind"] in ("zeugnis", "urkunde", "bescheinigung", "befund", "antrag", "ausweis",
+                                                       "bericht", "bestaetigung")]
+    assert {m["doc_kind"] for m in no_money} == {"zeugnis", "urkunde", "bescheinigung", "befund", "antrag", "ausweis",
+                                                 "bericht", "bestaetigung"}
+    assert all(m.get("amount") is None and not m.get("recurring") and m.get("tags") for m in no_money)
+    assert sum(1 for m in META if not m.get("document_date") or not m.get("tags")) <= 4
+    assert sum(1 for m in META if m.get("recipient")) >= 40 and sum(1 for m in META if m.get("refs")) >= 30
+
+
+def test_shift_keeps_months_apart():
+    """Monatsnamen wandern um ganze Monate – zwei verschiedene Monate werden nie zum selben (sonst Dubletten beim Seed)."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "demo"))
+    import shift
+    months = [f"{m} 2025" for m in shift.MONTHS]
+    for days in (0, 16, 30, 45, 100, 200, 400):
+        out = [shift.shift_text(m, days) for m in months]
+        assert len(set(out)) == 12, (days, out)
+    assert shift.shift_text("Abrechnung für Februar 2025", 10) == "Abrechnung für Februar 2025"
+    assert shift.shift_text("Abrechnung für Februar 2025", 16) == "Abrechnung für März 2025"
+    assert shift.shift_text("Abrechnung für Dezember 2025", 31) == "Abrechnung für Januar 2026"

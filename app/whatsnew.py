@@ -8,6 +8,7 @@ Inhalte stehen nur hier. Für einen neuen Stand oben in RELEASES eine Ausgabe er
 `anim` wählt die Animation im Client (unbekannte zeigen ein schlichtes Bild), `only` beschränkt eine Karte auf "ios" oder
 "web". In der Demo gibt es nur die Tour (Besucher sind jeden Tag neu).
 """
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -38,6 +39,44 @@ TOUR = [
 
 # Neueste zuerst
 RELEASES = [
+    {"id": "2026-11-26", "label": {"de": "November 2026", "en": "November 2026"}, "cards": [
+        {"anim": "search", "only": "web", "de": ("Ein Feld für alles", "Die Web-App ist neu gebaut: Suchen und Fragen in "
+                                                 "einem Feld, am Handy mit Leiste unten wie in der App."),
+         "en": ("One field for everything", "The web app has been rebuilt: search and ask in one field, with a tab bar "
+                "on phones just like the app.")},
+        {"anim": "pay", "de": ("Bezahlen per QR", "Rechnungen mit IBAN zeigen einen GiroCode für deine Banking-App. "
+                               "Einschalten in den Einstellungen – und Betrag mit dem Brief vergleichen."),
+         "en": ("Pay by QR code", "Invoices with an IBAN show a GiroCode for your banking app. Turn it on in Settings – "
+                "and check the amount against the letter.")},
+        {"anim": "connect", "only": "ios", "de": ("Server findet sich von selbst", "Im Heimnetz zeigt die Anmeldung deinen "
+                                                  "Papigator von allein – oder den QR-Code „App verbinden“ aus dem Web scannen."),
+         "en": ("Your server finds itself", "On your home network, sign-in shows your Papigator on its own – or scan the "
+                "“Connect app” QR code from the web.")},
+        {"anim": "connect", "only": "web", "de": ("App verbinden", "Unter Einstellungen zeigt „App verbinden“ einen QR-Code. "
+                                                  "Mit dem iPhone scannen – Adresse und Name sind schon eingetragen."),
+         "en": ("Connect the app", "In Settings, “Connect app” shows a QR code. Scan it with your iPhone – address and "
+                "name are filled in.")},
+        {"anim": "ai", "only": "ios", "de": ("Sehen, was die KI tut", "„Heute“ zeigt, wie viele Dokumente die KI gerade "
+                                             "liest und ergänzt."),
+         "en": ("See what the AI is doing", "“Today” shows how many documents the AI is reading and filling in.")},
+        {"anim": "scan", "only": "web", "de": ("Fotos statt Scanner", "Lade Fotos von Briefen hoch – mehrere Seiten werden "
+                                               "ein PDF."),
+         "en": ("Photos instead of a scanner", "Upload photos of letters – several pages become one PDF.")},
+        {"anim": "import", "only": "web", "de": ("Umzug von Paperless", "Bring deinen Paperless-Export mit: Titel, Tags, "
+                                                 "Absender und Text kommen mit (Einstellungen, nur Admins)."),
+         "en": ("Moving from Paperless", "Bring your Paperless export: titles, tags, correspondents and text come along "
+                "(Settings, admins only).")},
+        {"anim": "warranty", "de": ("Checkliste für die Notfallmappe", "Die Notfallmappe zeigt, was hineingehört, was schon "
+                                    "drin ist – und schlägt passende Dokumente aus deiner Ablage vor."),
+         "en": ("Checklist for the emergency folder", "The emergency folder shows what belongs in it, what is already "
+                "there – and suggests matching documents from your files.")},
+        {"anim": "lang", "de": ("Papigator spricht Englisch", "App, Web und KI gibt es jetzt auch auf Englisch."),
+         "en": ("Papigator speaks English", "The app, the web and the AI now speak English too.")},
+        {"anim": "mail", "de": ("Die Woche per Mail", "Neue Dokumente und offene Fristen einmal pro Woche im Postfach – "
+                                "ohne Beträge. Einschalten in den Einstellungen."),
+         "en": ("Your week by email", "New documents and open deadlines in your inbox once a week – no amounts. Turn it "
+                "on in Settings.")},
+    ]},
     {"id": "2026-11-25.2", "label": {"de": "November 2026", "en": "November 2026"}, "cards": [
         {"anim": "kinds", "de": ("Jedes Dokument, nicht nur Rechnungen", "Papigator erkennt jetzt auch Art, Empfänger und "
                                  "Nummern – vom Zeugnis bis zum Befund. Filtern kannst du über „Art“."),
@@ -78,6 +117,11 @@ def _cards(items, client: str, lang: str) -> list[dict]:
     return out
 
 
+def _key(rid: Optional[str]) -> tuple:
+    """„2026-11-25.10“ → (2026, 11, 25, 10): Zahlen vergleichen, nicht Text (sonst wäre .10 älter als .2)."""
+    return tuple(int(n) for n in re.findall(r"\d+", rid or ""))
+
+
 def _seen(con, uid: int) -> Optional[str]:
     r = con.execute("SELECT seen FROM whatsnew_seen WHERE user_id=?", (uid,)).fetchone()
     return r["seen"] if r else None
@@ -93,14 +137,14 @@ def whatsnew(client: str = "web", lang: str = "de", show: Optional[str] = None, 
         return {"mode": None, "cards": [], "release": LATEST, "label": None}
     with connect() as con:
         seen = _seen(con, user.id)
-    mode = show if show in ("tour", "news") else ("tour" if seen is None else ("news" if seen < LATEST else None))
+    mode = show if show in ("tour", "news") else ("tour" if seen is None else ("news" if _key(seen) < _key(LATEST) else None))
     if config.DEMO and mode == "news" and show != "news":
         mode = None
     if mode == "tour":
         return {"mode": "tour", "cards": _cards(TOUR, client, lang), "release": LATEST, "label": None}
     if mode == "news":
         # auf Wunsch nur die neueste Ausgabe, sonst alles seit der zuletzt gesehenen
-        rel = RELEASES[:1] if show == "news" else ([r for r in RELEASES if r["id"] > (seen or "")] or RELEASES[:1])
+        rel = RELEASES[:1] if show == "news" else ([r for r in RELEASES if _key(r["id"]) > _key(seen)] or RELEASES[:1])
         cards = [c for r in rel for c in _cards(r["cards"], client, lang)][:8]
         return {"mode": "news", "cards": cards, "release": LATEST, "label": rel[0]["label"][lang]}
     return {"mode": None, "cards": [], "release": LATEST, "label": None}

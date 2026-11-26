@@ -27,6 +27,7 @@ export PAPIGATOR_DATA PAPIGATOR_TOKEN PAPIGATOR_INBOX PAPIGATOR_BACKUP
 key=$(opt secret_key);  [ -n "$key" ] && export PAPIGATOR_SECRET_KEY="$key"
 llm=$(opt llm_url);     [ -n "$llm" ] && export PAPIGATOR_LLM_URL="$llm"
 model=$(opt llm_model); [ -n "$model" ] && export PAPIGATOR_LLM_MODEL="$model"
+lang=$(opt language);    [ -n "$lang" ] && export PAPIGATOR_LANGUAGE="$lang"
 export PUID=0 PGID=0
 
 # Nur eigene Unterordner: das Start-Skript des Images macht alles darin zum Eigentum des Dienstes (hier root) –

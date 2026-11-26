@@ -54,7 +54,7 @@ if docker run --rm -v "$WORK/data:/data" -v "$WORK/share:/share" "$ADDON" > "$WO
 grep -q "setup_token" "$WORK/out.txt" || fail "kein Hinweis auf setup_token: $(cat "$WORK/out.txt")"
 
 step "mit Token starten"
-printf '{"setup_token": "%s", "secret_key": "", "inbox_dir": "/share/papigator/inbox", "backup_dir": "/share/papigator/backup", "llm_url": "", "llm_model": "gemma4:e4b"}' "$TOKEN" > "$WORK/data/options.json"
+printf '{"setup_token": "%s", "secret_key": "", "inbox_dir": "/share/papigator/inbox", "backup_dir": "/share/papigator/backup", "llm_url": "", "llm_model": "gemma4:e4b", "language": "en"}' "$TOKEN" > "$WORK/data/options.json"
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8000" -v "$WORK/data:/data" -v "$WORK/share:/share" "$ADDON" >/dev/null
 for i in $(seq 1 90); do
   h=$(docker inspect -f '{{.State.Health.Status}}' "$NAME" 2>/dev/null || echo starting)
@@ -71,6 +71,7 @@ AUTH="Authorization: Bearer $(curl -fsS -X POST "$B/auth/login" -H 'Content-Type
   -d "{\"username\":\"check\",\"password\":\"$PW\"}" | jq -r .token)"
 docker exec "$NAME" test -s /data/papigator/papigator.db || fail "keine Datenbank in /data/papigator"
 docker exec "$NAME" test -d /share/papigator/backup || fail "Sicherungsordner fehlt"
+curl -fsS "$B/settings" -H "$AUTH" | jq -e '.llm_language == "en"' >/dev/null || fail "Option language kommt nicht an"
 
 step "zu allgemeiner Ordner (/share) wird abgelehnt"
 printf '{"setup_token": "x", "secret_key": "", "inbox_dir": "/share/papigator/inbox", "backup_dir": "/share", "llm_url": "", "llm_model": ""}' > "$WORK/opt2.json"

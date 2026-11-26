@@ -301,10 +301,66 @@ input[type=file]{padding:14px;border-style:dashed;cursor:pointer}.hint{color:var
 """
 
 
-def _page(title: str, body: str, upload: bool = False) -> HTMLResponse:
-    label, foot = ("Briefkasten", "Papigator-Briefkasten · Eingeworfenes sieht nur der Empfänger") if upload else \
-        ("Freigabe", "Geteilt über Papigator · nur lesen")
-    doc = (f'<!doctype html><html lang="de"><head><meta charset="utf-8">'
+# Öffentliche Seiten zweisprachig (26.11.2026): Deutsch, wenn der Browser Deutsch bevorzugt, sonst Englisch; ohne
+# Angabe die Sprache des Servers (Einstellung „Sprache der Erkennung“, Standard Deutsch).
+TEXTS = {
+    "de": {"label_up": "Briefkasten", "foot_up": "Papigator-Briefkasten · Eingeworfenes sieht nur der Empfänger",
+           "label": "Freigabe", "foot": "Geteilt über Papigator · nur lesen",
+           "expired_title": "Link abgelaufen", "expired_h": "Link nicht mehr gültig",
+           "expired_sub": "Dieser Freigabe-Link ist abgelaufen oder wurde zurückgezogen.",
+           "pw_wrong": "Das Passwort stimmt nicht.", "pw_locked": "Zu viele Versuche – bitte später noch einmal.",
+           "pw_sub": "Diese Freigabe ist mit einem Passwort geschützt.", "pw_ph": "Passwort", "open": "Öffnen",
+           "valid_until": " · gültig bis {d}", "doc": "Dokument", "download": "PDF herunterladen",
+           "empty": "Hier liegt gerade nichts.", "docs_1": "{n} Dokument", "docs_n": "{n} Dokumente",
+           "open_until": "Offen bis {d}", "thanks_1": "Danke! {n} Datei ist angekommen.",
+           "thanks_n": "Danke! {n} Dateien sind angekommen.",
+           "up_sub": "Hier kannst du Dokumente einwerfen. Was schon im Briefkasten liegt, ist nicht zu sehen.",
+           "up_hint": "PDF, JPEG oder PNG · bis {mb} MB pro Datei, {req} MB pro Sendung · höchstens {n} auf einmal",
+           "up_name": "Dein Name (optional)", "up_button": "Einwerfen"},
+    "en": {"label_up": "Drop box", "foot_up": "Papigator drop box · only the recipient sees what you drop in",
+           "label": "Shared", "foot": "Shared via Papigator · read only",
+           "expired_title": "Link expired", "expired_h": "Link no longer valid",
+           "expired_sub": "This share link has expired or was revoked.",
+           "pw_wrong": "Wrong password.", "pw_locked": "Too many attempts – please try again later.",
+           "pw_sub": "This share is password protected.", "pw_ph": "Password", "open": "Open",
+           "valid_until": " · valid until {d}", "doc": "Document", "download": "Download PDF",
+           "empty": "Nothing here right now.", "docs_1": "{n} document", "docs_n": "{n} documents",
+           "open_until": "Open until {d}", "thanks_1": "Thank you! {n} file has arrived.",
+           "thanks_n": "Thank you! {n} files have arrived.",
+           "up_sub": "Drop documents here. You cannot see what is already in the drop box.",
+           "up_hint": "PDF, JPEG or PNG · up to {mb} MB per file, {req} MB per upload · at most {n} at once",
+           "up_name": "Your name (optional)", "up_button": "Drop in"},
+}
+
+
+def page_lang(request: Request | None) -> str:
+    """'de' | 'en' nach Accept-Language: die bevorzugte Sprache (höchstes q) – Deutsch → Deutsch, sonst Englisch.
+    Ohne Angabe (oder nur „*“) die Sprache des Servers."""
+    raw = (request.headers.get("accept-language") or "").strip() if request is not None else ""
+    best, best_q = None, 0.0
+    for part in raw.split(",")[:20]:
+        tag, _, params = part.strip().partition(";")
+        tag = tag.strip().lower()
+        if not tag:
+            continue
+        q = 1.0
+        m = re.search(r"q\s*=\s*([0-9.]+)", params)
+        if m:
+            try:
+                q = float(m.group(1))
+            except ValueError:
+                q = 0.0
+        if q > best_q:
+            best, best_q = tag, q
+    if best is None or best == "*":
+        return config.language()
+    return "de" if best.split("-")[0] == "de" else "en"
+
+
+def _page(title: str, body: str, upload: bool = False, lang: str = "de") -> HTMLResponse:
+    t = TEXTS[lang]
+    label, foot = (t["label_up"], t["foot_up"]) if upload else (t["label"], t["foot"])
+    doc = (f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">'
            f'<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">'
            f'<title>{html.escape(title)} · Papigator</title><link rel="icon" href="/s/_/icon.png"><style>{PAGE_CSS}</style></head>'
            f'<body><div class="wrap"><header><img src="/s/_/icon.png" alt=""><b>Papigator</b><span>{label}</span></header>{body}'
@@ -312,13 +368,17 @@ def _page(title: str, body: str, upload: bool = False) -> HTMLResponse:
     return _public_headers(HTMLResponse(doc))
 
 
-def _fmt_date(s: str | None) -> str:
+_EN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _fmt_date(s: str | None, lang: str = "de") -> str:
     if not s:
         return ""
     try:
-        return datetime.strptime(s[:10], "%Y-%m-%d").strftime("%d.%m.%Y")
+        d = datetime.strptime(s[:10], "%Y-%m-%d")
     except ValueError:
         return s[:10]
+    return f"{d.day} {_EN_MONTHS[d.month - 1]} {d.year}" if lang == "en" else d.strftime("%d.%m.%Y")
 
 
 @public.get("/s/_/icon.png", include_in_schema=False)
@@ -338,56 +398,71 @@ UPLOAD_ERRORS = {
     "rate": "Gerade kamen sehr viele Dateien an – bitte in einer Viertelstunde noch einmal.",
     "full": "Dieser Briefkasten ist voll.",
 }
+UPLOAD_ERRORS_EN = {
+    "none": "Please choose at least one file.",
+    "many": f"At most {UPLOAD_MAX_FILES} files at once.",
+    "type": "Only PDF, JPEG or PNG.",
+    "size": f"Too large – at most {UPLOAD_MAX_MB} MB per file and {UPLOAD_MAX_REQUEST_MB} MB per upload.",
+    "bad": "A file could not be read.",
+    "rate": "A lot of files arrived just now – please try again in a quarter of an hour.",
+    "full": "This drop box is full.",
+}
 
 
-def _upload_page(row, token: str, ok: int | None, error: str | None) -> HTMLResponse:
-    until = f"<p class=\"hint\" style=\"text-align:center\">Offen bis {_fmt_date(row['expires_at'])}</p>" if row["expires_at"] else ""
+def _upload_page(row, token: str, ok: int | None, error: str | None, lang: str = "de") -> HTMLResponse:
+    t = TEXTS[lang]
+    errors = UPLOAD_ERRORS_EN if lang == "en" else UPLOAD_ERRORS
+    until = (f"<p class=\"hint\" style=\"text-align:center\">{t['open_until'].format(d=_fmt_date(row['expires_at'], lang))}</p>"
+             if row["expires_at"] else "")
     msg = ""
     if ok:
-        msg = f'<p class="ok">Danke! {ok} Datei{"" if ok == 1 else "en"} {"ist" if ok == 1 else "sind"} angekommen.</p>'
-    elif error in UPLOAD_ERRORS:
-        msg = f'<p class="err">{html.escape(UPLOAD_ERRORS[error])}</p>'
+        msg = f'<p class="ok">{t["thanks_1" if ok == 1 else "thanks_n"].format(n=ok)}</p>'
+    elif error in errors:
+        msg = f'<p class="err">{html.escape(errors[error])}</p>'
+    hint = t["up_hint"].format(mb=UPLOAD_MAX_MB, req=UPLOAD_MAX_REQUEST_MB, n=UPLOAD_MAX_FILES)
     return _page(row["name"],
                  f'<form class="box wide" method="post" enctype="multipart/form-data" action="/s/{html.escape(token)}/upload">'
                  f'<h1 style="font-size:22px">{html.escape(row["name"])}</h1>'
-                 '<p class="sub" style="text-align:center">Hier kannst du Dokumente einwerfen. Was schon im Briefkasten liegt, ist nicht zu sehen.</p>'
+                 f'<p class="sub" style="text-align:center">{t["up_sub"]}</p>'
                  f'{msg}<input type="file" name="files" multiple required accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png">'
-                 f'<p class="hint">PDF, JPEG oder PNG · bis {UPLOAD_MAX_MB} MB pro Datei, {UPLOAD_MAX_REQUEST_MB} MB pro Sendung · '
-                 f'höchstens {UPLOAD_MAX_FILES} auf einmal</p>'
-                 '<input name="sender" maxlength="80" placeholder="Dein Name (optional)" autocomplete="name">'
-                 f'<button type="submit">Einwerfen</button>{until}</form>', upload=True)
+                 f'<p class="hint">{hint}</p>'
+                 f'<input name="sender" maxlength="80" placeholder="{t["up_name"]}" autocomplete="name">'
+                 f'<button type="submit">{t["up_button"]}</button>{until}</form>', upload=True, lang=lang)
 
 
 @public.get("/s/{token}", include_in_schema=False)
 def public_page(token: str, request: Request, error: str | None = None, ok: int | None = None):
+    lang = page_lang(request)
+    t = TEXTS[lang]
     with connect() as con:
         row = con.execute("SELECT * FROM share_links WHERE token=?", (security.token_hash(token),)).fetchone()
         if not row or _expired(row):
-            return _page("Link abgelaufen", '<div class="box"><h1>Link nicht mehr gültig</h1>'
-                         '<p class="sub">Dieser Freigabe-Link ist abgelaufen oder wurde zurückgezogen.</p></div>')
+            return _page(t["expired_title"], f'<div class="box"><h1>{t["expired_h"]}</h1>'
+                         f'<p class="sub">{t["expired_sub"]}</p></div>', lang=lang)
         if not _unlocked(con, row, request, token):
-            err = '<p class="err">Das Passwort stimmt nicht.</p>' if error == "pw" else (
-                '<p class="err">Zu viele Versuche – bitte später noch einmal.</p>' if error == "locked" else "")
+            err = f'<p class="err">{t["pw_wrong"]}</p>' if error == "pw" else (
+                f'<p class="err">{t["pw_locked"]}</p>' if error == "locked" else "")
             return _page(row["name"], f'<form class="box" method="post" action="/s/{html.escape(token)}/unlock">'
-                         f'<h1 style="font-size:22px">{html.escape(row["name"])}</h1><p class="sub">Diese Freigabe ist mit einem Passwort geschützt.</p>'
-                         f'{err}<input type="password" name="password" placeholder="Passwort" autofocus required>'
-                         '<button type="submit">Öffnen</button></form>', upload=row["kind"] == "upload")
+                         f'<h1 style="font-size:22px">{html.escape(row["name"])}</h1><p class="sub">{t["pw_sub"]}</p>'
+                         f'{err}<input type="password" name="password" placeholder="{t["pw_ph"]}" autofocus required>'
+                         f'<button type="submit">{t["open"]}</button></form>', upload=row["kind"] == "upload", lang=lang)
         if row["kind"] == "upload":
             con.execute("UPDATE share_links SET access_count=access_count+1, last_access=datetime('now') WHERE id=?", (row["id"],))
-            return _upload_page(row, token, ok, error)
+            return _upload_page(row, token, ok, error, lang)
         docs = link_docs(con, row)
         con.execute("UPDATE share_links SET access_count=access_count+1, last_access=datetime('now') WHERE id=?", (row["id"],))
-        until = f" · gültig bis {_fmt_date(row['expires_at'])}" if row["expires_at"] else ""
+        until = t["valid_until"].format(d=_fmt_date(row["expires_at"], lang)) if row["expires_at"] else ""
         cards = "".join(
             f'<div class="doc"><a href="/s/{token}/file/{d["id"]}" target="_blank" rel="noopener">'
             f'<img src="/s/{token}/thumb/{d["id"]}" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'"></a>'
-            f'<div class="t">{html.escape(d["title"] or "Dokument")}</div>'
-            f'<div class="m">{html.escape(" · ".join(filter(None, [_fmt_date(d["document_date"]), d["sender"]])))}</div>'
-            f'<a class="dl" href="/s/{token}/file/{d["id"]}?download=1">PDF herunterladen</a></div>'
+            f'<div class="t">{html.escape(d["title"] or t["doc"])}</div>'
+            f'<div class="m">{html.escape(" · ".join(filter(None, [_fmt_date(d["document_date"], lang), d["sender"]])))}</div>'
+            f'<a class="dl" href="/s/{token}/file/{d["id"]}?download=1">{t["download"]}</a></div>'
             for d in docs)
-        empty = '<p class="sub">Hier liegt gerade nichts.</p>' if not docs else ""
+        empty = f'<p class="sub">{t["empty"]}</p>' if not docs else ""
+        count = t["docs_1" if len(docs) == 1 else "docs_n"].format(n=len(docs))
         return _page(row["name"], f'<h1>{html.escape(row["name"])}</h1>'
-                     f'<p class="sub">{len(docs)} Dokument{"" if len(docs) == 1 else "e"}{until}</p>{empty}<div class="grid">{cards}</div>')
+                     f'<p class="sub">{count}{until}</p>{empty}<div class="grid">{cards}</div>', lang=lang)
 
 
 @public.post("/s/{token}/unlock", include_in_schema=False)

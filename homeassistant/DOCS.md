@@ -30,6 +30,8 @@ Files dropped into the inbox are imported for that user and then removed; files 
 - Small devices (e.g. Home Assistant Green, Raspberry Pi) handle the archive and OCR fine; a local AI model needs a
   bigger machine – point *AI server URL* at one in your network, or leave it empty.
 - Public share links (`/s/…`) need the separate share service, which this add-on does not run.
+- The iPhone/iPad app cannot find the add-on automatically (Bonjour does not leave Home Assistant's internal add-on
+  network) – enter `http://<home-assistant-address>:8000` or scan the QR code from the web app.
 - Inbox and backup folder must be subfolders (e.g. `/share/papigator/…`), never `/share` itself.
 - Updates arrive as new add-on versions. Take a Home Assistant backup first; database migrations run on start.
 

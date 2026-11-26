@@ -2,7 +2,7 @@
 Zukunft liegen und „die letzten 6 Monate“ etwas finden, egal wann der Demoserver neu befüllt wird.
 
 Bezugstag der Demo-Daten ist BASE (Stand der Texte in make_docs.py). Verschoben werden „19.11.2026“, „2026-11-19“
-und Monatsangaben wie „Oktober 2026“ (über den 15. des Monats, damit sie zum Rest passen). Bloße Jahreszahlen
+und Monatsangaben wie „Oktober 2026“ (um ganze Monate, gerundet – so bleiben verschiedene Monate verschieden). Bloße Jahreszahlen
 („Steuerbescheid 2025“) bleiben – bei ein paar Monaten Abstand stört das nicht.
 """
 from __future__ import annotations
@@ -45,6 +45,7 @@ def shift_text(text: str | None, days: int) -> str | None:
     if not text or not days:
         return text
     dd = timedelta(days=days)
+    months = round(days / 30.4375)
 
     def one(m):
         try:
@@ -57,8 +58,10 @@ def shift_text(text: str | None, days: int) -> str | None:
                 return f"{x.day:02d}.{x.month:02d}.{x.year}" if len(m["d"]) == 2 else f"{x.day}.{x.month}.{x.year}"
             if m["iy"]:
                 return (date(int(m["iy"]), int(m["im"]), int(m["id"])) + dd).isoformat()
-            x = date(int(m["my"]), MONTHS.index(m["mon"]) + 1, 15) + dd
-            return f"{MONTHS[x.month - 1]} {x.year}"
+            # Monatsnamen um ganze Monate: über einen Stichtag (15. + Tage) fielen sonst zwei Monate auf denselben Namen
+            # (Februar und März → „März“), und zwei Lohnabrechnungen wurden zu Dubletten (25.11.2026)
+            k = int(m["my"]) * 12 + MONTHS.index(m["mon"]) + months
+            return f"{MONTHS[k % 12]} {k // 12}"
         except ValueError:
             return m[0]
 

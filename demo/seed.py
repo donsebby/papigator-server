@@ -1,7 +1,7 @@
 """Demoserver befüllen: frische, leere Instanz → erfundener Haushalt Alex & Sam Muster mit allem, was die App zeigt.
 
 Läuft gegen einen Server, der nur lokal lauscht und noch keinen Nutzer hat (Bootstrap-Token), z. B. aus
-demo/demo-run.sh. Ohne Sprachmodell: Titel, Absender, Daten, Beträge und Ordner kommen aus meta.json
+demo/demo-run.sh. Ohne Sprachmodell: Titel, Absender, Daten, Beträge, Art, Empfänger, Nummern und Ordner kommen aus meta.json
 (einmal mit dem echten Modell erkannt), alle Daten wandern mit dem Kalender mit (shift.py).
 
     PAPIGATOR_URL=http://127.0.0.1:8000 PAPIGATOR_TOKEN=<Bootstrap> DEMO_PASSWORD=<für alex und sam> \\
@@ -27,7 +27,7 @@ sys.path.insert(1, str(Path(__file__).resolve().parent.parent))
 import make_bank  # noqa: E402
 import make_avatars  # noqa: E402
 import shift  # noqa: E402
-from app.processing import warranty_end  # noqa: E402
+from app.processing import recipient_from, refs_from, warranty_end  # noqa: E402
 
 B = os.environ.get("PAPIGATOR_URL", "http://127.0.0.1:8000")
 SRC = Path(sys.argv[1] if len(sys.argv) > 1 else "papigator-demo")
@@ -108,6 +108,10 @@ with sqlite3.connect(DB) as con:
         for k in ("expires_on", "service_next"):
             if m.get(k):
                 vals[k] = shift.shift_date(m[k], days)
+        # Empfänger und Nummern nach derselben Regel wie beim Erkennen: nur, was so im (verschobenen) Text steht
+        vals["recipient"] = recipient_from(m, x["text"])
+        refs = refs_from({"references": m.get("refs")}, x["text"])
+        vals["refs"] = json.dumps(refs, ensure_ascii=False) if refs else None
         if "Rechnung" in (m.get("tags") or []) or m.get("doc_kind") == "rechnung":
             vals["warranty_months"] = m.get("warranty_months") or 0
             vals["warranty_until"] = warranty_end(vals["document_date"], vals["warranty_months"])
@@ -131,7 +135,8 @@ ok(c.post("/persons", json={"name": "Mia"}, headers=H["sam"]))
 for x, m in zip(docs, META):   # Schul- und Kita-Post gehört zu Mia, auch wo ihr Name nicht im Text steht
     if x["id"] and {"Kinder", "Schule"} & set(m.get("tags", [])):
         ok(c.patch(f"/documents/{x['id']}", json={"tags": [*m["tags"], "Mia"]}, headers=H[x["owner"]]))
-for name in ("HanseKraft_Beitragsrechnung_2026.pdf", "Haftpflicht_2026.pdf", "Darlehensvertrag_AveroBank.pdf"):
+for name in ("HanseKraft_Beitragsrechnung_2026.pdf", "Haftpflicht_2026.pdf", "Darlehensvertrag_AveroBank.pdf",
+             "Geburtsurkunde_Mia.pdf", "Personalausweis_Alex.pdf", "Versicherungsbescheinigung_Krankenkasse.pdf"):
     if name in by_file:
         ok(c.post("/emergency/documents", json={"document_id": doc(name)["id"]}, headers=H[doc(name)["owner"]]))
 
@@ -200,10 +205,16 @@ if not {"expiry", "service", "refund", "price"} <= up:
     problems.append(f"„Im Blick“ unvollständig: {sorted(up)}")
 if not money.get("count") or not 1 <= money.get("to_sort", 0) <= 15:
     problems.append(f"Geld: {money.get('count')} Umsätze, {money.get('to_sort')} zum Einsortieren")
+kinds = {k["code"] for k in ok(c.get("/documents/kinds", params={"scope": "all"}, headers=A)).json() if k["count"]}
+if not {"zeugnis", "urkunde", "bescheinigung", "befund", "antrag", "ausweis", "bericht", "bestaetigung"} <= kinds:
+    problems.append(f"Dokumentarten fehlen: {sorted(kinds)}")
+listed = ok(c.get("/documents", params={"scope": "all", "limit": 2000}, headers=A)).json()
+if sum(1 for d in listed if d.get("recipient")) < 40 or sum(1 for d in listed if d.get("refs")) < 30:
+    problems.append("Empfänger oder Nummern fehlen")
 if "Sparkonto Sam" in accs["alex"] or "Sparkonto Alex" in accs["sam"] or "Gemeinschaftskonto" not in accs["sam"]:
     problems.append(f"Kontosichtbarkeit falsch: {accs}")
 print(f"Demo befüllt: {len(by_file)} Dokumente, Fristen {dc}, Zu prüfen {rc}, Personen {[p['name'] for p in persons]}, "
-      f"Notfallmappe {len(emerg.get('documents', []))}, Garantien {wc.get('count')}, Im Blick {sorted(up)}, "
+      f"Notfallmappe {len(emerg.get('documents', []))}, Arten {len(kinds)}, Garantien {wc.get('count')}, Im Blick {sorted(up)}, "
       f"Geld {money.get('count')} Umsätze ({money.get('to_sort')} einsortieren), Verschiebung {days} Tage")
 if problems:
     sys.exit("Demo unvollständig: " + "; ".join(problems))

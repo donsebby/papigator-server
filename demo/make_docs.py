@@ -257,7 +257,7 @@ Hiermit bestätigen wir die Kündigung Ihrer Mitgliedschaft zum 31.10.2025.
 add("sam", d("2025-08-01"), "Kita_Gebuehrenbescheid.pdf", f"""
 Stadt Karlsruhe · Sozial- und Jugendbehörde
 {ADR_S}
-Gebührenbescheid Kindertagesstätte Sonnenblume für Mia Muster
+Gebührenbescheid Kindertagesstätte Sonnenblume (Hortgruppe) für Mia Muster
 ab 01.09.2025 monatlich 186,00 € (Ganztag, inkl. Verpflegung 72,00 €).
 Abbuchung jeweils zum 5. des Monats.
 Gegen diesen Bescheid kann innerhalb eines Monats Widerspruch erhoben werden.
@@ -385,6 +385,161 @@ GOÄ 200 Verband                          2,3-fach    6,57 €
 Auslagen                                            26,77 €
 Rechnungsbetrag 148,62 €  Zahlbar innerhalb von 30 Tagen.
 """, kind="Rechnung", amount=148.62, direction="Ausgabe")
+
+# --- Ohne Geld (25.11.2026): Zeugnisse, Urkunden, Bescheinigungen, Befund, Antrag, Mitteilung, Bericht, Ausweis –
+# damit man Dokumentart, Empfänger und Nummern sieht. Kein random hier (sonst ändern sich die Nummern oben).
+add("alex", d("2018-03-31"), "Arbeitszeugnis_Moewe_Spedition.pdf", f"""
+Möwe Spedition GmbH · Rheinhafenstraße 8 · 76189 Karlsruhe
+Arbeitszeugnis
+Herr Alex Muster, geboren am 14.03.1987, war vom 01.08.2012 bis zum 31.03.2018 als Disponent in unserem Unternehmen tätig.
+Zu seinen Aufgaben gehörten die Tourenplanung für 40 Fahrzeuge sowie die Abstimmung mit Kunden und Subunternehmern.
+Herr Muster erledigte die ihm übertragenen Aufgaben stets zu unserer vollsten Zufriedenheit.
+Er verlässt uns auf eigenen Wunsch. Wir bedauern sein Ausscheiden und wünschen ihm für die Zukunft alles Gute.
+Karlsruhe, {de(d('2018-03-31'))}
+i. A. Petra Lange, Personalleitung
+""", kind="Zeugnis", amount=None, recipient="Alex Muster")
+add("sam", d("2026-01-30"), "Halbjahresinformation_Mia.pdf", f"""
+Grundschule am Lindenplatz · Karlsruhe
+Halbjahresinformation Schuljahr 2025/2026
+Name: Mia Muster   Klasse: 1b
+Arbeits- und Sozialverhalten: Mia arbeitet aufmerksam mit und hilft anderen Kindern gern.
+Deutsch: Mia kennt alle Buchstaben und liest erste kurze Texte.
+Mathematik: Mia rechnet sicher im Zahlenraum bis 20.
+Versäumte Tage: 3, davon unentschuldigt: 0
+Karlsruhe, den {de(d('2026-01-30'))}
+Klassenlehrerin: B. Sommer      Schulleitung: Dr. K. Brandt
+""", kind="Zeugnis", amount=None, recipient="Mia Muster")
+add("sam", d("2018-08-21"), "Geburtsurkunde_Mia.pdf", f"""
+Standesamt Karlsruhe
+Geburtsurkunde
+(Geburtenregister Nr. G 1234/2018)
+Mia Muster
+Geschlecht: weiblich
+geboren am 16.08.2018 in Karlsruhe
+Eltern: Alex Muster und Sam Muster, geb. Hartmann
+Karlsruhe, den {de(d('2018-08-21'))}
+Der Standesbeamte: Hoffmann
+""", kind="Urkunde", amount=None, recipient="Mia Muster", refs={"case": "G 1234/2018"})
+add("alex", d("2025-03-04"), "Meldebescheinigung_Alex.pdf", f"""
+Stadt Karlsruhe · Bürgerbüro Durlach · Pfinztalstraße 33 · 76227 Karlsruhe
+Herrn
+{ADR_A}
+Meldebescheinigung (einfache Meldebescheinigung nach § 18 Abs. 1 BMG)
+Aktenzeichen MB-2025-118842
+Hiermit wird bescheinigt, dass Herr Alex Muster, geboren am 14.03.1987, seit dem 01.10.2019 mit alleiniger Wohnung unter der Anschrift Lindenweg 12, 76137 Karlsruhe gemeldet ist.
+Karlsruhe, {de(d('2025-03-04'))}
+Im Auftrag  Schneider
+""", kind="Bescheinigung", amount=None, recipient="Alex Muster", refs={"case": "MB-2025-118842"})
+add("alex", d("2025-11-10"), "AU_Bescheinigung_2025-11.pdf", f"""
+Arbeitsunfähigkeitsbescheinigung – Ausfertigung zur Vorlage beim Arbeitgeber
+Krankenkasse: Gesundheitskasse Lindenau
+Name, Vorname des Versicherten: Muster, Alex   geb. am 14.03.1987
+Erstbescheinigung
+arbeitsunfähig seit {de(d('2025-11-10'))}
+voraussichtlich arbeitsunfähig bis einschließlich {de(d('2025-11-14'))}
+festgestellt am {de(d('2025-11-10'))}
+Dr. med. Paul Brenner · Facharzt für Allgemeinmedizin · Karlstraße 22 · 76133 Karlsruhe
+""", kind="Bescheinigung", amount=None, recipient="Alex Muster")
+add("sam", d("2025-11-18"), "Befund_MRT_Sam.pdf", f"""
+Radiologie am Schloss · Dr. med. Jana Wolf · Schlossplatz 4 · 76131 Karlsruhe
+Herrn
+Dr. med. Paul Brenner
+Karlstraße 22
+76133 Karlsruhe
+Karlsruhe, {de(d('2025-11-18'))}
+Patientin: Sam Muster, geb. 04.06.1989
+Untersuchung: MRT der Lendenwirbelsäule nativ vom {de(d('2025-11-17'))}
+Befund: Regelrechte Stellung der Wirbelkörper. Geringe Bandscheibenprotrusion L4/5 ohne Nervenkompression.
+Beurteilung: Kein Nachweis eines Bandscheibenvorfalls. Konservative Therapie empfohlen.
+Mit freundlichen kollegialen Grüßen
+Dr. med. Jana Wolf
+""", kind="Befund", amount=None, recipient="Dr. med. Paul Brenner")
+add("alex", d("2026-02-02"), "Terminbestaetigung_Buergerbuero.pdf", f"""
+Von: terminvergabe@karlsruhe.example
+An: Alex Muster
+Datum: {de(d('2026-02-02'))}
+Betreff: Terminbestätigung Bürgerbüro – Vorgangsnummer T-48213
+Sehr geehrter Herr Muster,
+hiermit bestätigen wir Ihren Termin für „Personalausweis beantragen“ am {de(d('2026-02-16'))}, 09:20 Uhr im Bürgerbüro Durlach.
+Bitte bringen Sie ein biometrisches Passfoto und Ihren alten Ausweis mit.
+Stadt Karlsruhe – Online-Terminvergabe
+""", kind="Bestätigung", amount=None, recipient="Alex Muster", refs={"case": "T-48213"})
+add("alex", d("2018-09-05"), "Antrag_Kindergeld.pdf", f"""
+Antrag auf Kindergeld
+An die Familienkasse Baden-Württemberg West, 76135 Karlsruhe
+Angaben zur antragstellenden Person: Muster, Alex, geb. 14.03.1987, Lindenweg 12, 76137 Karlsruhe
+Kind: Muster, Mia, geb. 16.08.2018, Geschlecht weiblich
+Ich versichere, dass meine Angaben vollständig und richtig sind.
+Karlsruhe, {de(d('2018-09-05'))}   Unterschrift: A. Muster
+""", kind="Antrag", amount=None, recipient="Familienkasse Baden-Württemberg West")
+add("alex", d("2026-04-08"), "Hausverwaltung_Wasserabsperrung.pdf", f"""
+Hausverwaltung Kern & Partner · Kaiserstraße 50 · 76133 Karlsruhe
+An alle Mieterinnen und Mieter im Haus Lindenweg 12
+Karlsruhe, {de(d('2026-04-08'))}
+Information: Wasserabsperrung
+Wegen Arbeiten an der Steigleitung wird am {de(d('2026-04-21'))} von 8 bis 13 Uhr das Wasser im gesamten Haus abgestellt.
+Bitte halten Sie in dieser Zeit die Wasserhähne geschlossen. Wir danken für Ihr Verständnis.
+""", kind="Mitteilung", amount=None)
+add("alex", d("2026-03-09"), "HU_Pruefbericht_2026.pdf", f"""
+Prüfbericht Hauptuntersuchung nach § 29 StVZO
+Kfz-Prüfstelle Karlsruhe-Ost · Prüfbericht-Nr. 7714 2026 0309 0042
+Datum der Untersuchung: {de(d('2026-03-09'))}
+Halter: Alex Muster, Lindenweg 12, 76137 Karlsruhe
+Fahrzeug: Avero K4 Kombi, Kennzeichen KA-AM 512, FIN DEMO0K4XLA012345, Kilometerstand 64.930
+Ergebnis: Ohne festgestellte Mängel – Prüfplakette zugeteilt
+Nächste HU: 03/2028
+Prüfingenieur: M. Kaya
+""", kind="Bericht", amount=None, recipient="Alex Muster", refs={"other": "7714 2026 0309 0042"})
+add("alex", d("2019-10-01"), "Uebergabeprotokoll_Wohnung.pdf", f"""
+Hausverwaltung Kern & Partner · Kaiserstraße 50 · 76133 Karlsruhe
+Übergabeprotokoll Wohnung Lindenweg 12, 2. OG links
+Mieter: Alex Muster und Sam Muster
+Übergabe am {de(d('2019-10-01'))}
+Zählerstände: Strom 12.344 kWh, Wasser kalt 231,5 m³, Wasser warm 98,2 m³
+Schlüssel: 3 Wohnungsschlüssel, 2 Briefkastenschlüssel
+Zustand: Wände frisch gestrichen, Bad ohne Mängel, kleiner Kratzer im Parkett Wohnzimmer
+Unterschrift Vermieter / Mieter
+""", kind="Bericht", amount=None, recipient="Alex Muster und Sam Muster")
+add("sam", d("2025-07-15"), "Masernschutz_Mia.pdf", f"""
+Kinderarztpraxis Dr. Yilmaz · Sophienstraße 61 · 76133 Karlsruhe
+Bescheinigung über den Masernschutz (§ 20 Abs. 9 IfSG) zur Vorlage in der Schule
+Name des Kindes: Mia Muster, geb. 16.08.2018
+Es liegt ein ausreichender Impfschutz gegen Masern vor (2 Impfungen, zuletzt am 03.12.2019).
+Karlsruhe, {de(d('2025-07-15'))}
+Dr. med. S. Yilmaz, Kinder- und Jugendärztin
+""", kind="Bescheinigung", amount=None, recipient="Mia Muster")
+add("alex", d("2026-02-21"), "Personalausweis_Alex.pdf", f"""
+BUNDESREPUBLIK DEUTSCHLAND  PERSONALAUSWEIS  IDENTITY CARD
+L01X00T47
+Name: MUSTER
+Vornamen: ALEX
+Geburtstag: 14.03.1987   Staatsangehörigkeit: DEUTSCH
+Geburtsort: PFORZHEIM
+Gültig bis: {de(d('2036-02-21'))}
+Anschrift: 76137 KARLSRUHE, LINDENWEG 12
+Behörde: STADT KARLSRUHE   Ausgestellt am: {de(d('2026-02-21'))}
+""", kind="Ausweis", amount=None, recipient="Alex Muster", refs={"other": "L01X00T47"})
+add("sam", d("2025-09-19"), "Zertifikat_Python_Kurs.pdf", """
+CodeCamp Online Academy
+Certificate of Completion
+This is to certify that
+Sam Muster
+has successfully completed the course "Python for Data Analysis" (40 hours) with distinction.
+Issued on September 19, 2025
+Certificate ID: CC-PY-2025-88314
+Verify at codecamp.example/verify
+""", kind="Zeugnis", amount=None, recipient="Sam Muster", refs={"other": "CC-PY-2025-88314"})
+add("alex", d("2025-02-17"), "Versicherungsbescheinigung_Krankenkasse.pdf", f"""
+Gesundheitskasse Lindenau · Kundencenter Karlsruhe · 76133 Karlsruhe
+Herrn
+{ADR_A}
+{de(d('2025-02-17'))}
+Versicherungsbescheinigung
+Krankenversichertennummer A123456780
+Wir bestätigen, dass Sie seit dem 01.04.2018 bei uns pflichtversichert sind.
+Ihre Tochter Mia Muster, geb. 16.08.2018, ist seit ihrer Geburt bei Ihnen familienversichert.
+Diese Bescheinigung wurde maschinell erstellt und ist ohne Unterschrift gültig.
+""", kind="Bescheinigung", amount=None, recipient="Alex Muster", refs={"customer": "A123456780"})
 
 # --- Optional mit dem Kalender mitwandern (Demoserver): DEMO_SHIFT=1 verschiebt alle Daten relativ zu heute
 if os.environ.get("DEMO_SHIFT") == "1":

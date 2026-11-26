@@ -39,21 +39,24 @@ NEVER_WORDS = [
     "kredit", "schule", "studium", "ausbildung", "geburt", "heirat", "scheidung", "behinderung", "pflege",
     # endet auf „rechnung“, ist aber keine Rechnung: „Steuerberechnung“ darf nicht nach 3 Jahren weg
     "berechnung", "verrechnung", "unterhalt",
+    # Englische Ordner (Erkennung auf Englisch, 25.11.2026)
+    "salary", "payslip", "payroll", "contract", "insurance", "certificate", "health", "medical", "doctor", "passport",
+    "mortgage", "loan", "school",
 ]
 
 # key, Bezeichnung, Jahre nach Jahresende, Wörter (Name oder Wortende), Begründung
 DEFAULTS = [
     ("receipts", "Rechnungen & Quittungen", 3,
-     ["rechnung", "quittung", "kassenbon", "kassenzettel", "beleg", "kaufbeleg"],
+     ["rechnung", "quittung", "kassenbon", "kassenzettel", "beleg", "kaufbeleg", "receipt", "invoice"],
      "Gewährleistung 2 Jahre, Verjährung 3 Jahre ab Jahresende (§§ 195, 199 BGB)"),
     ("craftsmen", "Handwerkerrechnungen", 5,
-     ["handwerker", "handwerkerrechnung", "handwerkerleistung"],
+     ["handwerker", "handwerkerrechnung", "handwerkerleistung", "tradesman", "tradesmen", "handyman"],
      "Gewährleistung für Arbeiten am Haus 5 Jahre (§ 634a BGB) – Aufbewahrungspflicht 2 Jahre (§ 14b UStG)"),
     ("statements", "Kontoauszüge", 3,
-     ["kontoauszug", "kontoauszuege"],
+     ["kontoauszug", "kontoauszuege", "bankstatement", "accountstatement"],
      "Privat keine Pflicht – 3 Jahre reichen für Rückfragen und die Verjährung"),
     ("tax", "Steuer", 10,
-     ["steuer", "steuerbescheid", "steuererklaerung", "finanzamt"],
+     ["steuer", "steuerbescheid", "steuererklaerung", "finanzamt", "tax", "taxreturn", "taxassessment"],
      "Das Finanzamt kann bis zu 10 Jahre nachfordern (§ 169 AO)"),
 ]
 NEVER_LABEL = "Nie vorschlagen"

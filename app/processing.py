@@ -196,7 +196,7 @@ Felder:
 - "service_what": wenn das Dokument eine durchgeführte Prüfung/Wartung belegt, genau eins von "Hauptuntersuchung"
   (TÜV/DEKRA-Prüfbericht), "Heizungswartung", "Schornsteinfeger", "Rauchmelder" – sonst null
 - "service_next": nächster Termin dafür als YYYY-MM-DD, nur wenn er im Text steht („nächste HU 03/2027“ → 2027-03-31), sonst null
-- "tags": Liste aus 1-3 Tags. {tag_rule} Spendenquittungen, Steuerbescheide und Belege mit § 35a-Anteil bekommen zusätzlich den Tag "Steuer".
+- "tags": Liste aus 1-3 Tags. {tag_rule} Spendenquittungen, Steuerbescheide und Belege mit § 35a-Anteil bekommen zusätzlich den Tag "Steuer".{lang_note}
 
 Dokumenttext:
 \"\"\"
@@ -213,22 +213,49 @@ def _excerpt(text: str, limit: int) -> str:
     return text[: limit - tail] + "\n[…]\n" + text[-tail:]
 
 
+# Englische KI-Texte (Einstellung „Sprache der Erkennung“, PAPIGATOR_LANGUAGE=en): Titel, Zusammenfassung, neue Tags und
+# (seit 26.11.2026) die Fristnotiz auf Englisch – deren Wortlisten (_PAYMENT_NOTE, _NO_DUE_NOTE, _DUE_ACTION …) kennen
+# beide Sprachen. Alle anderen Werte, die der Code auswertet (kind, direction, recurring, expires_what, service_what – über
+# KINDS, DIRECTIONS, INTERVALS, EXPIRES, SERVICES), bleiben deutsch.
+# Der deutsche Prompt bleibt byte-gleich (tests/test_llm_language.py), der englische hängt nur diesen Absatz an.
+LLM_LANG_EN = """
+Sprache: Wer diese Ablage nutzt, liest Englisch. Schreibe "title" und "summary" auf Englisch, auch wenn das Dokument
+deutsch ist, z. B. "title": "Telekom invoice October 2026", "summary": "Phone bill for October, paid by direct debit."
+Alle anderen Felder genau wie oben beschrieben: "kind", "direction", "recurring", "expires_what" und "service_what" nur
+mit den deutschen Werten aus den Listen oben, "due_note" auf Englisch (z. B. "Payment due", "Notice period contract"),
+"sender", "recipient" und Nummern so, wie sie im Text stehen."""
+LLM_LANG_EN_TAGS = """ Neue Tags auf Englisch; statt des Tags "Steuer" heißt er "Tax"."""
+
+
+def build_prompt(text: str, existing_tags: list[str], restricted: bool = False, lang: str = "de",
+                 today: datetime.date | None = None) -> str:
+    """Prompt fürs Erkennen. lang="de" ergibt genau den bisherigen Prompt."""
+    listed = ", ".join(existing_tags) or "(noch keine)"
+    only_listed = restricted and existing_tags
+    if only_listed:
+        tag_rule = (f"Verwende AUSSCHLIESSLICH Tags aus dieser Liste, exakt so geschrieben: {listed}. "
+                    "Passt keiner, gib eine leere Liste zurück.")
+    elif lang == "en":
+        tag_rule = (f"Verwende bevorzugt diese vorhandenen Tags: {listed}. Neue Tags nur, wenn wirklich keiner passt. "
+                    'Tags sind kurze englische Substantive im Singular wie "Invoice", "Insurance", "Tax", "Contract", '
+                    '"Authority", "Doctor", "Salary", "Children". Kein Absendername als Tag.')
+    else:
+        tag_rule = (f"Verwende bevorzugt diese vorhandenen Tags: {listed}. Neue Tags nur, wenn wirklich keiner passt. "
+                    'Tags sind kurze deutsche Substantive im Singular wie "Rechnung", "Versicherung", "Steuer", "Vertrag", '
+                    '"Behörde", "Arzt", "Gehalt", "Kinder". Kein Absendername als Tag.')
+    # Nur vorhandene Tags erlaubt: dann auch kein „Tax“ statt „Steuer“ – die Liste gilt, wie sie ist
+    lang_note = (LLM_LANG_EN + ("" if only_listed else LLM_LANG_EN_TAGS)) if lang == "en" else ""
+    return LLM_PROMPT.format(tag_rule=tag_rule, text=_excerpt(text, config.LLM_MAX_CHARS), lang_note=lang_note,
+                             today=(today or datetime.date.today()).strftime("%d.%m.%Y"))
+
+
 def llm_extract(text: str, existing_tags: list[str], restricted: bool = False) -> tuple[dict | None, bool]:
     """Liefert (Ergebnis, erreichbar). erreichbar=False nur bei Verbindungsproblemen.
     restricted=True: nur vorhandene Tags erlaubt (keine neuen erfinden)."""
     cfg = config.llm_config()
     if not cfg["enabled"] or not cfg["url"] or not text.strip():
         return None, True
-    listed = ", ".join(existing_tags) or "(noch keine)"
-    if restricted and existing_tags:
-        tag_rule = (f"Verwende AUSSCHLIESSLICH Tags aus dieser Liste, exakt so geschrieben: {listed}. "
-                    "Passt keiner, gib eine leere Liste zurück.")
-    else:
-        tag_rule = (f"Verwende bevorzugt diese vorhandenen Tags: {listed}. Neue Tags nur, wenn wirklich keiner passt. "
-                    'Tags sind kurze deutsche Substantive im Singular wie "Rechnung", "Versicherung", "Steuer", "Vertrag", '
-                    '"Behörde", "Arzt", "Gehalt", "Kinder". Kein Absendername als Tag.')
-    prompt = LLM_PROMPT.format(tag_rule=tag_rule, text=_excerpt(text, config.LLM_MAX_CHARS),
-                               today=datetime.date.today().strftime("%d.%m.%Y"))
+    prompt = build_prompt(text, existing_tags, restricted, cfg["language"])
     try:
         from . import ask  # hier importiert, damit kein Zirkel entsteht
         content = ask.chat(prompt, timeout=300) or ""
@@ -291,10 +318,14 @@ def _currency(v) -> str | None:
     return s if re.fullmatch(r"[A-Z]{3}", s) else None
 
 
+# Währung neben einem glatten Betrag: Euro wie bisher, dazu Dollar, Pfund, Franken (englische Rechnungen: „$50“, „USD 50“)
+_CUR_WORDS = r"(?:€|eur\b|euro|\$|us\$|usd\b|£|gbp\b|chf\b)"
+
+
 def amount_in_text(amount: float, text: str) -> bool:
     """Steht der Betrag wirklich im Text? Wie beim Datum: sonst hat das Sprachmodell ihn erfunden oder
     zusammengerechnet. Erkannt werden „324,87“, „324.87“, „1.234,56“, „1,234.56“, „1 234,56“, „EUR 324,87“ –
-    glatte Beträge nur mit Nachkommastellen („50,00“, „50,-“) oder Währung („50 €“, „EUR 50“), damit eine
+    glatte Beträge nur mit Nachkommastellen („50,00“, „50,-“) oder Währung („50 €“, „EUR 50“, „$50“, „50 USD“), damit eine
     50 in einer Postleitzahl oder einem Datum nicht zählt. Vorzeichen spielen keine Rolle."""
     if amount is None or not text:
         return False
@@ -319,8 +350,8 @@ def amount_in_text(amount: float, text: str) -> bool:
             if frac == 0:
                 pats.append(rf"{iv_re}{re.escape(dsep)}\s?[-\u2013\u2014]")
         if frac == 0:
-            pats.append(rf"{iv_re}(?![.,]?\d)\s?(?:€|eur\b|euro)")
-            pats.append(rf"(?:€|eur\b|euro)\s?{iv_re}(?![.,]?\d)")
+            pats.append(rf"{iv_re}(?![.,]?\d)\s?{_CUR_WORDS}")
+            pats.append(rf"{_CUR_WORDS}\s?{iv_re}(?![.,]?\d)")
     body = "|".join(pats)
     return bool(re.search(rf"(?<!\d)(?<!\d[.,])(?:{body})(?![.,]\d)", t))
 
@@ -344,6 +375,22 @@ KINDS = {**{c: c for c in KIND_LABELS}, **{de.lower(): c for c, (de, _) in KIND_
          "kündigung": "kuendigung", "gehalt": "gehalt", "spende": "spende", "info": "info", "versicherung": "police",
          "bestätigung": "bestaetigung", "quittung": "rechnung", "zertifikat": "zeugnis", "arztbrief": "befund",
          "protokoll": "bericht", "formular": "antrag", "brief": "info"}
+
+
+def kind_code(label) -> str | None:
+    """Was die KI als Art sagt → Code. Zusammengesetzte Wörter, die es in der Liste nicht gibt („Beitragsrechnung“,
+    „Kündigungsbestätigung“), zählen nach ihrem Grundwort am Ende – das längste passende gewinnt (26.11.2026)."""
+    word = str(label or "").strip().lower()
+    if not word:
+        return None
+    if word in KINDS:
+        return KINDS[word]
+    for key in sorted(KINDS, key=len, reverse=True):
+        if len(key) >= 5 and word.endswith(key):
+            return KINDS[key]
+    return None
+
+
 # Arten, die selbst kein Geld bewegen – ein Betrag darin (Kontostand, Angebotssumme) ist keine Ausgabe
 NON_MONEY_KINDS = ("kontoauszug", "angebot", "bescheinigung", "zeugnis", "urkunde", "ausweis", "befund", "bericht",
                    "antrag")
@@ -351,7 +398,11 @@ REF_KEYS = ("contract", "customer", "case", "invoice", "other")
 DIRECTIONS = {"ausgabe": "out", "einnahme": "in", "keine": "none", "out": "out", "in": "in", "none": "none"}
 INTERVALS = ("monatlich", "vierteljährlich", "halbjährlich", "jährlich")
 # Fristen, die nur „bis dann wird bezahlt“ heißen – bei Lastschrift ist da nichts zu tun
-_PAYMENT_NOTE = re.compile(r"zahl|abbuch|lastschrift|einzug|fällig|überweis|rate", re.I)
+# Englische Notizen (Erkennung auf Englisch) gleich behandelt: „Payment due“, „Direct debit“, „Instalment“
+_PAYMENT_NOTE = re.compile(r"zahl|abbuch|lastschrift|einzug|fällig|überweis|rate|\bpay(?!out| ?slip)|amount due|balance due|"
+                           r"debit|transfer|instal+ment", re.I)
+# Kündigung ist keine Zahlung, auch wenn „fällig“ oder „due“ darin steht
+_CANCEL_NOTE = re.compile(r"kündig|kündbar|cancel|notice period|period of notice|give notice|terminat", re.I)
 OLD_DUE_DAYS = 14   # beim Erkennen schon so lange vorbei: Altbestand, gleich als erledigt ablegen
 
 
@@ -361,13 +412,19 @@ _MONTH_ALT = {3: ("mrz", "mär"), 9: ("sept",), 2: ("febr",)}
 _MONTHS_EN = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
               "november", "december"]
 _NO_DUE_NOTE = re.compile(r"auszahl|gutschrift|erstatt|gehalt|lohn|vertragsbeginn|vertragsende|laufzeit|gültig|beendigung|"
-                          r"austritt|ende des arbeits|vertragsablauf|ablauf|ausweis|mitglied", re.I)
+                          r"austritt|ende des arbeits|vertragsablauf|ablauf|ausweis|mitglied|"
+                          r"payout|pay-out|refund|reimburs|credit note|salary|\bwages?\b|contract start|start of (?:the )?contract|"
+                          r"contract end|end of (?:the )?contract|\bterm\b|\bvalid|expir|id card|passport|membership|"
+                          r"end of employment", re.I)
 # … außer die Notiz nennt etwas zu tun („Ausweis abholen“, „Erstattung beantragen“) – „\bzahl“ trifft nicht „Auszahlung“
 _DUE_ACTION = re.compile(r"abhol|einreich|vorleg|vorzeig|kündig|widersp|beantrag|verlänger|erneuer|rückgabe|zurückgeb|"
-                         r"anmeld|ummeld|abmeld", re.I)
+                         r"anmeld|ummeld|abmeld|"
+                         r"pick up|collect|submit|hand in|\bpresent|\bshow\b|cancel|notice period|give notice|terminat|object|appeal|"
+                         r"\bapply|application|renew|extend|\breturn|register", re.I)
 # Zahlen rettet nur Ausweis/Mitgliedschaft/Gültigkeit („Mitgliedsbeitrag zahlen“), nie Auszahlung/Gehalt/Erstattung
-_DUE_PAY = re.compile(r"\bzahl|bezahl|überweis", re.I)
-_NO_DUE_MONEY_IN = re.compile(r"auszahl|gutschrift|erstatt|gehalt|lohn", re.I)
+_DUE_PAY = re.compile(r"\bzahl|bezahl|überweis|\bpay(?!out| ?slip)|\btransfer", re.I)
+_NO_DUE_MONEY_IN = re.compile(r"auszahl|gutschrift|erstatt|gehalt|lohn|payout|pay-out|refund|reimburs|credit note|salary|\bwages?\b",
+                              re.I)
 _RELATIVE = re.compile(r"(?:innerhalb|binnen)\s+(?:von\s+)?(\d{1,3}|eine[sm]?|zwei|drei|vier|vierzehn)\s+"
                        r"(tag|tage|tagen|woche|wochen|monat|monate|monaten)", re.I)
 _WORDS = {"ein": 1, "eine": 1, "einem": 1, "eines": 1, "zwei": 2, "drei": 3, "vier": 4, "vierzehn": 14}
@@ -379,6 +436,14 @@ def _norm(text: str) -> str:
     t = re.sub(r"(?<=\d)[lI](?=\d)|\b[lI](?=\d)", "1", t)
     t = re.sub(r"(?<=\d)\s*\.\s*(?=\d)", ".", t)
     return re.sub(r"\s+", " ", t).lower()
+
+
+def _english() -> bool:
+    """Erkennung auf Englisch? (nur für mehrdeutige Datumsangaben gefragt, daher ohne Zwischenspeicher)"""
+    try:
+        return config.language() == "en"
+    except Exception:
+        return False
 
 
 def date_in_text(iso: str, text: str, allow_month: bool = True) -> bool:
@@ -398,6 +463,13 @@ def date_in_text(iso: str, text: str, allow_month: bool = True) -> bool:
                 return True
     if iso in t:
         return True
+    # US-Reihenfolge MM/DD/YYYY (nur mit Schrägstrich): eindeutig, wenn der Tag über 12 liegt (als TT/MM gäbe es den
+    # Monat nicht); sonst ist 01/08/2026 auf Deutsch der 1. August – dann nur, wenn die Erkennung auf Englisch steht
+    if d.day != d.month:
+        for dd in days:
+            for mm in months:
+                if re.search(rf"(?<!\d){mm}/{dd}/(?:{y}|{yy})(?!\d)", t) and (d.day > 12 or _english()):
+                    return True
     mon = _MONTH_NAMES[d.month - 1]
     # Schreibweisen: „März“, „Maerz“, „Marz“ (Umlaut verloren), „Mrz.“, „Sept.“ …
     alts = {mon, mon[:3], mon.replace("ä", "ae"), mon.replace("ä", "a")} | set(_MONTH_ALT.get(d.month, ()))
@@ -630,7 +702,7 @@ def apply_warranty(con, doc_id: int, data: dict) -> None:
         return
     if not isinstance(data.get("goods"), bool):
         return   # Antwort ohne Angabe (älteres Modell, abgeschnitten): offen lassen statt „keine“
-    kind = row["doc_kind"] or KINDS.get(str(data.get("kind") or "").strip().lower())
+    kind = row["doc_kind"] or kind_code(data.get("kind"))
     direction = row["direction"] or DIRECTIONS.get(str(data.get("direction") or "").strip().lower())
     # Kassenbons nennt das Modell auch mal „Info“ – mit goods=true zählen sie wie eine Rechnung
     if kind not in ("rechnung", "info", "bestaetigung", "sonstiges", None) or direction == "in" or (
@@ -705,7 +777,7 @@ _INCOME_CONTRACT = re.compile(r"arbeitsvertrag|anstellungsvertrag|dienstvertrag|
 def money_fields(data: dict) -> dict:
     """Art, Richtung, Lastschrift, Rhythmus und § 35a-Anteil aus der LLM-Antwort, geprüft."""
     out = {}
-    kind = KINDS.get(str(data.get("kind") or "").strip().lower())
+    kind = kind_code(data.get("kind"))
     if kind:
         out["doc_kind"] = kind
     direction = DIRECTIONS.get(str(data.get("direction") or "").strip().lower())
@@ -731,7 +803,7 @@ def money_fields(data: dict) -> dict:
 
 
 def _due_is_payment(note) -> bool:
-    return bool(note) and bool(_PAYMENT_NOTE.search(str(note))) and "kündig" not in str(note).lower()
+    return bool(note) and bool(_PAYMENT_NOTE.search(str(note))) and not _CANCEL_NOTE.search(str(note))
 
 
 def apply_money(con, doc_id: int, data: dict) -> None:
@@ -779,7 +851,8 @@ def recipient_from(data: dict, text: str) -> str | None:
     if not name or not words:
         return None
     low = (text or "").lower()
-    return name if all(w.lower() in low for w in words) else None
+    # ganze Wörter: „Ben“ darf nicht in „Benachrichtigung“ stecken
+    return name if all(re.search(r"(?<![\wäöüß])" + re.escape(w.lower()) + r"(?![\wäöüß])", low) for w in words) else None
 
 
 def refs_from(data: dict, text: str) -> dict | None:
@@ -787,12 +860,17 @@ def refs_from(data: dict, text: str) -> dict | None:
     raw = data.get("references")
     if not isinstance(raw, dict):
         return None
-    flat = _alnum(text)
+    low = (text or "").lower()
     out = {}
     for k in REF_KEYS:
         v = re.sub(r"\s+", " ", str(raw.get(k) or "")).strip()[:60]
         a = _alnum(v)
-        if len(a) >= 3 and any(ch.isdigit() for ch in a) and a in flat:
+        if len(a) < 3 or not any(ch.isdigit() for ch in a):
+            continue
+        # Zeichen in Folge, dazwischen nur Trenner (Leerzeichen . / -), an Wortgrenzen – „2026 1“ darf nicht aus
+        # „… 2026, 1 …“ zusammengesetzt werden
+        pat = r"(?<![0-9a-zäöüß])" + r"[\s./-]?".join(re.escape(ch) for ch in a) + r"(?![0-9a-zäöüß])"
+        if re.search(pat, low):
             out[k] = v
     return out or None
 
@@ -805,7 +883,7 @@ def kind_fields(con, doc_id: int, data: dict, refill: bool = False) -> dict:
         return {}
     text = row["text"] or ""
     out = {}
-    kind = KINDS.get(str(data.get("kind") or "").strip().lower())
+    kind = kind_code(data.get("kind"))
     if kind and (not refill or row["doc_kind"] in (None, "info")):
         out["doc_kind"] = kind
     rec = recipient_from(data, text)
@@ -820,6 +898,8 @@ def kind_fields(con, doc_id: int, data: dict, refill: bool = False) -> dict:
 def apply_kind(con, doc_id: int, data: dict) -> None:
     """Bestand nachtragen (llm_status='refill_k', 26.11.2026): nur Art, Empfänger, Nummern."""
     fields = kind_fields(con, doc_id, data, refill=True)
+    if fields.get("doc_kind") in NON_MONEY_KINDS:
+        fields.update(direction="none", recurring=None)   # z. B. „Mitteilung“ → „Angebot“: Summe zählt nicht als Ausgabe
     if fields:
         con.execute(f"UPDATE documents SET {', '.join(f'{k}=?' for k in fields)} WHERE id=?", (*fields.values(), doc_id))
 
@@ -901,6 +981,27 @@ def apply_llm(con, doc_id: int, data: dict, allowed: set[str] | None = None) -> 
             "INSERT OR IGNORE INTO document_tags(document_id, tag_id, source) VALUES (?,?,'llm')",
             (doc_id, tag_id),
         )
+
+
+def apply_missing(con, doc_id: int, data: dict) -> None:
+    """Übernommen aus Paperless-ngx (llm_status='refill_p', 26.11.2026): die KI ergänzt nur, was fehlt (Betrag, Frist,
+    Zusammenfassung, Nummern …). Titel, Datum, Absender, Art und Tags aus dem Import bleiben – die Art geht als
+    Vorgabe in die Geld-Regeln (Richtung, Rhythmus) ein."""
+    row = con.execute("SELECT title, sender, document_date, doc_kind, amount, currency, summary FROM documents WHERE id=?",
+                      (doc_id,)).fetchone()
+    if not row:
+        return
+    d = dict(data)
+    # was inzwischen jemand von Hand eingetragen hat (Betrag, Zusammenfassung), bleibt ebenfalls; die Frist sowieso
+    for col, key in (("title", "title"), ("sender", "sender"), ("document_date", "document_date"), ("amount", "amount"),
+                     ("currency", "currency"), ("summary", "summary")):
+        if row[col]:
+            d.pop(key, None)
+    if row["doc_kind"]:
+        d["kind"] = row["doc_kind"]
+    if con.execute("SELECT 1 FROM document_tags WHERE document_id=? AND source<>'parent' LIMIT 1", (doc_id,)).fetchone():
+        d["tags"] = []
+    apply_llm(con, doc_id, d)
 
 
 def llm_test(url: str, model: str, key: str | None = None) -> dict:

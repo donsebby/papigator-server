@@ -62,6 +62,11 @@ BLOCKED = [
     ("post", "/settings/llm/retag", None),
     ("delete", "/bank/accounts/1", None),
     ("delete", "/bank/imports/1", None),
+    ("put", "/digest", {"enabled": True, "email": "besucher@example.org"}),
+    ("post", "/digest/test", None),
+    ("patch", "/settings/smtp", {"smtp_host": "evil"}),
+    ("post", "/settings/smtp/test", {}),
+    ("post", "/import/paperless", None),
 ]
 
 
@@ -74,7 +79,7 @@ def test_blocked_for_visitor(demo_on, family, method, url, body):
     assert r.json()["detail"] == DENIED
 
 
-@pytest.mark.parametrize("method,url,body", [b for b in BLOCKED if b[1].startswith(("/settings", "/users", "/invites"))])
+@pytest.mark.parametrize("method,url,body", [b for b in BLOCKED if b[1].startswith(("/settings", "/users", "/invites", "/import"))])
 def test_blocked_for_admin_too(demo_on, admin, method, url, body):
     """Zweite Sicherung: was nach draußen greift, geht in der Demo auch als Admin nicht."""
     kw = {"json": body} if body is not None else {}
@@ -238,6 +243,7 @@ REVIEWED_ALLOWED = {
     ("PATCH", "/documents/{doc_id}"),
     ("POST", "/due/assign"),
     ("POST", "/whatsnew/seen"),               # merkt nur, dass dieses Konto die Tour gesehen hat
+    ("POST", "/onboarding/dismiss"),          # blendet nur „Los geht’s“ dieses Kontos aus (in der Demo ohnehin nie gezeigt)
     ("POST", "/contracts/cancel-letter"),     # PDF zurück; „ablegen“ ist in der Demo gesperrt (app/cancel.py)                  # wie PATCH an der Frist: nur eigene/bearbeitbare Dokumente
     ("POST", "/documents/{doc_id}/accept"),
     ("POST", "/documents/{doc_id}/restore"),
@@ -246,6 +252,7 @@ REVIEWED_ALLOWED = {
     ("POST", "/duplicates/resolve"),          # legt das andere in den Papierkorb
     ("POST", "/duplicates/ignore"),
     ("POST", "/persons"), ("DELETE", "/persons/{tag_id}"),
+    ("POST", "/documents/{doc_id}/person"),   # Person ans Dokument hängen: wie Tags per PATCH, nur bearbeitbare
     ("POST", "/emergency/documents"), ("DELETE", "/emergency/documents/{doc_id}"),
     ("POST", "/bank/import"),                 # in der Demo bis 1 MB je Datei und bank.DEMO_MAX_TX Buchungen insgesamt
     ("PATCH", "/bank/accounts/{account_id}"),  # Name, wer mitsieht – lässt sich zurückstellen

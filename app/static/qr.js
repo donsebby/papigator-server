@@ -1,5 +1,5 @@
 /* QR-Code für Einladungslinks – klein, ohne Abhängigkeiten.
- * Byte-Modus, Fehlerkorrektur M, Version 1–10 (bis 213 Byte). Eigene Umsetzung nach ISO/IEC 18004; der
+ * Byte-Modus, Fehlerkorrektur M, Version 1–14 (bis 362 Byte, reicht für GiroCodes). Eigene Umsetzung nach ISO/IEC 18004; der
  * Aufbau folgt dem bekannten „QR Code generator“ von Project Nayuki (MIT), siehe THIRD_PARTY.md.
  * qrSvg(text) → SVG-Markup (schwarz auf weiß, 4 Module Ruhezone).
  *
@@ -17,8 +17,9 @@
  *   in the Software. */
 const QR = (() => {
   // Fehlerkorrektur-Codewörter pro Block und Anzahl Blöcke für Stufe M, Index = Version
-  const ECC = [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26];
-  const BLOCKS = [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5];
+  // Bis Version 14 (26.11.2026): ein GiroCode (EPC, bis 331 Byte) braucht bis Version 13
+  const ECC = [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24];
+  const BLOCKS = [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9];
 
   function rawModules(v) {
     let r = (16 * v + 128) * v + 64;
@@ -53,8 +54,9 @@ const QR = (() => {
   function encode(text) {
     const bytes = Array.from(new TextEncoder().encode(text));
     let v = 1;
-    for (; v <= 10; v++) if (4 + (v < 10 ? 8 : 16) + bytes.length * 8 <= dataCodewords(v) * 8) break;
-    if (v > 10) throw new Error("Text zu lang für den QR-Code");
+    const top = ECC.length - 1;
+    for (; v <= top; v++) if (4 + (v < 10 ? 8 : 16) + bytes.length * 8 <= dataCodewords(v) * 8) break;
+    if (v > top) throw new Error("Text zu lang für den QR-Code");
     // Bitstrom: Modus Byte (0100), Länge, Daten, Abschluss, Füllbytes
     const bits = [];
     const push = (val, n) => { for (let i = n - 1; i >= 0; i--) bits.push((val >>> i) & 1); };

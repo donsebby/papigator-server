@@ -430,12 +430,37 @@ CREATE TABLE IF NOT EXISTS demo_uploads (
 );
 CREATE INDEX IF NOT EXISTS idx_demo_uploads ON demo_uploads(user_id, at);
 """)
+        # Bezahlen per QR (26.11.2026, app/payment.py): pro Konto einschalten, Standard aus
+        ucols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
+        if "pay_qr" not in ucols:
+            con.execute("ALTER TABLE users ADD COLUMN pay_qr INTEGER NOT NULL DEFAULT 0")
         # Willkommen/„Was ist neu“ (25.11.2026, app/whatsnew.py): zuletzt gesehene Ausgabe pro Konto. Beim Einführen
         # bekommen bestehende Konten „0“ – sie kennen die App, sehen also die Neuerungen statt der Tour.
         if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='whatsnew_seen'").fetchone():
             con.execute("CREATE TABLE whatsnew_seen (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, "
                         "seen TEXT NOT NULL)")
             con.execute("INSERT INTO whatsnew_seen(user_id, seen) SELECT id, '0' FROM users")
+        # „Los geht’s“ (26.11.2026, app/onboarding.py): Konten, die die Karte ausgeblendet haben. Beim Einführen gelten
+        # alle bestehenden Konten als ausgeblendet – sie kennen die App; nur neue Konten sehen die ersten Schritte.
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='onboarding_dismissed'").fetchone():
+            con.execute("CREATE TABLE onboarding_dismissed (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, "
+                        "at TEXT NOT NULL DEFAULT (datetime('now')))")
+            con.execute("INSERT INTO onboarding_dismissed(user_id) SELECT id FROM users")
+        # Wochenübersicht per Mail (25.11.2026, app/digest.py): pro Konto an/aus, Wochentag (0 = Montag), Adresse;
+        # last_week = zuletzt gesendete ISO-Woche („2026-W48“) gegen Doppelversand, last_try für Wiederholungen
+        con.execute("""CREATE TABLE IF NOT EXISTS digest_prefs (
+            user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            enabled    INTEGER NOT NULL DEFAULT 0,
+            weekday    INTEGER NOT NULL DEFAULT 0,
+            email      TEXT NOT NULL DEFAULT '',
+            last_week  TEXT,
+            last_try   TEXT,
+            last_sent  TEXT,
+            last_error TEXT)""")
+        # Sprache der Wochenübersicht pro Konto (de | en); NULL = Sprache des Servers (Einstellung „Sprache der Erkennung“).
+        # Web-App und iOS-App schicken beim Speichern ihre Oberflächensprache mit.
+        if "lang" not in {r[1] for r in con.execute("PRAGMA table_info(digest_prefs)")}:
+            con.execute("ALTER TABLE digest_prefs ADD COLUMN lang TEXT")
         global _trigram
         _trigram = setup_trigram(con)
         con.execute("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)")

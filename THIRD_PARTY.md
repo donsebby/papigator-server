@@ -30,6 +30,8 @@ Programme oder Bibliotheken genutzt; die jeweiligen Lizenztexte liegen den Paket
 | python-multipart | Datei-Uploads | Apache 2.0 | https://github.com/Kludex/python-multipart |
 | bcrypt | Passwort-Hashing | Apache 2.0 | https://github.com/pyca/bcrypt |
 | cryptography | Verschlüsselung gespeicherter Geheimnisse (Fernet) | Apache 2.0 / BSD 3-Clause | https://github.com/pyca/cryptography |
+| python-zeroconf | Server im Heimnetz per Bonjour/mDNS ankündigen (`_papigator._tcp`) | LGPL 2.1 oder später | https://github.com/python-zeroconf/python-zeroconf |
+| ifaddr | Netzwerkadressen ermitteln (Abhängigkeit von python-zeroconf) | MIT | https://github.com/pydron/ifaddr |
 | SQLite mit FTS5 | Datenbank und Volltextsuche | Public Domain | https://sqlite.org |
 | Python | Laufzeit | PSF License | https://www.python.org |
 

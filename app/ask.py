@@ -23,6 +23,8 @@ ANSWER_PROMPT = """Du beantwortest Fragen zu privaten Dokumenten. Unten stehen A
 Regeln:
 - Antworte auf Deutsch, kurz und konkret. Nenne Zahlen, Nummern, Daten exakt so, wie sie im Text stehen.
 - Gib hinter jeder Aussage die Quelle an, z. B. [Dok 2].
+- In eckigen Klammern hinter dem Titel stehen Art, Empfänger und erkannte Nummern (Vertrags-, Kundennummer, Aktenzeichen)
+  des Dokuments – sie stammen aus dessen Text und gelten wie der Text.
 - Wenn die Ausschnitte die Frage nicht beantworten, sag das klar und rate nicht.
 - Erfinde nichts.
 
@@ -145,6 +147,8 @@ _NOT_KEYWORDS = {"meine", "mein", "meinen", "meiner", "welche", "welcher", "welc
                  # Englische Zeit- und Fragewörter („last 6 months“, „this year“, „since January“)
                  "last", "past", "previous", "this", "since", "month", "months", "week", "weeks", "year",
                  "years", "days", "ago", "which", "when", "show", "please", "much", "many",
+                 "does", "what", "where", "have", "with", "from", "that", "there", "were", "will", "your", "mine",
+                 "find", "about", "would", "could", "should", "next", "until",
                  *_NUMBERS, *_MONTHS, *_MONTHS_EN}
 
 
@@ -247,10 +251,67 @@ def future_window(question: str, today: dt.date | None = None) -> tuple[dt.date,
     return None
 
 
-def keywords_for(question: str) -> list[str]:
+# Sprache der Antwort (26.11.2026): die der Frage; ist sie nicht zu erkennen, die mitgeschickte Oberflächensprache
+# (`lang`), sonst Deutsch wie bisher. Der deutsche Prompt bleibt unverändert, Englisch tauscht nur die Sprach-Regel.
+_EN_WORDS = {"the", "what", "when", "how", "which", "where", "who", "why", "my", "our", "is", "are", "do", "does", "did",
+             "i", "me", "much", "many", "have", "has", "for", "of", "to", "on", "at", "last", "next", "this", "year",
+             "month", "insurance", "contract", "invoice", "bill", "pay", "paid", "due", "expire", "expires", "tax",
+             "spent", "show", "find", "and", "or", "any", "can", "should", "until", "since", "from", "with"}
+_DE_WORDS = {"der", "die", "das", "wann", "wie", "welche", "welcher", "welches", "wo", "wer", "warum", "mein", "meine",
+             "meinen", "meiner", "unser", "unsere", "ist", "sind", "habe", "hat", "ich", "für", "von", "zu", "im", "am",
+             "bis", "seit", "und", "oder", "letzte", "letzten", "nächste", "nächsten", "dieses", "jahr", "monat",
+             "versicherung", "vertrag", "rechnung", "zahlen", "bezahlt", "fällig", "läuft", "steuer", "ausgegeben",
+             "zeig", "finde", "gibt", "es", "ein", "eine", "einen", "den", "dem", "mit", "wieviel", "viel", "kann"}
+EN_ANSWER_RULE = "- Antworte auf Englisch (die Frage ist englisch), kurz und konkret."
+EN_KEYWORD_NOTE = ("\nDie Frage ist englisch, die Dokumente sind meist deutsch: Gib die Suchbegriffe auf Deutsch an "
+                   "(so, wie sie in deutschen Dokumenten stehen), dazu höchstens zwei englische.")
+_TEXTS = {
+    "off": {"de": "Fragen ist ausgeschaltet: Es ist keine KI eingetragen, die Dokumente dafür lesen darf.",
+            "en": "Asking is turned off: no AI is set up that may read documents for this."},
+    "none": {"de": "Dazu habe ich keine passenden Dokumente gefunden.",
+             "en": "I couldn't find any matching documents for that."},
+    "none_span": {"de": "Zwischen {a} und {b} habe ich dazu keine passenden Dokumente gefunden.",
+                  "en": "I couldn't find any matching documents between {a} and {b}."},
+    "unreachable": {"de": "Das LLM ist gerade nicht erreichbar.", "en": "The AI is not reachable right now."},
+    "recalc": {"de": " (vom Server nachgerechnet)", "en": " (recalculated by the server)"},
+}
+_EN_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+              "November", "December"]
+
+
+def question_lang(question: str, lang: str | None = None) -> str:
+    """'de' | 'en': Sprache der Frage nach häufigen Wörtern; unentschieden → lang (Oberfläche), sonst Deutsch."""
+    words = re.findall(r"[a-zäöüß]+", (question or "").lower())
+    en = sum(w in _EN_WORDS for w in words)
+    de = sum(w in _DE_WORDS for w in words) + 2 * len(re.findall(r"[äöüß]", (question or "").lower()))
+    if en > de:
+        return "en"
+    if de > en:
+        return "de"
+    return "en" if (lang or "").lower().startswith("en") else "de"
+
+
+def _t(key: str, lang: str, **kw) -> str:
+    return _TEXTS[key]["en" if lang == "en" else "de"].format(**kw)
+
+
+def _date_out(d: dt.date, lang: str) -> str:
+    return f"{d.day} {_EN_MONTHS[d.month - 1]} {d.year}" if lang == "en" else _de(d)
+
+
+def answer_prompt(lang: str = "de") -> str:
+    if lang != "en":
+        return ANSWER_PROMPT
+    return ANSWER_PROMPT.replace("- Antworte auf Deutsch, kurz und konkret.", EN_ANSWER_RULE, 1)
+
+
+def keywords_for(question: str, lang: str = "de") -> list[str]:
     words = []
     try:
-        content = _chat(KEYWORD_PROMPT.format(question=question), timeout=60, purpose="ask") or ""
+        prompt = KEYWORD_PROMPT.format(question=question)
+        if lang == "en":
+            prompt = prompt.replace("\n\nFrage:", EN_KEYWORD_NOTE + "\n\nFrage:", 1)
+        content = _chat(prompt, timeout=60, purpose="ask") or ""
         m = re.search(r"\[.*\]", content, re.S)
         if m:
             words = [str(w).strip() for w in json.loads(m.group(0)) if str(w).strip()]
@@ -604,16 +665,17 @@ def facts(owner_ids: list[int], today: dt.date, warranty: bool = False,
 
 
 def ask(question: str, owner_ids: list[int], limit: int = 8, today: dt.date | None = None,
-        extra_facts=None) -> dict:
+        extra_facts=None, lang: str | None = None) -> dict:
     """extra_facts(span) → Text: weitere verlässliche Übersicht (Kontoumsätze aus app/bank.py, mit den Rechten des
-    Fragenden gerechnet)."""
+    Fragenden gerechnet). lang: Oberflächensprache des Clients (de | en) – zählt, wenn die Frage selbst nicht eindeutig
+    ist; die Antwort kommt in der Sprache der Frage (Feld "lang" in der Antwort)."""
+    lang = question_lang(question, lang)
     if not llm.usable("ask"):
         # KI aus – oder nur ein Cloud-Server eingetragen, der fürs Fragen nicht freigegeben ist
-        return {"answer": "Fragen ist ausgeschaltet: Es ist keine KI eingetragen, die Dokumente dafür lesen darf.",
-                "sources": [], "keywords": [], "error": True}
+        return {"answer": _t("off", lang), "sources": [], "keywords": [], "error": True, "lang": lang}
     today = today or dt.date.today()
     span = time_range(question, today)
-    words = keywords_for(question)
+    words = keywords_for(question, lang)
     q = _fts_or_query(words)
     docs = []
     named = _named_senders(owner_ids, words) if owner_ids else {}
@@ -628,7 +690,7 @@ def ask(question: str, owner_ids: list[int], limit: int = 8, today: dt.date | No
         with connect() as con:
             def search(query):
                 return [dict(r) for r in con.execute(
-                    f"SELECT d.id, d.title, d.document_date, d.sender, d.amount, d.currency, d.text, "
+                    f"SELECT d.id, d.title, d.document_date, d.sender, d.amount, d.currency, d.doc_kind, d.recipient, d.refs, d.text, "
                     f"bm25(documents_fts) AS rank "
                     f"FROM documents_fts JOIN documents d ON d.id = documents_fts.rowid "
                     f"WHERE documents_fts MATCH ? AND d.deleted_at IS NULL AND d.ext_pending=0 AND d.owner_id IN ({marks}){where} "
@@ -646,7 +708,7 @@ def ask(question: str, owner_ids: list[int], limit: int = 8, today: dt.date | No
             if len(docs) < want and long and not restricted and has_trigram(con):
                 seen = [d["id"] for d in docs] or [0]
                 rows = con.execute(
-                    f"SELECT d.id, d.title, d.document_date, d.sender, d.amount, d.currency, d.text "
+                    f"SELECT d.id, d.title, d.document_date, d.sender, d.amount, d.currency, d.doc_kind, d.recipient, d.refs, d.text "
                     f"FROM documents_tri JOIN documents d ON d.id = documents_tri.rowid "
                     f"WHERE documents_tri MATCH ? AND d.deleted_at IS NULL AND d.ext_pending=0 AND d.owner_id IN ({marks}){where} "
                     f"AND d.id NOT IN ({','.join('?' * len(seen))}) ORDER BY bm25(documents_tri) LIMIT ?",
@@ -668,10 +730,10 @@ def ask(question: str, owner_ids: list[int], limit: int = 8, today: dt.date | No
         log.exception("Übersicht für die Frage fehlgeschlagen")
         overview = ""
     if not docs and not _OVERVIEW_Q.search(question):
-        none = "Dazu habe ich keine passenden Dokumente gefunden."
+        none = _t("none", lang)
         if span:
-            none = f"Zwischen {_de(span[0])} und {_de(span[1])} habe ich dazu keine passenden Dokumente gefunden."
-        return {"answer": none, "sources": [], "keywords": words, "range": _range_out(span)}
+            none = _t("none_span", lang, a=_date_out(span[0], lang), b=_date_out(span[1], lang))
+        return {"answer": none, "sources": [], "keywords": words, "range": _range_out(span), "lang": lang}
     if span:
         docs.sort(key=lambda d: d["document_date"] or "")  # zeitliche Fragen: chronologisch lesen
     # Kurze Dokumente (Abrechnungen, Bescheide) ganz mitgeben, lange als Ausschnitte um die Treffer
@@ -679,6 +741,7 @@ def ask(question: str, owner_ids: list[int], limit: int = 8, today: dt.date | No
     ctx_parts, sources = [], []
     for i, d in enumerate(docs, 1):
         head = f"[Dok {i}] {d['title']}" + (f" ({d['document_date']})" if d["document_date"] else "") + (f" – {d['sender']}" if d["sender"] else "")
+        head += _kind_head(d)
         if "warranty_until" in d.keys() and d["warranty_until"]:   # Kaufbeleg: Ende der Gewährleistung/Garantie
             what = "Garantie" if d["warranty_kind"] == "garantie" else "Gewährleistung"
             head += f" [{what} bis {_de(dt.date.fromisoformat(d['warranty_until']))}]"
@@ -691,13 +754,36 @@ def ask(question: str, owner_ids: list[int], limit: int = 8, today: dt.date | No
         range_note = (f" Gefragt ist der Zeitraum {_de(span[0])} bis {_de(span[1])}; die Dokumente unten stammen "
                       f"aus diesem Zeitraum.")
     try:
-        answer = _chat(ANSWER_PROMPT.format(question=question, context="\n\n".join(ctx_parts) or "(keine passenden gefunden)",
+        answer = _chat(answer_prompt(lang).format(question=question, context="\n\n".join(ctx_parts) or "(keine passenden gefunden)",
                                             today=_de(today), range_note=range_note, facts=overview),
                        timeout=240, purpose="ask") or ""
     except Exception as e:
         log.warning("Antwort fehlgeschlagen: %s", e)
-        return {"answer": "Das LLM ist gerade nicht erreichbar.", "sources": sources, "keywords": words, "error": True}
-    return {"answer": check_sum(answer.strip()), "sources": sources, "keywords": words, "range": _range_out(span)}
+        return {"answer": _t("unreachable", lang), "sources": sources, "keywords": words, "error": True, "lang": lang}
+    return {"answer": check_sum(answer.strip(), lang), "sources": sources, "keywords": words, "range": _range_out(span),
+            "lang": lang}
+
+
+_REF_NAMES = {"contract": "Vertragsnummer", "customer": "Kundennummer", "case": "Aktenzeichen",
+              "invoice": "Rechnungs-/Bestellnummer", "other": "Nummer"}
+
+
+def _kind_head(d: dict) -> str:
+    """Art, Empfänger und erkannte Nummern für den Kopf einer Quelle – „Wie ist meine Kundennummer bei …?“ steht so
+    gleich da, auch wenn der Ausschnitt die Stelle im Text nicht trifft. Nur, was beim Erkennen im Text stand."""
+    from .processing import KIND_LABELS   # späte Bindung: processing importiert ask (beim Taggen)
+    parts = []
+    if d.get("doc_kind") in KIND_LABELS:
+        parts.append("Art: " + KIND_LABELS[d["doc_kind"]][0])
+    if d.get("recipient"):
+        parts.append("an " + d["recipient"])
+    try:
+        refs = json.loads(d["refs"]) if d.get("refs") else {}
+    except ValueError:
+        refs = {}
+    if isinstance(refs, dict):
+        parts += [f"{_REF_NAMES[k]} {v}" for k, v in refs.items() if k in _REF_NAMES and str(v or "").strip()]
+    return f" [{'; '.join(parts)}]" if parts else ""
 
 
 # Fragen, die die Übersicht (Fristen, Verträge) auch ohne Dokumenttreffer beantworten kann
@@ -719,12 +805,12 @@ def _fmt_money(cents: int) -> str:
     return f"{cents // 100:,}".replace(",", ".") + f",{cents % 100:02}"
 
 
-def check_sum(answer: str) -> str:
+def check_sum(answer: str, lang: str = "de") -> str:
     """Sprachmodelle verrechnen sich bei Summen. Steht eine Liste mit je einem Betrag und danach eine Summenzeile
     in der Antwort, wird die Summe nachgerechnet und bei Abweichung ersetzt."""
     lines = answer.split("\n")
     for i, line in enumerate(lines):
-        if not re.match(r"\W*(gesamt\w*|summe|insgesamt)\b", line.strip(), re.I):
+        if not re.match(r"\W*(gesamt\w*|summe|insgesamt|total|sum)\b", line.strip(), re.I):
             continue
         if "[Übersicht]" in line:
             return answer   # Summe aus der Datenbank: zählt alle Belege, die Liste darüber zeigt oft nur einige
@@ -746,7 +832,7 @@ def check_sum(answer: str) -> str:
         total = sum(items)
         if _money(found[0]) != total:
             a, b = found[0].span()
-            lines[i] = line[:a] + _fmt_money(total) + line[b:] + " (vom Server nachgerechnet)"
+            lines[i] = line[:a] + _fmt_money(total) + line[b:] + _t("recalc", lang)
             log.info("Summe korrigiert: %s -> %s", found[0].group(0), _fmt_money(total))
         return "\n".join(lines)
     return answer

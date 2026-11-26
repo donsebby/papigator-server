@@ -193,7 +193,7 @@ def test_prompt_asks_for_money_and_keeps_date_rules():
     # die neuen Datums- und Fristen-Regeln bleiben
     assert "Formularstände" in p and "nicht raten" in p and "innerhalb von 14 Tagen" in p
     assert "Scan-, Fax- und Druckvermerke" in p and "{today}" in p                     # Stand von main
-    assert p.format(tag_rule="X", text="Y", today="16.11.2026")    # Platzhalter passen noch
+    assert p.format(tag_rule="X", text="Y", today="16.11.2026", lang_note="")    # Platzhalter passen noch
 
 
 # ---------- Geldfluss und Zweitscans ----------

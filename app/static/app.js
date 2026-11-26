@@ -19,7 +19,8 @@ async function api(path, opts = {}) {
   if (!r.ok) {
     let detail = null;
     try { detail = (await r.json()).detail; } catch {}
-    const msg = typeof detail === "string" ? detail : (detail && detail.message) || r.statusText;
+    // Fehlertexte des Servers sind deutsch – in der Sprache der Oberfläche zeigen (i18n.js → trErr)
+    const msg = trErr(typeof detail === "string" ? detail : (detail && detail.message) || r.statusText);
     const err = new Error(msg); err.status = r.status; err.detail = detail;
     throw err;
   }
@@ -33,7 +34,7 @@ async function checkUpdates() {
   const show = !!(u && u.newer && u.latest !== gone);
   $("#update-banner").classList.toggle("hidden", !show);
   if (!show) return;
-  $("#update-text").textContent = `Papigator ${u.latest} ist da – hier läuft noch ${u.current}.`;
+  $("#update-text").textContent = tr("Papigator {latest} ist da – hier läuft noch {current}.", { latest: u.latest, current: u.current });
   $("#update-link").href = u.url || "https://github.com/donsebby/papigator-server/releases";
   $("#update-dismiss").onclick = () => {
     try { localStorage.setItem("bl.update.hidden", u.latest); } catch {}
@@ -47,30 +48,51 @@ const WN_SVG = {
   search: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>`,
   check: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>`,
   sync: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5M20 20v-4h-4"/></svg>`,
+  folder: `<svg width="92" height="92" viewBox="0 0 24 24" fill="currentColor"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>`,
+  mail: `<svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2" fill="var(--surface-solid)"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></svg>`,
   shield: `<svg width="110" height="110" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>`,
 };
+// Ein ausgedachter QR-Code (Muster fest, kein Inhalt) – nur fürs Bild bei „Bezahlen per QR“
+function wnQR() {
+  let seed = 7, cells = "";
+  const fin = (x, y) => `<rect x="${x + .5}" y="${y + .5}" width="6" height="6" fill="none" stroke="currentColor"/><rect x="${x + 2}" y="${y + 2}" width="3" height="3"/>`;
+  for (let y = 0; y < 21; y++) for (let x = 0; x < 21; x++) {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    const inFinder = (x < 8 && y < 8) || (x > 12 && y < 8) || (x < 8 && y > 12);
+    if (!inFinder && seed % 5 < 2) cells += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
+  }
+  return `<svg viewBox="-1 -1 23 23" width="118" height="118" fill="currentColor" shape-rendering="crispEdges">${fin(0, 0)}${fin(14, 0)}${fin(0, 14)}${cells}</svg>`;
+}
 const WN_ILL = {
   scan: () => `<div class="wn-sheet wn-feed"></div><div class="wn-gator"><img class="g0" src="gator-wartet.webp" alt=""><img class="g1" src="gator-maul-auf.webp" alt=""><img class="g2" src="gator-kaut.webp" alt=""></div>`,
-  search: () => `<div class="wn-bar wn-card">${WN_SVG.search}<span class="wn-typed">Kfz-Versicherung</span></div>
-    <div class="wn-hit wn-card" style="top:86px"><b></b>Beitragsrechnung 2026</div>
-    <div class="wn-hit wn-card" style="top:134px;animation-delay:.15s"><b></b>Versicherungsschein</div>`,
-  due: () => `<div class="wn-cal wn-card"><b>Dezember</b><span>10</span></div><div class="wn-badge">${WN_SVG.check}</div>`,
+  search: () => `<div class="wn-bar wn-card">${WN_SVG.search}<span class="wn-typed">${tr("Kfz-Versicherung")}</span></div>
+    <div class="wn-hit wn-card" style="top:86px"><b></b>${tr("Beitragsrechnung 2026")}</div>
+    <div class="wn-hit wn-card" style="top:134px;animation-delay:.15s"><b></b>${tr("Versicherungsschein")}</div>`,
+  due: () => `<div class="wn-cal wn-card"><b>${tr("Dezember")}</b><span>10</span></div><div class="wn-badge">${WN_SVG.check}</div>`,
   money: () => `<div class="wn-bars"><i style="height:52px"></i><i style="height:92px;animation-delay:.15s"></i><i style="height:70px;animation-delay:.3s"></i><i style="height:122px;animation-delay:.45s"></i></div>`,
   family: () => `<div class="wn-avs">${[["A", "#4f8f6a"], ["S", "#d9774b"], ["M", "#8b5cf6"]].map(([l, c], i) => `<div class="wn-av" style="background:${c};animation-delay:${i * .2}s">${l}</div>`).join("")}</div>`,
-  notes: () => `<div class="wn-note">Rückruf am Montag, Herr Weber</div>`,
-  calendar: () => `<div class="wn-cal wn-card"><b>Kalender</b><span>14</span></div><div class="wn-sync">${WN_SVG.sync}</div><div class="wn-badge">${WN_SVG.check}</div>`,
-  cancel: () => `<div class="wn-letter wn-card"><strong>Kündigung</strong><br>Vertragsnr. 4711<br>zum nächstmöglichen Termin<div class="wn-stamp">Fertig</div></div>`,
+  notes: () => `<div class="wn-note">${tr("Rückruf am Montag, Herr Weber")}</div>`,
+  calendar: () => `<div class="wn-cal wn-card"><b>${tr("Kalender")}</b><span>14</span></div><div class="wn-sync">${WN_SVG.sync}</div><div class="wn-badge">${WN_SVG.check}</div>`,
+  cancel: () => `<div class="wn-letter wn-card"><strong>${tr("Kündigung")}</strong><br>${tr("Vertragsnr. 4711")}<br>${tr("zum nächstmöglichen Termin")}<div class="wn-stamp">${tr("Fertig")}</div></div>`,
   warranty: () => `<div class="wn-shield">${WN_SVG.shield}</div>`,
-  kinds: () => `<div class="wn-kinddoc wn-card"><i></i><i></i><i></i><span>An: Mia Muster</span>
-    ${["Zeugnis", "Vertrag", "Befund", "Urkunde"].map((k, i) => `<b style="animation-delay:${i * 1.2}s">${k}</b>`).join("")}</div>`,
+  kinds: () => `<div class="wn-kinddoc wn-card"><i></i><i></i><i></i><span>${tr("An: {name}", { name: "Mia Muster" })}</span>
+    ${[tr("Zeugnis"), tr("Vertrag"), tr("Befund"), tr("Urkunde")].map((k, i) => `<b style="animation-delay:${i * 1.2}s">${k}</b>`).join("")}</div>`,
   avatars: () => `<div class="wn-avs">${[["A", "#4f8f6a"], ["S", "#d9774b"], ["M", "#8b5cf6"]].map(([l, c], i) => `<div class="wn-av" style="background:${c}">${l}${i === 1 ? `<img src="mascot.png" alt="">` : ""}</div>`).join("")}</div>`,
+  pay: () => `<div class="wn-qr">${wnQR()}<i class="wn-scanline"></i></div><div class="wn-amount">${new Intl.NumberFormat(LOC, { style: "currency", currency: "EUR" }).format(49.9)}</div>`,
+  connect: () => `<div class="wn-radar"><i></i><i style="animation-delay:.9s"></i><i style="animation-delay:1.8s"></i></div>
+    <div class="wn-found wn-card"><img src="mascot.png" alt=""><span><b>Papigator</b><small>papigator.local</small></span></div>`,
+  import: () => `<div class="wn-zip wn-card">ZIP</div>${[0, 1, 2].map((i) => `<div class="wn-sheet wn-mv" style="animation-delay:${i * .6}s"></div>`).join("")}<div class="wn-folder">${WN_SVG.folder}</div>`,
+  lang: () => `<div class="wn-bubble wn-card"><span>Hallo!</span><span>Hello!</span></div>`,
+  mail: () => `<div class="wn-env">${WN_SVG.mail}<b>1</b></div>`,
 };
 let wn = null, wnChecked = false;
 async function checkWhatsNew(show = null) {
   if (!show && wnChecked) return;
   wnChecked = true;
-  const w = await api(`/whatsnew?client=web${show ? `&show=${show}` : ""}`).catch(() => null);
+  const w = await api(`/whatsnew?client=web&lang=${LANG}${show ? `&show=${show}` : ""}`).catch(() => null);
   if (!w || !w.mode || !w.cards.length || $("#whatsnew-dialog").open) return;
+  // Demo: ein Konto für alle Besucher – „gesehen“ merkt sich dieser Browser, nicht der Server
+  if (!show && state.me?.demo) { try { if (localStorage.getItem("bl.wn.demo") === w.release) return; } catch {} }
   wn = { ...w, i: 0, auto: !show };
   wnDraw();
   showDialog($("#whatsnew-dialog"));
@@ -79,7 +101,7 @@ function wnDraw() {
   const c = wn.cards[wn.i], last = wn.i === wn.cards.length - 1;
   const ill = $("#wn-ill");
   ill.innerHTML = `<div class="wn-in" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">${(WN_ILL[c.anim] || (() => `<img class="wn-bob" src="mascot.png" alt="">`))()}</div>`;
-  $("#wn-tag").textContent = wn.mode === "news" ? `Neu · ${wn.label || ""}` : "";
+  $("#wn-tag").textContent = wn.mode === "news" ? tr("Neu · {label}", { label: wn.label || "" }) : "";
   $("#wn-tag").classList.toggle("hidden", wn.mode !== "news");
   $("#wn-title").textContent = c.title;
   $("#wn-text").textContent = c.text;
@@ -88,7 +110,7 @@ function wnDraw() {
   $("#wn-dots").innerHTML = wn.cards.map((_, j) => `<i class="${j === wn.i ? "on" : ""}"></i>`).join("");
   $("#wn-back").classList.toggle("hidden", wn.i === 0);
   $("#wn-skip").classList.toggle("hidden", last);
-  $("#wn-next").textContent = last ? (wn.mode === "tour" ? "Los geht’s" : "Alles klar") : "Weiter";
+  $("#wn-next").textContent = last ? (wn.mode === "tour" ? tr("Los geht’s") : tr("Alles klar")) : tr("Weiter");
 }
 function wnStep(d) {
   if (!wn) return;
@@ -104,7 +126,8 @@ $("#whatsnew-dialog").addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight") { e.preventDefault(); wnStep(1); } else if (e.key === "ArrowLeft") { e.preventDefault(); wnStep(-1); }
 });
 $("#whatsnew-dialog").addEventListener("close", () => {
-  if (wn?.auto) api("/whatsnew/seen", { method: "POST" }).catch(() => {});   // auch Überspringen/Esc: nicht wieder zeigen
+  if (wn?.auto && state.me?.demo) { try { localStorage.setItem("bl.wn.demo", wn.release); } catch {} }
+  else if (wn?.auto) api("/whatsnew/seen", { method: "POST" }).catch(() => {});   // auch Überspringen/Esc: nicht wieder zeigen
   wn = null; $("#wn-ill").innerHTML = "";
 });
 $("#s-whatsnew").onclick = (e) => { e.preventDefault(); checkWhatsNew("news"); };
@@ -117,21 +140,22 @@ function renderUpdateStatus(u) {
   $("#s-update-check-row").classList.toggle("hidden", !u);
   if (!u) { box.textContent = ""; return; }
   $("#s-update-check").checked = u.enabled;
-  const when = u.checked ? new Date(u.checked).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : null;
+  const when = u.checked ? new Date(u.checked).toLocaleString(LOC, { dateStyle: "short", timeStyle: "short" }) : null;
   let state;
-  if (!u.enabled) state = "Hinweis auf neue Versionen ist aus";
-  else if (u.newer) state = `Neu: Papigator ${esc(u.latest)} – <a href="${esc(u.url || "https://github.com/donsebby/papigator-server/releases")}" target="_blank" rel="noopener">Was ist neu?</a>`;
-  else if (!when) state = "Ob es eine neuere Version gibt, ließ sich noch nicht prüfen (GitHub nicht erreichbar)";
-  else state = `Aktuellste Version${u.latest ? "" : " (noch keine neuere veröffentlicht)"} · zuletzt geprüft ${esc(when)}`;
+  if (!u.enabled) state = esc(tr("Hinweis auf neue Versionen ist aus"));
+  else if (u.newer) state = `${esc(tr("Neu: Papigator {v}", { v: u.latest }))} – <a href="${esc(u.url || "https://github.com/donsebby/papigator-server/releases")}" target="_blank" rel="noopener">${esc(tr("Was ist neu?"))}</a>`;
+  else if (!when) state = esc(tr("Ob es eine neuere Version gibt, ließ sich noch nicht prüfen (GitHub nicht erreichbar)"));
+  else state = esc(u.latest ? tr("Aktuellste Version · zuletzt geprüft {when}", { when })
+    : tr("Aktuellste Version (noch keine neuere veröffentlicht) · zuletzt geprüft {when}", { when }));
   box.innerHTML = `<b>Server ${esc(u.current)}</b> · ${state}`;
-  $("#s-version").textContent = `Server ${u.current}` + (u.enabled ? (u.newer ? ` · ${u.latest} verfügbar` : when ? " · aktuell" : "") : "");
+  $("#s-version").textContent = `Server ${u.current}` + (u.enabled ? (u.newer ? ` · ${tr("{v} verfügbar", { v: u.latest })}` : when ? ` · ${tr("aktuell")}` : "") : "");
 }
 $("#s-update-check").onchange = async (e) => {
   try {
     await api("/settings", json("PATCH", { update_check: e.target.checked }));
     renderUpdateStatus(await api("/updates").catch(() => null));
     if (e.target.checked) checkUpdates(); else $("#update-banner").classList.add("hidden");
-  } catch (err) { e.target.checked = !e.target.checked; toast("Fehler: " + err.message); }
+  } catch (err) { e.target.checked = !e.target.checked; toast(tr("Fehler: {msg}", { msg: err.message })); }
 };
 $("#s-update-now").onclick = async () => {
   $("#s-update-now").disabled = true;
@@ -153,6 +177,9 @@ const json = (method, body, extra = {}) =>
 // ---------- Screens ----------
 function show(id) {
   for (const s of document.querySelectorAll(".screen")) s.classList.add("hidden");
+  // Tab-Leiste (Handy) nur zur Übersicht – nicht im Dokument, in den Einstellungen oder beim Anmelden
+  $("#tabbar").classList.toggle("hidden", id !== "#main");
+  document.body.classList.toggle("on-main", id === "#main");
   const el = $(id);
   const was = el.classList.contains("hidden");
   el.classList.remove("hidden");
@@ -193,7 +220,9 @@ function segKnob(seg) {
     } else if (!animate || first) k.style.transition = "none";
     k.style.opacity = "1";
     k.style.width = b.offsetWidth + "px";
-    k.style.transform = `translateX(${b.offsetLeft}px)`;
+    // Umgebrochener Umschalter (Startansicht auf dem Handy): Gleiter auch in die zweite Zeile
+    k.style.height = b.offsetHeight + "px"; k.style.bottom = "auto";
+    k.style.transform = `translate(${b.offsetLeft}px, ${b.offsetTop - 3}px)`;
     if (key) segLast[key] = { x: b.offsetLeft, w: b.offsetWidth };
     if ((!animate || first) && !prev) { void k.offsetWidth; k.style.transition = ""; }
   };
@@ -208,25 +237,33 @@ function showLogin() { layers.length = 0; show("#login"); $("#login-user").focus
 // Verlaufseintrag: Browser-Zurück (Taste, Maus, Wischgeste) schließt die oberste Ebene. Schließt man sie
 // selbst (Knopf, Esc), wird ihr Eintrag mit history.go() zurückgenommen, damit Zurück danach nicht ins
 // Leere führt. Dokument, Ordner und Papierkorb haben eigene Einträge (siehe dort).
-const layers = [];          // offene Ebenen, die oberste zuletzt: { name, close }
-let skipLayerPops = 0;
+// Jede Ebene trägt eine Nummer (lid, auch im Verlaufseintrag), die über ein Neuladen hinweg weiter steigt: Zurück
+// schließt alle Ebenen, die nach dem Zieleintrag geöffnet wurden – auch wenn eine darunter schon ohne eigenen
+// Schritt zurück ausgetragen wurde (siehe closeLayer).
+const layers = [];          // offene Ebenen, die oberste zuletzt: { name, close, lid }
+let skipLayerPops = 0, layerSeq = Date.now();
 function openLayer(name, close) {
   if (layers.length && layers[layers.length - 1].name === name) return;   // z. B. Einstellungen neu laden
-  layers.push({ name, close });
+  const lid = ++layerSeq;
+  layers.push({ name, close, lid });
   const { id, ...keep } = history.state || {};   // Ordner/Papierkorb mitnehmen, das Dokument nicht
-  history.pushState({ ...keep, layer: name, depth: layers.length }, "");
+  history.pushState({ ...keep, layer: name, depth: layers.length, lid }, "");
 }
-function closeLayer(name) {
-  const i = layers.map((l) => l.name).lastIndexOf(name);
-  if (i < 0) return;
-  const n = layers.length - i;
-  layers.splice(i);
-  skipLayerPops++; history.go(-n);
+// Ebenen austragen, auf die pred passt. Zurückgeblättert wird nur, solange sie oben liegen und der aktuelle
+// Verlaufseintrag der obersten gehört – liegt etwas Eigenes darüber (Einstellungen über „Was ist neu“, ein Dokument
+// über einem Dialog), wird die Ebene nur ausgetragen; ein Schritt zurück schlösse sonst das Falsche.
+function closeLayers(pred) {
+  let n = 0;
+  if (layers.length && history.state && history.state.lid === layers[layers.length - 1].lid)
+    while (layers.length && pred(layers[layers.length - 1])) { layers.pop(); n++; }
+  for (let i = layers.length - 1; i >= 0; i--) if (pred(layers[i])) layers.splice(i, 1);
+  if (n) { skipLayerPops++; history.go(-n); }
 }
+function closeLayer(name) { closeLayers((l) => l.name === name); }
 window.addEventListener("popstate", (e) => {
   if (skipLayerPops) { skipLayerPops--; return; }
-  const depth = e.state && e.state.layer ? e.state.depth : 0;
-  while (layers.length > depth) layers.pop().close();
+  const lid = (e.state && e.state.layer && e.state.lid) || 0;
+  while (layers.length && layers[layers.length - 1].lid > lid) layers.pop().close();
 });
 // Dialoge: beim Öffnen eine Ebene, beim Schließen (Knopf, Esc) wieder weg
 function showDialog(d) {
@@ -270,7 +307,7 @@ $("#setup-form").addEventListener("submit", async (e) => {
       username: $("#setup-user").value, display_name: $("#setup-name").value, password: $("#setup-pass").value, is_admin: true,
     }, { Authorization: "Bearer " + $("#setup-token").value.trim() }));
     await api("/auth/login", json("POST", { username: $("#setup-user").value, password: $("#setup-pass").value, label: "Web" }));
-    toast("Nutzer angelegt");
+    toast(tr("Nutzer angelegt"));
     enterMain();
   } catch (err) { $("#setup-error").textContent = err.message; $("#setup-error").classList.remove("hidden"); }
 });
@@ -289,26 +326,27 @@ function clearInviteHash() {
 function inviteFailed(msg) {
   inviteToken = null; clearInviteHash();
   $("#inv-fields").classList.add("hidden");
-  $("#inv-title").textContent = "Einladung";
+  $("#inv-title").textContent = tr("Einladung");
   $("#inv-sub").textContent = msg;
 }
 async function showInvite(token) {
   inviteToken = token;
   layers.length = 0; show("#invite");
   $("#inv-fields").classList.add("hidden"); $("#inv-error").classList.add("hidden");
-  $("#inv-title").textContent = "Einladung"; $("#inv-sub").textContent = "Einladung wird geprüft …";
+  $("#inv-title").textContent = tr("Einladung"); $("#inv-sub").textContent = tr("Einladung wird geprüft …");
   let r;
   try { r = await fetch(`/invites/${encodeURIComponent(token)}`, { credentials: "omit" }); }
-  catch { $("#inv-sub").textContent = "Keine Verbindung zum Server – bitte später noch einmal öffnen."; return; }
+  catch { $("#inv-sub").textContent = tr("Keine Verbindung zum Server – bitte später noch einmal öffnen."); return; }
   if (!r.ok) {
-    let detail = ""; try { detail = (await r.json()).detail || ""; } catch {}
-    if (r.status === 429) { $("#inv-sub").textContent = detail || "Zu viele Versuche – bitte später noch einmal."; return; }
-    inviteFailed(r.status === 404 ? "Diese Einladung gibt es nicht (mehr) – vielleicht wurde sie zurückgezogen. Bitte um eine neue." : `${detail || "Diese Einladung gilt nicht mehr"}. Bitte um eine neue.`);
+    let detail = ""; try { detail = trErr((await r.json()).detail || ""); } catch {}
+    if (r.status === 429) { $("#inv-sub").textContent = detail || tr("Zu viele Versuche – bitte später noch einmal."); return; }
+    inviteFailed(r.status === 404 ? tr("Diese Einladung gibt es nicht (mehr) – vielleicht wurde sie zurückgezogen. Bitte um eine neue.")
+      : tr("{msg}. Bitte um eine neue.", { msg: detail || tr("Diese Einladung gilt nicht mehr") }));
     return;
   }
   const info = await r.json();
-  $("#inv-title").textContent = `${info.display_name}, du wurdest zu Papigator eingeladen`;
-  $("#inv-sub").textContent = `Server: ${info.server_name}. Wähle einen Benutzernamen und ein Passwort – damit meldest du dich später auch in der App an.`;
+  $("#inv-title").textContent = tr("{name}, du wurdest zu Papigator eingeladen", { name: info.display_name });
+  $("#inv-sub").textContent = tr("Server: {server}. Wähle einen Benutzernamen und ein Passwort – damit meldest du dich später auch in der App an.", { server: info.server_name });
   $("#inv-fields").classList.remove("hidden");
   $("#inv-user").focus();
 }
@@ -319,19 +357,43 @@ $("#invite-form").addEventListener("submit", async (e) => {
     await api(`/invites/${encodeURIComponent(inviteToken)}/redeem`, json("POST", {
       username: $("#inv-user").value.trim(), password: $("#inv-pass").value, label: "Web" }));
     $("#inv-pass").value = ""; inviteToken = null; clearInviteHash();
-    toast("Willkommen bei Papigator!");
+    toast(tr("Willkommen bei Papigator!"));
     enterMain();
   } catch (err) {
-    if (err.status === 404 || err.status === 410) { inviteFailed(`${err.message}. Bitte um eine neue Einladung.`); return; }
+    if (err.status === 404 || err.status === 410) { inviteFailed(tr("{msg}. Bitte um eine neue Einladung.", { msg: err.message })); return; }
     $("#inv-error").textContent = err.message; $("#inv-error").classList.remove("hidden");
   }
 });
 $("#inv-to-login").onclick = (e) => { e.preventDefault(); inviteToken = null; clearInviteHash(); showLogin(); };
 // Link in einen offenen Tab eingefügt: Seite lädt nicht neu, nur der Hash ändert sich
-window.addEventListener("hashchange", () => { const t = inviteFromHash(); if (t) showInvite(t); });
+window.addEventListener("hashchange", () => {
+  const t = inviteFromHash();
+  if (t) { showInvite(t); return; }
+  // Links aus der Wochenübersicht (#doc-<id>, #review, #weekly). Eigene Einträge (Dokument: {id}) kommen über
+  // popstate – ein eingefügter Link hat noch keinen Zustand; sonst öffnete „Vor“ das Dokument ein zweites Mal.
+  if (history.state || !/^#(doc-\d+|review|weekly)$/.test(location.hash)) return;
+  startLink = location.hash;
+  if (!$("#login").classList.contains("hidden") || !$("#setup").classList.contains("hidden") || !$("#invite").classList.contains("hidden")) return;   // nach dem Anmelden
+  // Aus Einstellungen, Dokument, Dialog oder Ebene heraus: sauber neu starten (der Start öffnet den Link)
+  if ($("#main").classList.contains("hidden") || layers.length || document.querySelector("dialog[open]")) { location.reload(); return; }
+  openStartLink();
+});
 
 // ---------- Main ----------
 let settingsGen = 0;   // zählt openSettings hoch (siehe enterMain)
+// Links aus der Wochenübersicht (Mail): /app/#doc-<id>, #review, #weekly – einmal beim Start, auch nach dem Anmelden.
+// Der Hash kommt vorher aus der Adresse, damit Browser-Zurück nicht auf denselben Link zurückspringt.
+let startLink = /^#(doc-\d+|review|weekly)$/.test(location.hash) ? location.hash : null;
+function openStartLink() {
+  const link = startLink;
+  startLink = null;
+  if (!link) return;
+  history.replaceState(history.state, "", location.pathname + location.search);
+  if (link.startsWith("#doc-")) openDetail(Number(link.slice(5))).catch(() => toast(tr("Dokument nicht gefunden")));
+  else if (link === "#review") { state.review = true; renderTagBar(); loadDocs(); }
+  else openSettingsSection("s-digest-sect");
+}
+
 async function enterMain() {
   const gen = settingsGen;
   state.me = await api("/auth/me");
@@ -345,21 +407,25 @@ async function enterMain() {
   show("#main");
   $("#demo-banner").classList.toggle("hidden", !state.me.demo);
   if (state.me.is_admin) checkUpdates(); else $("#update-banner").classList.add("hidden");
-  checkWhatsNew();
+  // Mit Start-Link (Dokument, „Zu prüfen“, Wochenübersicht) kein „Was ist neu“ darüber – Esc/Überspringen schlösse
+  // sonst den Link mit. Es kommt beim nächsten Weg zurück in die Übersicht (enterMain, z. B. nach den Einstellungen).
+  if (!startLink) checkWhatsNew();
   renderHello();
   renderScopeBar();
   applyMode();
-  await Promise.all([loadTags(), loadYears(), loadDocs(), loadViews()]);
+  await Promise.all([loadTags(), loadYears(), loadDocs(), loadViews(),
+    loadKinds().then(() => { if (state.docs.length) renderGrid(); })]);
   startPolling();
+  openStartLink();
 }
 
 /// „Guten Abend, Alex“ – nur der Vorname (wie „Heute“ in der App); darüber das Datum
 function renderHello() {
   const now = new Date(), h = now.getHours();
   const first = (state.me?.display_name || state.me?.username || "").trim().split(/\s+/)[0];
-  const hi = h >= 5 && h < 11 ? "Guten Morgen" : h >= 11 && h < 18 ? "Guten Tag" : "Guten Abend";
+  const hi = h >= 5 && h < 11 ? tr("Guten Morgen") : h >= 11 && h < 18 ? tr("Guten Tag") : tr("Guten Abend");
   $("#hello-title").textContent = first ? `${hi}, ${first}` : hi;
-  $("#hello-date").textContent = now.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+  $("#hello-date").textContent = now.toLocaleDateString(LOC, { weekday: "long", day: "numeric", month: "long" });
 }
 
 async function loadYears() {
@@ -368,14 +434,23 @@ async function loadYears() {
   renderTagBar();
 }
 
+// Meine/Partner: breit oben neben der Suche, am Handy unter dem Titel „Dokumente“ (wie DocumentsView der App)
+const phoneLayout = matchMedia("(max-width: 767px)");
+function placeScope() {
+  const bar = $("#scopebar");
+  if (phoneLayout.matches) { if (bar.parentElement !== $("#scope-slot")) $("#scope-slot").appendChild(bar); }
+  else if (bar.parentElement !== $(".topbar")) $(".topbar .search").after(bar);
+}
+phoneLayout.addEventListener("change", placeScope);
+placeScope();
 function renderScopeBar() {
   const hasPartner = state.me.shared_with_me.length > 0;
   $("#scopebar").classList.toggle("hidden", !hasPartner);
   if (!hasPartner) { state.scope = "mine"; return; }
   const seg = $("#scope-seg"); seg.innerHTML = "";
   const opts = state.me.show_partner_in_overview
-    ? [["all", "Alle"], ["mine", "Meine"], ["partner", "Partner"]]
-    : [["mine", "Meine"], ["partner", "Partner"]];
+    ? [["all", tr("Alle")], ["mine", tr("Meine")], ["partner", tr("Partner")]]
+    : [["mine", tr("Meine")], ["partner", tr("Partner")]];
   for (const [val, label] of opts) {
     const b = document.createElement("button");
     b.textContent = label; b.className = state.scope === val ? "active" : "";
@@ -384,11 +459,23 @@ function renderScopeBar() {
   }
 }
 
+// „Zu prüfen“ zählen: gleichzeitige Abfragen (Filterleiste und „Heute“ beim Start, Polling) teilen sich eine Antwort
+let reviewCountReq = null;
+function reviewCount() {
+  const key = state.scope;
+  if (reviewCountReq && reviewCountReq.key === key) return reviewCountReq.p;
+  const p = api("/documents/review_count?scope=" + key);
+  reviewCountReq = { key, p };
+  const done = () => { if (reviewCountReq && reviewCountReq.p === p) reviewCountReq = null; };
+  p.then(done, done);
+  return p;
+}
 async function loadTags() {
   let tc;
   [state.tags, { count: state.reviewCount }, tc, state.dueCount, state.warrantyCount] = await Promise.all([
-    api("/tags?scope=" + state.scope), api("/documents/review_count?scope=" + state.scope), api("/trash/count"),
-    api("/documents/due_count?scope=" + state.scope).catch(() => ({ count: 0, overdue: 0 })),
+    api("/tags?scope=" + state.scope), reviewCount(), api("/trash/count"),
+    // alle offenen Fristen (wie die Liste hinter dem Chip, due=true hat keine Grenze) – 3650 Tage ist das Höchste
+    api(`/documents/due_count?scope=${state.scope}&days=3650`).catch(() => ({ count: 0, overdue: 0 })),
     api("/documents/warranty_count?scope=" + state.scope).catch(() => ({ count: 0, soon: 0 }))]);
   state.trashCount = tc.count; state.trashDays = tc.days;
 
@@ -401,6 +488,7 @@ async function loadTags() {
    Die Auswahl passiert in einem Popover; ein aktiver Filter wird zum gefüllten Chip mit ✕. */
 function renderTagBar() {
   renderSmartBar();
+  renderAskOffer();   // Suchfeld von außen geändert (Ansicht gewechselt, Papierkorb): „Papigator fragen“ passend
   const bar = $("#tagbar"); bar.innerHTML = "";
   // Während einer Suche in Sätzen stehen ihre Chips oben; die Filter hier bleiben gemerkt und kommen nach dem Leeren zurück
   bar.classList.toggle("hidden", smartOn());
@@ -411,31 +499,33 @@ function renderTagBar() {
   // „Zu prüfen“ und „Papierkorb“ bleiben: das sind Orte, keine Filter.
   // „Heute“ zeigt wie die Ordner nur die Orte – gleiche Leiste, damit beim Umschalten nichts springt
   const folders = state.mode === "folders" || todayBrowsing() || moneyBrowsing();
-  $("#search").placeholder = state.mode === "money" ? "Buchungen suchen, z. B. Amazon September 2026 …"
-    : folders && state.tag && !state.trash ? `In „${state.tag}“ suchen …` : "Suchen …";
+  $("#search").placeholder = state.mode === "money" ? tr("Buchungen suchen, z. B. Amazon September 2026 …")
+    : folders && state.tag && !state.trash ? tr("In „{tag}“ suchen …", { tag: state.tag }) : tr("Suchen oder fragen …");
 
   if (folders && state.tag && state.q && !state.trash && !state.review) {
-    bar.appendChild(chip(`In „${state.tag}“`, !state.searchAll, () => { state.searchAll = false; renderTagBar(); loadDocs(); }));
-    bar.appendChild(chip("Überall", !!state.searchAll, () => { state.searchAll = true; renderTagBar(); loadDocs(); }));
+    bar.appendChild(chip(tr("In „{tag}“", { tag: state.tag }), !state.searchAll, () => { state.searchAll = false; renderTagBar(); loadDocs(); }));
+    bar.appendChild(chip(tr("Überall"), !!state.searchAll, () => { state.searchAll = true; renderTagBar(); loadDocs(); }));
   }
   if (!folders && (state.tag || state.year || state.review || state.due || state.warranty || state.sender || state.kind)) {
-    bar.appendChild(chip("Alle", false, () => { state.tag = null; state.year = null; state.review = false; state.due = false; state.warranty = false; state.sender = null; state.kind = null; renderTagBar(); loadDocs(); }));
+    bar.appendChild(chip(tr("Alle"), false, () => { state.tag = null; state.year = null; state.review = false; state.due = false; state.warranty = false; state.sender = null; state.kind = null; renderTagBar(); loadDocs(); }));
   }
-  if (state.reviewCount || state.review) {
-    const r = chip(`Zu prüfen · ${state.reviewCount}`, state.review, () => { state.review = !state.review; state.due = false; state.warranty = false; state.tag = null; renderTagBar(); loadDocs(); }, "#ffb347");
+  // In „Heute“ steht „Zu prüfen“ schon als Karte (gleiche Zahl) – dort kein zweiter Chip; der Papierkorb bleibt, damit
+  // die Leiste gleich hoch bleibt und er von „Heute“ aus erreichbar ist
+  if ((state.reviewCount || state.review) && !todayBrowsing()) {
+    const r = chip(tr("Zu prüfen · {n}", { n: state.reviewCount }), state.review, () => { state.review = !state.review; state.due = false; state.warranty = false; state.tag = null; renderTagBar(); loadDocs(); }, "#ffb347");
     r.classList.add("review"); bar.appendChild(r);
   }
-  // Fristen: überfällig oder in den nächsten 30 Tagen fällig
+  // Offene Fristen – alle, nicht erledigten; Zahl und Liste dahinter zählen dasselbe
   const dc = state.dueCount || { count: 0, overdue: 0 };
   if (!folders && (dc.count || state.due)) {
-    const f = chip(`Fristen · ${dc.count}${dc.overdue ? ` (${dc.overdue} überfällig)` : ""}`, state.due,
+    const f = chip(dc.overdue ? tr("Offene Fristen · {n} ({o} überfällig)", { n: dc.count, o: dc.overdue }) : tr("Offene Fristen · {n}", { n: dc.count }), state.due,
       () => { state.due = !state.due; state.warranty = false; state.review = false; state.tag = null; renderTagBar(); loadDocs(); }, dc.overdue ? "#e5484d" : "#ffb347");
     f.classList.add("review"); bar.appendChild(f);
   }
   // Garantie: Käufe, deren Gewährleistung oder Garantie noch läuft (nach Ende sortiert)
   const wc = state.warrantyCount || { count: 0, soon: 0 };
   if (!folders && (wc.count || state.warranty)) {
-    const w = chip(`Garantie · ${wc.count}${wc.soon ? ` (${wc.soon} endet bald)` : ""}`, state.warranty,
+    const w = chip(wc.soon ? tr("Garantie · {n} ({s} endet bald)", { n: wc.count, s: wc.soon }) : tr("Garantie · {n}", { n: wc.count }), state.warranty,
       () => { state.warranty = !state.warranty; state.due = false; state.review = false; state.tag = null; renderTagBar(); loadDocs(); }, "#3ba7a0");
     w.classList.add("review"); bar.appendChild(w);
   }
@@ -446,7 +536,7 @@ function renderTagBar() {
     const c = chip(state.tag, true, () => { state.tag = null; renderTagBar(); loadDocs(); }, tagColor(state.tag, cur?.color));
     c.appendChild(closeX()); bar.appendChild(c);
   } else if (used.length) {
-    const c = chip("Tag", false, (e) => openTagPopover(e.currentTarget, used)); c.appendChild(caret()); bar.appendChild(c);
+    const c = chip(tr("Tag"), false, (e) => openTagPopover(e.currentTarget, used)); c.appendChild(caret()); bar.appendChild(c);
   }
   if (folders) {
     // –
@@ -454,15 +544,15 @@ function renderTagBar() {
     const c = chip(String(state.year), true, () => { state.year = null; renderTagBar(); loadDocs(); });
     c.appendChild(closeX()); bar.appendChild(c);
   } else if (years.length > 1) {
-    const c = chip("Jahr", false, (e) => openYearPopover(e.currentTarget, years)); c.appendChild(caret()); bar.appendChild(c);
+    const c = chip(tr("Jahr"), false, (e) => openYearPopover(e.currentTarget, years)); c.appendChild(caret()); bar.appendChild(c);
   }
   if (folders) {
     // –
   } else if (state.sender) {
-    const c = chip(state.sender, true, () => { state.sender = null; state.kind = null; renderTagBar(); loadDocs(); });
+    const c = chip(state.sender, true, () => { state.sender = null; renderTagBar(); loadDocs(); });
     c.appendChild(closeX()); bar.appendChild(c);
   } else if (!state.trash) {
-    const c = chip("Absender", false, (e) => openSenderPopover(e.currentTarget)); c.appendChild(caret()); bar.appendChild(c);
+    const c = chip(tr("Absender"), false, (e) => openSenderPopover(e.currentTarget)); c.appendChild(caret()); bar.appendChild(c);
   }
   if (folders) {
     // –
@@ -470,17 +560,24 @@ function renderTagBar() {
     const c = chip(state.kindLabels[state.kind] || state.kind, true, () => { state.kind = null; renderTagBar(); loadDocs(); });
     c.appendChild(closeX()); bar.appendChild(c);
   } else if (!state.trash) {
-    const c = chip("Art", false, (e) => openKindPopover(e.currentTarget)); c.appendChild(caret()); bar.appendChild(c);
+    const c = chip(tr("Art"), false, (e) => openKindPopover(e.currentTarget)); c.appendChild(caret()); bar.appendChild(c);
   }
   if (!folders && !state.trash && (state.views.length || Object.keys(currentViewParams()).some((k) => k !== "scope"))) {
-    const c = chip(state.views.length ? `Gespeichert · ${state.views.length}` : "Suche speichern", false, (e) => openViewsPopover(e.currentTarget));
+    const c = chip(state.views.length ? tr("Gespeichert · {n}", { n: state.views.length }) : tr("Suche speichern"), false, (e) => openViewsPopover(e.currentTarget));
     c.appendChild(caret()); bar.appendChild(c);
   }
-  const t = chip(state.trashCount ? `Papierkorb · ${state.trashCount}` : "Papierkorb", state.trash, () => openTrash(!state.trash));
-  t.classList.add("more"); t.style.marginLeft = "auto";
-  t.insertBefore(trashIcon(), t.firstChild);
-  bar.appendChild(t);
+  // Der Papierkorb ist ein Ort, kein Filter: Knopf in der Leiste von „Dokumente“ und unter Einstellungen › Dokumente
+  renderTrashButton();
+  if (!bar.children.length) bar.classList.add("hidden");
 }
+function renderTrashButton() {
+  const b = $("#trash-btn");
+  b.classList.toggle("active", state.trash);
+  b.setAttribute("aria-pressed", String(state.trash));
+  $("#trash-btn-count").textContent = state.trashCount ? String(state.trashCount) : "";
+  b.title = state.trashCount ? tr("Papierkorb · {n}", { n: state.trashCount }) : tr("Papierkorb");
+}
+$("#trash-btn").onclick = () => openTrash(!state.trash);
 function caret() {
   const s = document.createElement("span"); s.className = "caret";
   s.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -517,12 +614,12 @@ function closePopover() { $("#popover")._close?.(); }
 function openTagPopover(anchor, used) {
   openPopover(anchor, (pop) => {
     const input = document.createElement("input");
-    input.type = "search"; input.placeholder = "Tag suchen …"; input.className = "pop-search"; input.autocomplete = "off";
+    input.type = "search"; input.placeholder = tr("Tag suchen …"); input.className = "pop-search"; input.autocomplete = "off";
     const list = document.createElement("div"); list.className = "pop-chips";
     const render = () => {
       const q = input.value.trim().toLowerCase(); list.innerHTML = "";
       const show = used.filter((t) => !q || t.name.toLowerCase().includes(q));
-      if (!show.length) list.innerHTML = `<span class="muted small">Kein Tag passt.</span>`;
+      if (!show.length) list.innerHTML = `<span class="muted small">${esc(tr("Kein Tag passt."))}</span>`;
       for (const t of show) {
         const c = chip(t.name, state.tag === t.name, () => { state.tag = t.name; state.review = false; closePopover(); renderTagBar(); loadDocs(); }, tagColor(t.name, t.color));
         const cnt = document.createElement("span"); cnt.className = "cnt"; cnt.textContent = t.count; c.appendChild(cnt);
@@ -538,26 +635,28 @@ function openTagPopover(anchor, used) {
 }
 
 // Detail: Art, Empfänger, Nummern (Server: processing.kind_fields)
-const REF_LABELS = { contract: "Vertrag", customer: "Kunde", case: "Aktenzeichen", invoice: "Rechnung/Bestellung", other: "Sonstige" };
+const REF_LABELS = { contract: tr("Vertrag"), customer: tr("Kunde"), case: tr("Aktenzeichen"), invoice: tr("Rechnung/Bestellung"), other: tr("Sonstige") };
 async function fillKind(d) {
   const sel = $("#m-kind");
   if (!sel.options.length || sel.options.length < 3) {
     const kinds = Object.keys(state.kindLabels).length ? Object.entries(state.kindLabels).map(([code, label]) => ({ code, label })) : await loadKinds();
-    sel.innerHTML = `<option value="">– noch nicht erkannt –</option>` + kinds.map((k) => `<option value="${esc(k.code)}">${esc(k.label)}</option>`).join("");
+    sel.innerHTML = `<option value="">${esc(tr("– noch nicht erkannt –"))}</option>` + kinds.map((k) => `<option value="${esc(k.code)}">${esc(k.label)}</option>`).join("");
   }
-  sel.value = d.doc_kind || "";
-  $("#m-recipient").value = d.recipient || "";
+  setVal(sel, d.doc_kind || "");
+  fitSelect(sel);
+  setVal("#m-recipient", d.recipient || "");
   const refs = d.refs || {};
-  $("#m-refs").innerHTML = Object.entries(REF_LABELS).map(([k, label]) =>
-    `<label><span class="k">${label}</span><input data-ref="${k}" value="${esc(refs[k] || "")}" autocomplete="off"></label>`).join("");
+  // Felder nur einmal anlegen – neu gezeichnet verlöre ein Feld, in dem man gerade tippt, den Fokus
+  if (!$("#m-refs input")) $("#m-refs").innerHTML = Object.entries(REF_LABELS).map(([k, label]) =>
+    `<label><span class="k">${esc(label)}</span><input data-ref="${k}" autocomplete="off"></label>`).join("");
+  for (const i of document.querySelectorAll("#m-refs input")) setVal(i, refs[i.dataset.ref] || "");
   const n = Object.values(refs).filter(Boolean).length;
-  $("#m-refs-sum").textContent = n ? `Nummern · ${n}` : "Nummern";
-  $("#m-refs-box").open = false;
+  $("#m-refs-sum").textContent = n ? tr("Nummern · {n}", { n }) : tr("Nummern");
 }
 
 // Dokumentart (Rechnung, Vertrag, Zeugnis …) – nur Arten, die es im gewählten Bestand gibt
 async function loadKinds() {
-  const kinds = await api("/documents/kinds?scope=" + state.scope).catch(() => []);
+  const kinds = await api(`/documents/kinds?lang=${LANG}&scope=${state.scope}`).catch(() => []);
   for (const k of kinds) state.kindLabels[k.code] = k.label;
   return kinds;
 }
@@ -565,7 +664,7 @@ async function openKindPopover(anchor) {
   const kinds = (await loadKinds()).filter((k) => k.count);
   openPopover(anchor, (pop) => {
     const list = document.createElement("div"); list.className = "pop-chips";
-    if (!kinds.length) list.innerHTML = `<span class="muted small">Noch keine Dokumentart erkannt.</span>`;
+    if (!kinds.length) list.innerHTML = `<span class="muted small">${esc(tr("Noch keine Dokumentart erkannt."))}</span>`;
     for (const k of kinds) {
       const c = chip(k.label, state.kind === k.code, () => { state.kind = k.code; state.review = false; state.due = false; state.warranty = false; closePopover(); renderTagBar(); loadDocs(); });
       const cnt = document.createElement("span"); cnt.className = "cnt"; cnt.textContent = k.count; c.appendChild(cnt);
@@ -579,12 +678,12 @@ async function openSenderPopover(anchor) {
   const senders = await api("/senders?scope=" + state.scope).catch(() => []);
   openPopover(anchor, (pop) => {
     const input = document.createElement("input");
-    input.type = "search"; input.placeholder = "Absender suchen …"; input.className = "pop-search"; input.autocomplete = "off";
+    input.type = "search"; input.placeholder = tr("Absender suchen …"); input.className = "pop-search"; input.autocomplete = "off";
     const list = document.createElement("div"); list.className = "pop-chips";
     const render = () => {
       const q = input.value.trim().toLowerCase(); list.innerHTML = "";
       const show = senders.filter((s) => !q || s.name.toLowerCase().includes(q)).slice(0, 60);
-      if (!show.length) list.innerHTML = `<span class="muted small">Kein Absender.</span>`;
+      if (!show.length) list.innerHTML = `<span class="muted small">${esc(tr("Kein Absender."))}</span>`;
       for (const s of show) {
         const c = chip(s.name, state.sender === s.name, () => { state.sender = s.name; state.review = false; state.due = false; state.warranty = false; closePopover(); renderTagBar(); loadDocs(); });
         const cnt = document.createElement("span"); cnt.className = "cnt"; cnt.textContent = s.count; c.appendChild(cnt);
@@ -609,11 +708,6 @@ function openYearPopover(anchor, years) {
     pop.appendChild(list);
   });
 }
-function trashIcon() {
-  const w = document.createElement("span"); w.style.display = "inline-flex";
-  w.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  return w;
-}
 // Der Papierkorb wirkt wie eine eigene Seite – also mit Verlaufseintrag: Browser-Zurück schließt ihn
 // (und führt in den Ordner, aus dem man kam). fromHistory: Aufruf aus popstate, nicht selbst im Verlauf blättern.
 let skipTrashPop = false;
@@ -626,19 +720,36 @@ function openTrash(on, fromHistory = false, tag = null) {
   $("#selection-bar").classList.add("hidden");
   $("#trash-bar").classList.toggle("hidden", !on);
   $("#trash-empty-btn").classList.toggle("hidden", !!state.me?.demo);   // Demo: nichts endgültig löschen
-  $("#trash-info").textContent = on ? `Papierkorb – wird nach ${state.trashDays} Tagen automatisch geleert` : "";
+  $("#trash-info").textContent = on ? trn(state.trashDays, "Papierkorb – wird nach {n} Tag automatisch geleert", "Papierkorb – wird nach {n} Tagen automatisch geleert") : "";
   $("#restore-selected-btn").classList.toggle("hidden", !on);
   $("#merge-btn").classList.toggle("hidden", on);
   $("#share-selected-btn").classList.toggle("hidden", on);
+  renderTrashButton();
   loadDocs();
 }
+// Einstellungen › Dokumente › Papierkorb (wie in der App): Zahl, Frist, „Papierkorb öffnen“ führt in „Dokumente“
+$("#s-trash-sect").addEventListener("toggle", async (e) => {
+  if (!e.target.open) return;
+  const tc = await api("/trash/count").catch(() => null);
+  if (!tc) return;
+  state.trashCount = tc.count; state.trashDays = tc.days;
+  $("#s-trash-count").textContent = tc.count ? `· ${tc.count}` : "";
+  $("#s-trash-text").textContent = (tc.count ? trn(tc.count, "{n} Dokument im Papierkorb.", "{n} Dokumente im Papierkorb.") : tr("Der Papierkorb ist leer.")) + " " +
+    trn(tc.days, "Er wird nach {n} Tag automatisch geleert.", "Er wird nach {n} Tagen automatisch geleert.");
+});
+$("#s-trash-open").onclick = async () => {
+  await leaveSettingsThen();
+  if (modeTab(state.mode) !== "docs") await setMode(docsMode());
+  if (!state.trash) openTrash(true);
+  window.scrollTo({ top: 0 });
+};
 $("#trash-empty-btn").onclick = async () => {
-  if (!confirm(`${state.trashCount} Dokument(e) endgültig löschen?`)) return;
-  await api("/trash", { method: "DELETE" }); toast("Papierkorb geleert"); openTrash(false); loadTags();
+  if (!confirm(trn(state.trashCount, "{n} Dokument endgültig löschen?", "{n} Dokumente endgültig löschen?"))) return;
+  await api("/trash", { method: "DELETE" }); toast(tr("Papierkorb geleert")); openTrash(false); loadTags();
 };
 $("#restore-selected-btn").onclick = async () => {
   for (const id of [...state.selected]) await api(`/documents/${id}/restore`, { method: "POST" }).catch(() => {});
-  state.selected.clear(); $("#selection-bar").classList.add("hidden"); toast("Wiederhergestellt");
+  state.selected.clear(); $("#selection-bar").classList.add("hidden"); toast(tr("Wiederhergestellt"));
   await Promise.all([loadDocs(), loadTags(), loadYears()]);
 };
 
@@ -707,14 +818,14 @@ async function renderBankHint() {
   if (seq !== bankHintSeq) return;
   if (!r || !r.count) { el.classList.add("hidden"); return; }
   const when = r.range ? ` · ${fmtDate(r.range.from)} – ${fmtDate(r.range.to)}` : "";
-  el.innerHTML = `<span style="flex:1">Im Konto: <b>${r.count === 1 ? "1 Buchung" : `${r.count} Buchungen`} · ${eurC(r.cents)}</b>${esc(when)}</span><span aria-hidden="true">›</span>`;
+  el.innerHTML = `<span style="flex:1">${esc(tr("Im Konto:"))} <b>${esc(trn(r.count, "{n} Buchung", "{n} Buchungen"))} · ${eurC(r.cents)}</b>${esc(when)}</span><span aria-hidden="true">›</span>`;
   el.dataset.q = text;
   el.classList.remove("hidden");
 }
 $("#bank-hint").onclick = () => {
   const q = $("#bank-hint").dataset.q || "";
   $("#search").value = q;
-  $('#mode-seg button[data-mode="money"]').click();
+  setMode("money");
 };
 
 // ---------- Ordner (Tags in Tags) ----------
@@ -723,10 +834,27 @@ function folderBrowsing() {
   return state.mode === "folders" && !state.q && !state.smart && !state.year && !state.review && !state.due && !state.warranty && !state.sender && !state.kind && !state.trash;
 }
 function applyMode() {
-  for (const b of document.querySelectorAll("#mode-seg button")) {
+  for (const b of document.querySelectorAll("#mode-seg button, #docs-seg button")) {
     b.classList.toggle("active", b.dataset.mode === state.mode);
     b.setAttribute("aria-pressed", String(b.dataset.mode === state.mode));   // Screenreader: welche Ansicht gerade an ist
   }
+  // Tab-Leiste am Handy: „Dokumente“ steht für Kacheln und Ordner
+  const tab = modeTab(state.mode);
+  for (const b of document.querySelectorAll("#tabbar [data-tab]")) {
+    b.classList.toggle("active", b.dataset.tab === tab);
+    if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  }
+  for (const m of ["today", "tiles", "folders", "money", "family"]) $("#main").classList.toggle("mode-" + m, state.mode === m);
+  $("#hello-tab").textContent = { docs: tr("Dokumente"), money: tr("Geld"), family: tr("Familie") }[tab] || "";
+}
+// Tab der Leiste unten zu einer Ansicht
+function modeTab(mode) { return mode === "tiles" || mode === "folders" ? "docs" : mode; }
+// Zuletzt benutzte Ansicht in „Dokumente“ (Kacheln oder Ordner) – dorthin führt der Tab
+function docsMode() {
+  try {
+    for (const k of ["bl.docsMode", "bl.mode"]) { const m = localStorage.getItem(k); if (m === "tiles" || m === "folders") return m; }
+  } catch {}
+  return "tiles";
 }
 for (const seg of document.querySelectorAll(".segmented")) segKnob(seg);
 // Umschalter, die später gezeichnet werden (Geld: Zeitraum; Einstellungen …), bekommen den Gleiter auch
@@ -736,30 +864,55 @@ new MutationObserver(() => {
   segPending = true;
   requestAnimationFrame(() => { segPending = false; for (const seg of document.querySelectorAll(".segmented:not(.has-knob)")) segKnob(seg); });
 }).observe(document.body, { childList: true, subtree: true });
-for (const b of document.querySelectorAll("#mode-seg button"))
-  b.onclick = () => {
-    const leaving = state.mode;
-    state.mode = b.dataset.mode; localStorage.setItem("bl.mode", state.mode); applyMode();
-    // Suche mitnehmen: in „Geld“ sucht das Feld die Buchungen, sonst die Dokumente
-    if (state.mode === "money" && leaving !== "money") {
-      money.q = $("#search").value.trim(); money.search = null;
-      if (state.q || state.smart) { state.q = ""; state.smart = null; smartSeq++; renderSmartBar(); }
-    } else if (leaving === "money" && state.mode !== "money" && money.q) {
-      money.q = ""; $("#search").value = "";
+// Ansicht wechseln: Umschalter oben (breit), Tab-Leiste und Kacheln/Ordner in „Dokumente“ (Handy), Links aus „Heute“
+function setMode(mode) {
+  const leaving = state.mode;
+  state.mode = mode; localStorage.setItem("bl.mode", state.mode);
+  if (mode === "tiles" || mode === "folders") { try { localStorage.setItem("bl.docsMode", mode); } catch {} }
+  applyMode();
+  // Suche mitnehmen: in „Geld“ sucht das Feld die Buchungen, sonst die Dokumente
+  if (state.mode === "money" && leaving !== "money") {
+    money.q = $("#search").value.trim(); money.search = null;
+    if (state.q || state.smart) { state.q = ""; state.smart = null; smartSeq++; renderSmartBar(); }
+  } else if (leaving === "money" && state.mode !== "money" && money.q) {
+    money.q = ""; $("#search").value = "";
+  }
+  if (leaving === "money" && state.mode !== "money") { closeMoneyLayers(); money.jump = null; }
+  state.tag = null;   // der geöffnete Ordner gehört zur Ordner-Ansicht, nicht als Filter in die Kacheln
+  if (state.mode !== "tiles") { state.year = null; state.due = false; state.warranty = false; state.sender = null; state.kind = null; }
+  if (state.mode === "today" || state.mode === "money" || state.mode === "family") state.review = false;   // „Zu prüfen“ bleibt in den Ordnern ein Ort, in „Heute“ ist es die Karte
+  state.searchAll = false;
+  const views = ["#todayview", "#moneyview", "#familyview", "#folderview", "#grid", "#tagbar", ".viewbar", "#empty"];
+  return Promise.resolve(loadDocs()).catch(() => {}).finally(() => {
+    for (const sel of views) {
+      const el = document.querySelector(sel);
+      if (el && !el.classList.contains("hidden") && el.offsetParent !== null) replay(el, "view-in");
     }
-    if (leaving === "money" && state.mode !== "money") { closeMoneyLayers(); money.jump = null; }
-    state.tag = null;   // der geöffnete Ordner gehört zur Ordner-Ansicht, nicht als Filter in die Kacheln
-    if (state.mode !== "tiles") { state.year = null; state.due = false; state.warranty = false; state.sender = null; state.kind = null; }
-    if (state.mode === "today" || state.mode === "money" || state.mode === "family") state.review = false;   // „Zu prüfen“ bleibt in den Ordnern ein Ort, in „Heute“ ist es die Karte
-    state.searchAll = false;
-    const views = ["#todayview", "#moneyview", "#familyview", "#folderview", "#grid", "#tagbar", ".viewbar", "#empty"];
-    Promise.resolve(loadDocs()).catch(() => {}).finally(() => {
-      for (const sel of views) {
-        const el = document.querySelector(sel);
-        if (el && !el.classList.contains("hidden") && el.offsetParent !== null) replay(el, "view-in");
-      }
-    });
-  };
+  });
+}
+for (const b of document.querySelectorAll("#mode-seg button")) b.onclick = () => setMode(b.dataset.mode);
+for (const b of document.querySelectorAll("#docs-seg button")) b.onclick = () => { if (b.dataset.mode !== state.mode) setMode(b.dataset.mode); };
+
+// ---------- Tab-Leiste (Handy, wie in der App) ----------
+// Ein Tab-Wechsel legt keinen eigenen Verlaufseintrag an (wie in der App); offene Ebenen (Fragen, Kategorie in Geld …)
+// und der Papierkorb schließen samt ihren Einträgen, damit Browser-Zurück danach nichts Verdecktes mehr öffnet.
+// Der aktive Tab noch einmal: zurück an seinen Anfang (Suche weg, oberste Ordnerebene, nach oben).
+function openTab(tab) {
+  const same = modeTab(state.mode) === tab;
+  closeOverlays();
+  if (same) {
+    clearAllSearch();
+    if (state.mode === "folders") state.tag = null;
+    state.review = false; state.due = false; state.warranty = false; state.year = null; state.sender = null; state.kind = null;
+    loadDocs();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+  setMode(tab === "docs" ? docsMode() : tab);
+  window.scrollTo({ top: 0 });
+}
+for (const b of document.querySelectorAll("#tabbar [data-tab]")) b.onclick = () => openTab(b.dataset.tab);
+$("#tab-add").onclick = () => $("#file-input").click();
 function tagChildren() {
   const kids = new Map();
   for (const t of state.tags || []) {
@@ -817,31 +970,31 @@ function renderFolderView() {
   };
   const cur = state.tag ? (state.tags || []).find((t) => t.name === state.tag) : null;
   const subs = (kids.get(cur ? cur.id : null) || []).filter((t) => shown(t)).sort((a, b) => a.name.localeCompare(b.name, "de"));
-  let html = `<div class="crumbs">` + (cur ? `<button class="btn ghost up" id="folder-up" title="Eine Ebene höher">‹ Zurück</button>` : "") +
-    (cur ? `<a data-folder="">Alle Ordner</a>` : `<b>Alle Ordner</b>`);
+  let html = `<div class="crumbs">` + (cur ? `<button class="btn ghost up" id="folder-up" title="${esc(tr("Eine Ebene höher"))}">‹ ${esc(tr("Zurück"))}</button>` : "") +
+    (cur ? `<a data-folder="">${esc(tr("Alle Ordner"))}</a>` : `<b>${esc(tr("Alle Ordner"))}</b>`);
   if (cur) {
     const path = tagPath(cur.name);
     path.forEach((t, i) => { html += ` <span>›</span> ` + (i < path.length - 1 ? `<a data-folder="${esc(t.name)}">${esc(t.name)}</a>` : `<b>${esc(t.name)}</b>`); });
   }
-  html += `<button class="btn ghost newf" id="folder-new" title="${cur ? `Unterordner in „${esc(cur.name)}“ anlegen` : "Ordner auf oberster Ebene anlegen"}">+ Neuer Ordner</button>`;
-  if (cur) html += `<a class="btn ghost" id="folder-dl" href="/export/tag.zip?tag=${enc(cur.name)}&scope=${enc(state.scope)}" download title="Als ZIP mit Unterordnern nach den übrigen Tags und Inhaltsverzeichnis – zum Weitergeben">Herunterladen</a>`;
-  if (cur && state.me?.is_admin) html += `<button class="btn ghost icon-btn" id="folder-rename" title="Ordner umbenennen" aria-label="Ordner umbenennen"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` +
-    `<button class="btn ghost icon-btn danger" id="folder-delete" title="Ordner löschen" aria-label="Ordner löschen"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
-  if (cur) html += `<button class="btn share" data-share-folder="${esc(cur.name)}">Ordner teilen</button>`;
+  html += `<button class="btn ghost newf" id="folder-new" title="${esc(cur ? tr("Unterordner in „{name}“ anlegen", { name: cur.name }) : tr("Ordner auf oberster Ebene anlegen"))}">+ ${esc(tr("Neuer Ordner"))}</button>`;
+  if (cur) html += `<a class="btn ghost" id="folder-dl" href="/export/tag.zip?tag=${enc(cur.name)}&scope=${enc(state.scope)}" download title="${esc(tr("Als ZIP mit Unterordnern nach den übrigen Tags und Inhaltsverzeichnis – zum Weitergeben"))}">${esc(tr("Herunterladen"))}</a>`;
+  if (cur && state.me?.is_admin) html += `<button class="btn ghost icon-btn" id="folder-rename" title="${esc(tr("Ordner umbenennen"))}" aria-label="${esc(tr("Ordner umbenennen"))}"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` +
+    `<button class="btn ghost icon-btn danger" id="folder-delete" title="${esc(tr("Ordner löschen"))}" aria-label="${esc(tr("Ordner löschen"))}"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+  if (cur) html += `<button class="btn share" data-share-folder="${esc(cur.name)}">${esc(tr("Ordner teilen"))}</button>`;
   html += `</div>`;
   if (!cur && state.views.length) {
-    html += `<div class="folder-h">Gespeicherte Suchen</div><div class="folders">` + state.views.map((v) =>
-      `<button class="folder smart" data-view="${v.id}"><span class="ic">${SMART_SVG}</span><span><div class="nm">${esc(v.name)}</div><div class="ct">${v.count} Dokument${v.count === 1 ? "" : "e"}</div></span></button>`).join("") + `</div>`;
-    html += `<div class="folder-h">Ordner</div>`;
+    html += `<div class="folder-h">${esc(tr("Gespeicherte Suchen"))}</div><div class="folders">` + state.views.map((v) =>
+      `<button class="folder smart" data-view="${v.id}"><span class="ic">${SMART_SVG}</span><span><div class="nm">${esc(v.name)}</div><div class="ct">${esc(trn(v.count, "{n} Dokument", "{n} Dokumente"))}</div></span></button>`).join("") + `</div>`;
+    html += `<div class="folder-h">${esc(tr("Ordner"))}</div>`;
   }
   if (subs.length) {
     html += `<div class="folders">` + subs.map((t) => {
       const n = (kids.get(t.id) || []).filter((c) => shown(c)).length;
-      const ct = [t.count ? `${t.count} Dokument${t.count === 1 ? "" : "e"}` : "", n ? `${n} Ordner` : ""].filter(Boolean).join(" · ") || "leer";
+      const ct = esc([t.count ? trn(t.count, "{n} Dokument", "{n} Dokumente") : "", n ? trn(n, "{n} Ordner|one", "{n} Ordner") : ""].filter(Boolean).join(" · ") || tr("leer"));
       return `<button class="folder" data-folder="${esc(t.name)}" style="--tag:${esc(tagColor(t.name, t.color))}"><span class="ic">${folderIcon(t.name)}</span><span><div class="nm">${esc(t.name)}</div><div class="ct">${ct}</div></span></button>`;
     }).join("") + `</div>`;
   } else if (!cur) {
-    html += `<p class="muted">Noch keine Ordner – lege mit „+ Neuer Ordner“ einen an oder vergib Tags, dann erscheinen sie hier.</p>`;
+    html += `<p class="muted">${esc(tr("Noch keine Ordner – lege mit „+ Neuer Ordner“ einen an oder vergib Tags, dann erscheinen sie hier."))}</p>`;
   }
   box.innerHTML = html;
   for (const el of box.querySelectorAll("[data-folder]"))
@@ -876,7 +1029,7 @@ function renderFolderView() {
     else openFolder(parent);
   };
   for (const el of box.querySelectorAll("[data-share-folder]"))
-    el.onclick = () => openShareDialog({ kind: "tag", target: el.dataset.shareFolder, label: `Ordner „${el.dataset.shareFolder}“ samt Unterordnern` });
+    el.onclick = () => openShareDialog({ kind: "tag", target: el.dataset.shareFolder, label: tr("Ordner „{name}“ samt Unterordnern", { name: el.dataset.shareFolder }) });
   for (const el of box.querySelectorAll("[data-view]"))
     el.onclick = () => applyView(state.views.find((v) => String(v.id) === el.dataset.view));
   // Im Ordner ohne eigene Dokumente keine „Keine Dokumente“-Meldung
@@ -891,52 +1044,54 @@ async function moveFolder(t, target) {
   if (!t || (target && target.id === t.id)) return;
   const old = t.parent_id ?? null, to = target ? target.id : null;
   if (old === to) return;
-  try { await patchFolder(t, to); } catch (e) { return toast("Geht nicht: " + e.message, 4000); }
+  try { await patchFolder(t, to); } catch (e) { return toast(tr("Geht nicht: {msg}", { msg: e.message }), 4000); }
   await loadTags();
-  toast(`„${t.name}“ liegt jetzt ${target ? `in „${target.name}“` : "auf oberster Ebene"}`, 8000, {
-    label: "Rückgängig",
-    fn: async () => { try { await patchFolder(t, old); await loadTags(); toast("Rückgängig gemacht"); } catch (e) { toast("Fehler: " + e.message); } },
+  toast(target ? tr("„{name}“ liegt jetzt in „{target}“", { name: t.name, target: target.name }) : tr("„{name}“ liegt jetzt auf oberster Ebene", { name: t.name }), 8000, {
+    label: tr("Rückgängig"),
+    fn: async () => { try { await patchFolder(t, old); await loadTags(); toast(tr("Rückgängig gemacht")); } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); } },
   });
 }
 async function renameFolder(t) {
-  const name = (prompt("Neuer Name für den Ordner:", t.name) || "").trim();
+  const name = (prompt(tr("Neuer Name für den Ordner:"), t.name) || "").trim();
   if (!name || name === t.name) return;
   const clash = (state.tags || []).find((x) => x.id !== t.id && x.name.toLowerCase() === name.toLowerCase());
-  if (clash) return toast(`„${clash.name}“ gibt es schon – Ordnernamen sind eindeutig`, 4500);
-  try { await api(`/tags/${t.id}`, json("PATCH", { name, color: t.color })); } catch (e) { return toast("Fehler: " + e.message); }
+  if (clash) return toast(tr("„{name}“ gibt es schon – Ordnernamen sind eindeutig", { name: clash.name }), 4500);
+  try { await api(`/tags/${t.id}`, json("PATCH", { name, color: t.color })); } catch (e) { return toast(tr("Fehler: {msg}", { msg: e.message })); }
   state.tag = name;
   history.replaceState({ ...(history.state || {}), folder: name }, "");
   await loadTags(); loadDocs();
-  toast("Umbenannt");
+  toast(tr("Umbenannt"));
 }
 async function deleteFolder(t, docs, subs) {
   const parent = (state.tags || []).find((x) => x.id === t.parent_id) || null;
-  const parts = [`Ordner „${t.name}“ löschen?`, "",
-    docs ? `Die Dokumente bleiben erhalten – sie verlieren nur den Tag „${t.name}“.` : "Darin liegen keine Dokumente.",
-    subs ? `${subs} Unterordner rück${subs === 1 ? "t" : "en"} eine Ebene hoch${parent ? ` (nach „${parent.name}“)` : " (auf die oberste Ebene)"}.` : ""];
+  const parts = [tr("Ordner „{name}“ löschen?", { name: t.name }), "",
+    docs ? tr("Die Dokumente bleiben erhalten – sie verlieren nur den Tag „{name}“.", { name: t.name }) : tr("Darin liegen keine Dokumente."),
+    !subs ? "" : parent
+      ? trn(subs, "{n} Unterordner rückt eine Ebene hoch (nach „{parent}“).", "{n} Unterordner rücken eine Ebene hoch (nach „{parent}“).", { parent: parent.name })
+      : trn(subs, "{n} Unterordner rückt eine Ebene hoch (auf die oberste Ebene).", "{n} Unterordner rücken eine Ebene hoch (auf die oberste Ebene).")];
   if (!confirm(parts.filter((x, i) => x || i === 1).join("\n"))) return;
-  try { await api(`/tags/${t.id}`, { method: "DELETE" }); } catch (e) { return toast("Fehler: " + e.message); }
+  try { await api(`/tags/${t.id}`, { method: "DELETE" }); } catch (e) { return toast(tr("Fehler: {msg}", { msg: e.message })); }
   state.tag = parent ? parent.name : null;
   history.replaceState({ ...(history.state || {}), folder: state.tag }, "");
   await loadTags(); loadDocs();
-  toast(`Ordner „${t.name}“ gelöscht`);
+  toast(tr("Ordner „{name}“ gelöscht", { name: t.name }));
 }
 
 // Neuer Ordner = neuer Tag, auf Wunsch in einem anderen; Dokumente kommen per Tag hinein
 async function newFolder(parent) {
-  const name = (prompt(parent ? `Name des neuen Ordners in „${parent.name}“:` : "Name des neuen Ordners:") || "").trim();
+  const name = (prompt(parent ? tr("Name des neuen Ordners in „{name}“:", { name: parent.name }) : tr("Name des neuen Ordners:")) || "").trim();
   if (!name) return;
   const have = (state.tags || []).find((t) => t.name.toLowerCase() === name.toLowerCase());
   if (have) {
     const where = tagPath(have.name).map((t) => t.name).join(" › ");
-    toast(`„${have.name}“ gibt es schon (${where}) – Ordnernamen sind eindeutig`, 4500);
+    toast(tr("„{name}“ gibt es schon ({where}) – Ordnernamen sind eindeutig", { name: have.name, where }), 4500);
     return;
   }
   try {
     await api("/tags", json("POST", { name, parent_id: parent ? parent.id : null }));
     await loadTags();   // Tag-Leiste, Vorschlagsliste und Ordner-Ansicht kennen ihn damit
-    toast(`Ordner „${name}“ angelegt – Dokumente kommen über den Tag „${name}“ hinein`, 4000);
-  } catch (e) { toast("Fehler: " + e.message); }
+    toast(tr("Ordner „{name}“ angelegt – Dokumente kommen über den Tag „{name}“ hinein", { name }), 4000);
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 }
 
 // Ordnerwechsel landen im Browser-Verlauf: „Zurück“ (Knopf, Maustaste, Wischgeste) geht in den vorigen Ordner
@@ -992,25 +1147,26 @@ function openViewsPopover(anchor) {
       const row = document.createElement("div"); row.style.cssText = "display:flex;align-items:center;gap:6px";
       const c = chip(`${v.name} · ${v.count}`, false, () => { pop._close(); applyView(v); });
       c.style.flex = "1";
-      const del = document.createElement("button"); del.className = "btn ghost icon-btn"; del.title = "Löschen"; del.textContent = "✕";
-      del.onclick = async (e) => { e.stopPropagation(); if (!confirm(`„${v.name}“ löschen?`)) return; await api(`/views/${v.id}`, { method: "DELETE" }); pop._close(); loadViews(); };
-      const sh = document.createElement("button"); sh.className = "btn ghost icon-btn"; sh.title = "Freigabe-Link"; sh.textContent = "🔗";
-      sh.onclick = (e) => { e.stopPropagation(); pop._close(); openShareDialog({ kind: "view", target: v.id, label: `Gespeicherte Suche „${v.name}“` }); };
+      const del = document.createElement("button"); del.className = "btn ghost icon-btn"; del.title = tr("Löschen"); del.textContent = "✕";
+      del.onclick = async (e) => { e.stopPropagation(); if (!confirm(tr("„{name}“ löschen?", { name: v.name }))) return; await api(`/views/${v.id}`, { method: "DELETE" }); pop._close(); loadViews(); };
+      const sh = document.createElement("button"); sh.className = "btn ghost icon-btn"; sh.title = tr("Freigabe-Link"); sh.textContent = "🔗";
+      sh.onclick = (e) => { e.stopPropagation(); pop._close(); openShareDialog({ kind: "view", target: v.id, label: tr("Gespeicherte Suche „{name}“", { name: v.name }) }); };
       row.append(c, sh, del); list.appendChild(row);
     }
     const p = currentViewParams();
     if (Object.keys(p).some((k) => k !== "scope")) {
-      const save = document.createElement("button"); save.className = "btn"; save.textContent = "Aktuelle Suche speichern …";
+      const save = document.createElement("button"); save.className = "btn"; save.textContent = tr("Aktuelle Suche speichern …");
       save.onclick = async () => {
-        const suggestion = [p.q, p.tag, p.year, p.sender, p.due ? "Fristen" : "", p.review ? "Zu prüfen" : ""].filter(Boolean).join(" · ");
-        const name = prompt("Name der gespeicherten Suche:", suggestion);
+        const suggestion = [p.q, p.tag, p.year, p.sender, p.kind ? state.kindLabels[p.kind] || p.kind : "", p.due ? tr("Fristen") : "",
+          p.warranty ? tr("Garantie") : "", p.review ? tr("Zu prüfen") : ""].filter(Boolean).join(" · ");
+        const name = prompt(tr("Name der gespeicherten Suche:"), suggestion);
         if (!name || !name.trim()) return;
-        try { await api("/views", json("POST", { name: name.trim(), params: p })); toast("Gespeichert"); pop._close(); loadViews(); }
-        catch (e) { toast("Fehler: " + e.message); }
+        try { await api("/views", json("POST", { name: name.trim(), params: p })); toast(tr("Gespeichert")); pop._close(); loadViews(); }
+        catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
       };
       list.appendChild(save);
     } else if (!state.views.length) {
-      list.innerHTML = `<span class="muted small">Suche oder filtere etwas, dann lässt es sich hier speichern.</span>`;
+      list.innerHTML = `<span class="muted small">${esc(tr("Suche oder filtere etwas, dann lässt es sich hier speichern."))}</span>`;
     }
     pop.appendChild(list);
   });
@@ -1028,11 +1184,11 @@ function renderGrid() {
     const done = d.status === "done" || d.status === "tagging";
     c.innerHTML = `
       <div class="check">${state.selected.has(d.id) ? "✓" : ""}</div>
-      ${d.status !== "done" ? `<span class="badge ${d.status === "error" ? "error" : ""}">${statusLabel(d.status)}</span>` : d.ext_pending ? `<span class="badge warn" title="${esc(d.ext_from || "")}">von außen</span>` : (d.llm_status === "failed" ? `<span class="badge warn">ohne Tags</span>` : dueBadge(d))}
-      <div class="thumb">${done ? `<img loading="lazy" src="${d.thumbnail_url}?v=${enc(d.updated_at)}" alt="">${d.page_count ? `<span class="pages">${d.page_count} S.</span>` : ""}` : `<span class="pending">${d.status === "processing" ? "OCR läuft …" : "Wartet"}</span>`}</div>
+      ${d.status !== "done" ? `<span class="badge ${d.status === "error" ? "error" : ""}">${statusLabel(d.status)}</span>` : d.ext_pending ? `<span class="badge warn" title="${esc(d.ext_from || "")}">${esc(tr("von außen"))}</span>` : (d.llm_status === "failed" ? `<span class="badge warn">${esc(tr("ohne Tags"))}</span>` : dueBadge(d))}
+      <div class="thumb">${done ? `<img loading="lazy" src="${d.thumbnail_url}?v=${enc(d.updated_at)}" alt="">${d.page_count ? `<span class="pages">${esc(tr("{n} S.", { n: d.page_count }))}</span>` : ""}` : `<span class="pending">${esc(d.status === "processing" ? tr("OCR läuft …") : tr("Wartet"))}</span>`}${kindTag(d)}</div>
       <div class="info">
         <div class="title">${esc(d.title)}</div>
-        <div class="sub">${state.sort.startsWith("added") ? "hinzugefügt " + fmtDate(d.created_at) : docDateHtml(d)}${d.sender ? " · " + esc(d.sender) : ""}</div>
+        <div class="sub">${state.sort.startsWith("added") ? esc(tr("hinzugefügt {date}", { date: fmtDate(d.created_at) })) : docDateHtml(d)}${d.sender ? " · " + esc(d.sender) : ""}</div>
         ${state.warranty && d.warranty_until ? `<div class="sub warranty">${esc(warrantyText(d))}</div>` : ""}
         ${state.review && reviewReasons(d).length ? `<div class="reasons">${esc(reviewReasons(d).join(" · "))}</div>` : ""}
         ${d.snippet ? `<div class="snippet">${esc(d.snippet).replaceAll("[[", "<mark>").replaceAll("]]", "</mark>")}</div>` : ""}
@@ -1044,6 +1200,12 @@ function renderGrid() {
     g.appendChild(c);
   }
 }
+/// Dokumentart als dezentes Etikett auf der Kachel – nicht bei Rechnungen (sonst stünde es fast überall)
+function kindTag(d) {
+  if (!d.doc_kind || d.doc_kind === "rechnung") return "";
+  const label = state.kindLabels[d.doc_kind];
+  return label ? `<span class="kind-tag" title="${esc(tr("Art: {label}", { label }))}">${esc(label)}</span>` : "";
+}
 function renderPager() {
   const total = state.total || 0, pages = Math.max(1, Math.ceil(total / state.limit));
   $("#pager").classList.toggle("hidden", total <= PAGE_SIZES[0]);
@@ -1052,7 +1214,7 @@ function renderPager() {
   $("#pg-prev").classList.toggle("hidden", pages <= 1);
   $("#pg-next").classList.toggle("hidden", pages <= 1);
   const from = state.page * state.limit + 1, to = Math.min(total, from + state.limit - 1);
-  $("#pg-info").textContent = pages > 1 ? `Seite ${state.page + 1} von ${pages} · ${from}–${to} von ${total}` : `${total} Dokumente`;
+  $("#pg-info").textContent = pages > 1 ? tr("Seite {p} von {pages} · {from}–{to} von {total}", { p: state.page + 1, pages, from, to, total }) : trn(total, "{n} Dokument", "{n} Dokumente");
   $("#pg-size").value = String(state.limit);
 }
 function goPage(n) { state.page = n; loadDocs(); window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -1069,26 +1231,26 @@ $("#pg-size").onchange = (e) => {
 function renderEmpty() {
   let title, text, upload = false;
   if (state.trash) {
-    title = "Papierkorb ist leer";
-    text = `Hier landet, was du löschst – nach ${state.trashDays || 30} Tagen räumt der Alligator es endgültig weg.`;
+    title = tr("Papierkorb ist leer");
+    text = trn(state.trashDays || 30, "Hier landet, was du löschst – nach {n} Tag räumt der Alligator es endgültig weg.", "Hier landet, was du löschst – nach {n} Tagen räumt der Alligator es endgültig weg.");
   } else if (state.review) {
-    title = "Alles geprüft!";
-    text = "Der kleine Alligator hat gerade nichts für euch. Neue Briefe landen hier, wenn er sich bei etwas nicht sicher ist.";
+    title = tr("Alles geprüft!");
+    text = tr("Der kleine Alligator hat gerade nichts für euch. Neue Briefe landen hier, wenn er sich bei etwas nicht sicher ist.");
   } else if (state.q || smartOn()) {
-    title = "Nichts gefunden";
-    text = "Der Alligator hat überall nachgeschaut. Versuch es mit einem anderen Wort – oder nimm einen Filter weg.";
+    title = tr("Nichts gefunden");
+    text = tr("Der Alligator hat überall nachgeschaut. Versuch es mit einem anderen Wort – oder nimm einen Filter weg.");
   } else if (state.due) {
-    title = "Keine offenen Fristen";
-    text = "Gerade ist nichts fällig. Zeit für einen Kaffee.";
+    title = tr("Keine offenen Fristen");
+    text = tr("Gerade ist nichts fällig. Zeit für einen Kaffee.");
   } else if (state.warranty) {
-    title = "Keine laufende Garantie";
-    text = "Gerade hat kein Kaufbeleg mehr Gewährleistung oder Garantie.";
+    title = tr("Keine laufende Garantie");
+    text = tr("Gerade hat kein Kaufbeleg mehr Gewährleistung oder Garantie.");
   } else if (state.tag || state.year || state.sender || state.kind) {
-    title = "Hier ist noch nichts";
-    text = "In dieser Auswahl liegen keine Dokumente.";
+    title = tr("Hier ist noch nichts");
+    text = tr("In dieser Auswahl liegen keine Dokumente.");
   } else {
-    title = "Noch ganz leer hier";
-    text = "Keine Dokumente bisher. Lade ein PDF hoch oder zieh es einfach ins Fenster – der Alligator sortiert es ein.";
+    title = tr("Noch ganz leer hier");
+    text = tr("Keine Dokumente bisher. Lade ein PDF hoch oder zieh es einfach ins Fenster – der Alligator sortiert es ein.");
     upload = true;
   }
   $("#empty-title").textContent = title;
@@ -1097,10 +1259,10 @@ function renderEmpty() {
 }
 
 /// Dokumentdatum für Karten – nie das Hochladedatum stattdessen (ein Vertrag von 2018 sah sonst aus wie von heute)
-function docDateHtml(d) { return d.document_date ? fmtDate(d.document_date) : `<span class="no-date">Ohne Datum</span>`; }
+function docDateHtml(d) { return d.document_date ? fmtDate(d.document_date) : `<span class="no-date">${esc(tr("Ohne Datum"))}</span>`; }
 /// Warum ein Dokument unter „Prüfen“ steht (Server: review_reasons; ältere Server schicken nichts, unbekannte Codes fallen weg)
-const REVIEW_REASONS = { error: "Verarbeitung fehlgeschlagen", llm_failed: "Erkennung fehlgeschlagen", no_date: "Kein Datum erkannt", date_check: "Datum prüfen",
-                         no_tags: "Keine Tags", external: "Von außen eingeworfen" };
+const REVIEW_REASONS = { error: tr("Verarbeitung fehlgeschlagen"), llm_failed: tr("Erkennung fehlgeschlagen"), no_date: tr("Kein Datum erkannt"), date_check: tr("Datum prüfen"),
+                         no_tags: tr("Keine Tags"), external: tr("Von außen eingeworfen") };
 function reviewReasons(d) {
   return (Array.isArray(d.review_reasons) ? d.review_reasons : []).filter((c) => Object.hasOwn(REVIEW_REASONS, c)).map((c) => REVIEW_REASONS[c]);
 }
@@ -1113,20 +1275,23 @@ function dueDays(d) {
 // Gewährleistung/Garantie: „Gewährleistung bis 05.03.2027“, abgelaufen „Garantie abgelaufen (05.03.2023)“
 function warrantyText(d) {
   if (!d.warranty_until) return "";
-  const what = d.warranty_kind === "garantie" ? "Garantie" : "Gewährleistung";
-  return d.warranty_until >= new Date().toLocaleDateString("sv") ? `${what} bis ${fmtDate(d.warranty_until)}`
-    : `${what} abgelaufen (${fmtDate(d.warranty_until)})`;
+  const g = d.warranty_kind === "garantie", date = fmtDate(d.warranty_until);
+  return d.warranty_until >= new Date().toLocaleDateString("sv")
+    ? (g ? tr("Garantie bis {date}", { date }) : tr("Gewährleistung bis {date}", { date }))
+    : (g ? tr("Garantie abgelaufen ({date})", { date }) : tr("Gewährleistung abgelaufen ({date})", { date }));
 }
-// Im Blick im Dokument: nur zeigen, was erkannt oder gesetzt ist; gespeichert wird nur Geändertes
+// Im Blick im Dokument (unter „Mehr Angaben“): nur zeigen, was erkannt oder gesetzt ist
 function fillBlick(d) {
   $("#m-expires-row").classList.toggle("hidden", !d.expires_what && !d.expires_on);
-  $("#m-expires-k").textContent = d.expires_what ? `${d.expires_what} gültig bis` : "Gültig bis";
-  $("#m-expires").value = isoToDmy(d.expires_on); $("#m-expires")._initial = $("#m-expires").value;
+  $("#m-expires-k").textContent = d.expires_what ? tr("{what} gültig bis", { what: tr(d.expires_what) }) : tr("Gültig bis");
+  setVal("#m-expires", isoToDmy(d.expires_on));
   $("#m-service-row").classList.toggle("hidden", !d.service_what);
-  $("#m-service-k").textContent = d.service_what ? `Nächste ${d.service_what === "Schornsteinfeger" ? "Kehrung" : d.service_what === "Rauchmelder" ? "Rauchmelder-Prüfung" : d.service_what}` : "Nächster Termin";
-  $("#m-service").value = isoToDmy(d.service_next); $("#m-service")._initial = $("#m-service").value;
+  const nextSvc = { Schornsteinfeger: tr("Nächste Kehrung"), Rauchmelder: tr("Nächste Rauchmelder-Prüfung"),
+                    Hauptuntersuchung: tr("Nächste Hauptuntersuchung"), Heizungswartung: tr("Nächste Heizungswartung") };
+  $("#m-service-k").textContent = d.service_what ? (nextSvc[d.service_what] || tr("Nächste {what}", { what: tr(d.service_what) })) : tr("Nächster Termin");
+  setVal("#m-service", isoToDmy(d.service_next));
   $("#m-refund-row").classList.toggle("hidden", !d.refund_state);
-  $("#m-refund").value = d.refund_state || "open"; $("#m-refund")._initial = $("#m-refund").value;
+  setVal("#m-refund", d.refund_state || "open");
 }
 function warrantyValue(d) {
   return d.warranty_months == null ? "" : d.warranty_months === 0 ? "0" : `${d.warranty_months}:${d.warranty_kind || "garantie"}`;
@@ -1136,12 +1301,12 @@ function fillWarranty(d) {
   sel.querySelectorAll("option[data-extra]").forEach((o) => o.remove());
   if (v && !sel.querySelector(`option[value="${v}"]`)) {   // seltene Dauer (z. B. 4 Jahre): als eigene Option
     const o = document.createElement("option"); o.value = v; o.dataset.extra = "1";
-    const y = d.warranty_months % 12 ? `${d.warranty_months} Monate` : `${d.warranty_months / 12} Jahre`;
-    o.textContent = `${y} ${d.warranty_kind === "legal" ? "Gewährleistung" : "Garantie"}`; sel.appendChild(o);
+    const dur = d.warranty_months % 12 ? trn(d.warranty_months, "{n} Monat", "{n} Monate") : trn(d.warranty_months / 12, "{n} Jahr", "{n} Jahre");
+    o.textContent = d.warranty_kind === "legal" ? tr("{dur} Gewährleistung", { dur }) : tr("{dur} Garantie", { dur }); sel.appendChild(o);
   }
-  sel.value = v; sel._initial = sel.value;   // „nicht festgelegt“ bleibt beim Speichern unberührt
+  setVal(sel, v);   // „nicht festgelegt“ wird nie geschickt (patchBody)
   const hint = $("#m-warranty-hint");
-  const text = d.warranty_months > 0 ? (d.warranty_until ? warrantyText(d) + " · gerechnet ab Belegdatum" : "Ohne Datum lässt sich das Ende nicht berechnen") : "";
+  const text = d.warranty_months > 0 ? (d.warranty_until ? tr("{text} · gerechnet ab Belegdatum", { text: warrantyText(d) }) : tr("Ohne Datum lässt sich das Ende nicht berechnen")) : "";
   hint.textContent = text; hint.classList.toggle("hidden", !text);
 }
 
@@ -1150,10 +1315,10 @@ function dueBadge(d) {
   const days = dueDays(d);
   const cls = days < 0 ? "due-over" : days <= 7 ? "due-soon" : "due-later";
   // kurz, damit es auch auf schmalen Kacheln in eine Zeile passt; das Datum steht im Tooltip
-  const label = days < 0 ? "überfällig" : days === 0 ? "heute fällig" : days === 1 ? "morgen fällig"
-    : days <= 7 ? `in ${days} Tagen` : `fällig ${fmtDate(d.due_date)}`;
+  const label = esc(days < 0 ? tr("überfällig") : days === 0 ? tr("heute fällig") : days === 1 ? tr("morgen fällig")
+    : days <= 7 ? trn(days, "in {n} Tag", "in {n} Tagen") : tr("fällig {date}", { date: fmtDate(d.due_date) }));
   const who = d.due_assignee_name ? ` · ${d.due_assignee_name}` : "";
-  return `<span class="badge ${cls}" title="${esc(`${d.due_note || "Frist"} · ${fmtDate(d.due_date)}${who}`)}">${label}</span>`;
+  return `<span class="badge ${cls}" title="${esc(`${d.due_note || tr("Frist")} · ${fmtDate(d.due_date)}${who}`)}">${label}</span>`;
 }
 
 // Sortierung & Kachelgröße (im Browser gemerkt)
@@ -1161,9 +1326,9 @@ $("#sort-select").value = state.sort;
 $("#sort-select").onchange = (e) => { state.sort = e.target.value; localStorage.setItem("bl.sort", state.sort); loadDocs(); };
 function applyDir() {
   $("#dir-icon").style.transform = state.dir === "asc" ? "rotate(180deg)" : "";
-  const labels = { date: ["älteste zuerst", "neueste zuerst"], added: ["zuerst hinzugefügt", "zuletzt hinzugefügt"],
-                   title: ["A–Z", "Z–A"], sender: ["A–Z", "Z–A"], amount: ["niedrigster zuerst", "höchster zuerst"] };
-  $("#dir-btn").title = (labels[state.sort] || ["aufsteigend", "absteigend"])[state.dir === "asc" ? 0 : 1];
+  const labels = { date: [tr("älteste zuerst"), tr("neueste zuerst")], added: [tr("zuerst hinzugefügt"), tr("zuletzt hinzugefügt")],
+                   title: ["A–Z", "Z–A"], sender: ["A–Z", "Z–A"], amount: [tr("niedrigster zuerst"), tr("höchster zuerst")] };
+  $("#dir-btn").title = (labels[state.sort] || [tr("aufsteigend"), tr("absteigend")])[state.dir === "asc" ? 0 : 1];
 }
 $("#dir-btn").onclick = () => { state.dir = state.dir === "asc" ? "desc" : "asc"; localStorage.setItem("bl.dir", state.dir); applyDir(); loadDocs(); };
 $("#sort-select").addEventListener("change", applyDir);
@@ -1177,7 +1342,7 @@ for (const b of $("#size-seg").querySelectorAll("button"))
   b.onclick = () => { state.size = b.dataset.size; localStorage.setItem("bl.size", state.size); applySize(); };
 applySize();
 
-function statusLabel(s) { return { pending: "Wartet", processing: "OCR …", tagging: "Tagging …", error: "Fehler" }[s] || s; }
+function statusLabel(s) { return { pending: tr("Wartet"), processing: "OCR …", tagging: "Tagging …", error: tr("Fehler") }[s] || s; }
 
 function toggleSelect(id) {
   state.selected.has(id) ? state.selected.delete(id) : state.selected.add(id);
@@ -1186,7 +1351,7 @@ function toggleSelect(id) {
 }
 function renderSelectionBar() {
   $("#selection-bar").classList.toggle("hidden", state.selected.size === 0);
-  $("#selection-count").textContent = `${state.selected.size} ausgewählt`;
+  $("#selection-count").textContent = tr("{n} ausgewählt", { n: state.selected.size });
   $("#merge-btn").disabled = state.selected.size < 2;
   $("#select-all-btn").classList.toggle("hidden", state.selected.size >= state.docs.length);
   $("#assign-select").classList.toggle("hidden", state.trash || (state.owners || []).length < 2);
@@ -1196,7 +1361,7 @@ function renderSelectionBar() {
 function renderOwnerSelects() {
   const owners = state.owners || [];
   const opts = owners.map((u) => `<option value="${u.id}">${esc(u.display_name)}</option>`).join("");
-  $("#assign-select").innerHTML = `<option value="">Zuordnen …</option>` + opts;
+  $("#assign-select").innerHTML = `<option value="">${esc(tr("Zuordnen …"))}</option>` + opts;
   $("#m-owner-select").innerHTML = opts;
 }
 $("#clear-selection-btn").onclick = () => { state.selected.clear(); $("#selection-bar").classList.add("hidden"); renderGrid(); };
@@ -1206,38 +1371,38 @@ $("#assign-select").onchange = async (e) => {
   const owner = Number(e.target.value); if (!owner) return;
   const name = state.owners.find((u) => u.id === owner)?.display_name || "";
   const ids = [...state.selected];
-  if (!confirm(`${ids.length} Dokument(e) ${name} zuordnen?`)) { e.target.value = ""; return; }
+  if (!confirm(trn(ids.length, "{n} Dokument {name} zuordnen?", "{n} Dokumente {name} zuordnen?", { name }))) { e.target.value = ""; return; }
   try {
     await api("/documents/owner", json("POST", { document_ids: ids, owner_id: owner }));
     state.selected.clear(); $("#selection-bar").classList.add("hidden");
-    toast(`${ids.length} Dokument(e) gehören jetzt ${name}`);
+    toast(trn(ids.length, "{n} Dokument gehört jetzt {name}", "{n} Dokumente gehören jetzt {name}", { name }));
     await Promise.all([loadDocs(), loadTags(), loadYears()]);
-  } catch (err) { toast("Fehler: " + err.message, 4000); e.target.value = ""; }
+  } catch (err) { toast(tr("Fehler: {msg}", { msg: err.message }), 4000); e.target.value = ""; }
 };
 
 $("#merge-btn").onclick = async () => {
   const ids = state.docs.filter((d) => state.selected.has(d.id)).map((d) => d.id);
   if (ids.length < 2) return;
-  if (!confirm(`${ids.length} Dokumente zu einem zusammenführen? Die Originale werden gelöscht.`)) return;
+  if (!confirm(tr("{n} Dokumente zu einem zusammenführen? Die Originale werden gelöscht.", { n: ids.length }))) return;
   try {
     await api("/documents/merge", json("POST", { document_ids: ids, delete_sources: true }));
     state.selected.clear(); $("#selection-bar").classList.add("hidden");
-    toast("Zusammengeführt"); await Promise.all([loadDocs(), loadTags(), loadYears()]);
-  } catch (e) { toast("Fehler: " + e.message, 4000); }
+    toast(tr("Zusammengeführt")); await Promise.all([loadDocs(), loadTags(), loadYears()]);
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
 };
 // „Hat kein Datum“ für alle ausgewählten (nur unter „Zu prüfen“): nur Dokumente ohne Datum, die ich bearbeiten darf –
 // ein vorhandenes, nur fragliches Datum bleibt stehen
 $("#nodate-selected-btn").onclick = async () => {
   const docs = state.docs.filter((d) => state.selected.has(d.id));
   const todo = docs.filter((d) => !d.document_date && d.can_edit);
-  if (!todo.length) { toast("Alle ausgewählten Dokumente haben ein Datum oder sind nur lesbar"); return; }
+  if (!todo.length) { toast(tr("Alle ausgewählten Dokumente haben ein Datum oder sind nur lesbar")); return; }
   let ok = 0;
   for (const d of todo) {
     try { await api(`/documents/${d.id}`, json("PATCH", { no_date: true })); ok++; } catch {}
   }
   state.selected.clear(); $("#selection-bar").classList.add("hidden");
   const rest = docs.length - todo.length;
-  toast(`${ok} Dokument(e) ohne Datum abgelegt` + (rest ? ` · ${rest} mit Datum oder nur lesbar nicht geändert` : ""), 4000);
+  toast(tr("{n} Dokument(e) ohne Datum abgelegt", { n: ok }) + (rest ? " · " + tr("{n} mit Datum oder nur lesbar nicht geändert", { n: rest }) : ""), 4000);
   await loadDocs();
 };
 // Herunterladen: ein Dokument direkt als PDF, mehrere als ZIP (Anmeldung über das Cookie)
@@ -1247,21 +1412,21 @@ $("#download-selected-btn").onclick = () => {
   const a = document.createElement("a");
   a.href = ids.length === 1 ? `/documents/${ids[0]}/file?download=1` : `/export/selection.zip?ids=${ids.join(",")}`;
   a.download = ""; document.body.appendChild(a); a.click(); a.remove();
-  toast(ids.length === 1 ? "PDF wird heruntergeladen" : `${ids.length} PDFs werden als ZIP heruntergeladen`);
+  toast(ids.length === 1 ? tr("PDF wird heruntergeladen") : tr("{n} PDFs werden als ZIP heruntergeladen", { n: ids.length }));
 };
 // Teilen: direkt als Dateien (Teilen-Menü des Geräts) oder als Freigabe-Link für genau diese Dokumente
 $("#share-selected-btn").onclick = () => {
   const docs = state.docs.filter((d) => state.selected.has(d.id));
   if (!docs.length) return;
-  const label = docs.length === 1 ? `Dokument „${docs[0].title}“` : `${docs.length} ausgewählte Dokumente`;
+  const label = docs.length === 1 ? tr("Dokument „{title}“", { title: docs[0].title }) : tr("{n} ausgewählte Dokumente", { n: docs.length });
   openShareDialog({ kind: docs.length === 1 ? "doc" : "docs", target: docs.length === 1 ? docs[0].id : docs.map((d) => d.id),
                     label, files: docs, own: docs.every((d) => d.is_own) });
 };
 $("#delete-selected-btn").onclick = async () => {
   const ids = [...state.selected];
   const perm = state.trash;
-  if (perm && state.me?.demo) { toast("In der Demo nicht möglich – Papierkorb bleibt bis zum Zurücksetzen"); return; }
-  if (!confirm(perm ? `${ids.length} Dokument(e) endgültig löschen?` : `${ids.length} Dokument(e) in den Papierkorb legen?`)) return;
+  if (perm && state.me?.demo) { toast(tr("In der Demo nicht möglich – Papierkorb bleibt bis zum Zurücksetzen")); return; }
+  if (!confirm(perm ? trn(ids.length, "{n} Dokument endgültig löschen?", "{n} Dokumente endgültig löschen?") : trn(ids.length, "{n} Dokument in den Papierkorb legen?", "{n} Dokumente in den Papierkorb legen?"))) return;
   for (const id of ids) await api(`/documents/${id}${perm ? "?permanent=true" : ""}`, { method: "DELETE" }).catch(() => {});
   state.selected.clear(); $("#selection-bar").classList.add("hidden");
   await Promise.all([loadDocs(), loadTags(), loadYears()]);
@@ -1281,7 +1446,7 @@ const AV_COLORS = ["#3a7452", "#c2410c", "#7c3aed", "#0e7490", "#db2777", "#9240
 const T_ALARM = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="13" r="7" stroke="currentColor" stroke-width="2.2"/><path d="M12 10v3l2 2M5 4L3 6M19 4l2 2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
 const T_CHECK = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4" stroke="currentColor" stroke-width="2.2"/><path d="M8.5 12l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const T_PEOPLE = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="9" cy="8" r="3.5" stroke="currentColor" stroke-width="2.2"/><circle cx="17" cy="9.5" r="2.5" stroke="currentColor" stroke-width="2.2"/><path d="M3 19c.8-3.3 3.2-5 6-5s5.2 1.7 6 5M15.5 14.3c2.6-.4 4.6 1.2 5.5 4.2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
-const T_REPEAT = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-label="wiederholt sich"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 01-3 3H3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const T_REPEAT = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" role="img" aria-label="${esc(tr("wiederholt sich"))}"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 01-3 3H3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const T_COIN = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2.2"/><path d="M15 8.6a4 4 0 1 0 0 6.8M7.5 11h5.5M7.5 13.5h5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 const T_CROSS = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="3" stroke="currentColor" stroke-width="2.1"/><path d="M9 7V5h6v2M12 10.5v6M9 13.5h6" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>`;
 
@@ -1293,16 +1458,19 @@ async function renderToday() {
   if (today.data) drawToday();   // sofort das Bekannte zeigen, dann auffrischen
   const seq = ++today.seq;
   const familyOld = Date.now() - today.familyAt > 60000;   // Familie höchstens einmal pro Minute nachzählen
-  const [due, recent, rc, fam, up] = await Promise.all([
+  const [due, recent, rc, fam, up, onb] = await Promise.all([
     api("/documents?scope=all&due=true&limit=50").catch(() => null),
     api("/documents?scope=all&sort=added&dir=desc&limit=12").catch(() => null),
     // Zählen wie die Liste, die der Klick öffnet (Bereich oben: nur meine oder alle)
-    api("/documents/review_count?scope=" + state.scope).catch(() => null),
+    reviewCount().catch(() => null),
     familyOld ? Promise.all([api("/persons").catch(() => []), api("/documents/owner_counts").catch(() => null),
                              api("/emergency").catch(() => null)]) : null,
     api("/upcoming?scope=all").catch(() => ({ items: [] })),
+    // „Los geht’s“ (Server: app/onboarding.py) – nur für neue Konten; ältere Server ohne Route: nichts
+    today.onboardingOff ? null : api("/onboarding").catch(() => null),
   ]);
   if (seq !== today.seq || !todayBrowsing()) return;
+  today.onboarding = onb && onb.show && !today.onboardingOff ? onb : null;
   if (fam) { today.family = { persons: fam[0] || [], counts: fam[1], emergency: fam[2] }; today.familyAt = Date.now(); }
   today.data = { due, recent, review: rc ? rc.count : 0, upcoming: (up && up.items) || [] };
   today.checked.clear();
@@ -1336,18 +1504,18 @@ function todayMoneyCard() {
   const g = today.money;
   if (!g) return "";
   const [y, m] = g.month.split("-").map(Number);
-  const name = new Date(y, m - 1, 1).toLocaleDateString("de-DE", { month: "long" });
+  const name = new Date(y, m - 1, 1).toLocaleDateString(LOC, { month: "long" });
   const max = Math.max(1, ...g.cats.map((c) => c.cents));
   const old = (Date.now() - new Date(g.last.slice(0, 10) + "T00:00")) / 864e5 > 35;
   const yr = g.yearly && (g.yearly.items.length || g.yearly.pot) ? moneyPotLine(g.yearly) : "";
   const diff = g.prev ? Math.round((g.spent / g.prev - 1) * 100) : null;
   return `<section class="tcard t-money" aria-labelledby="t-money-h">
-    <div class="t-head"><span class="t-ic">${T_COIN}</span><h2 id="t-money-h">Geld</h2><button class="t-link" data-act="money">Öffnen</button></div>
-    <div class="t-mbig"><b>${eurC(g.spent)}</b><span>${esc(name)}${g.running ? " bisher" : ""} ausgegeben${
-      diff != null && !g.running ? ` · ${diff > 0 ? "+" : ""}${diff} % zum Vormonat` : g.prev != null ? ` · Vormonat ${eurC(g.prev)}` : ""}</span></div>
-    ${g.cats.map((c) => `<button class="t-mcat" data-act="money"><span class="n">${esc(c.name)}</span><span class="bar"><i style="width:${Math.round(c.cents / max * 100)}%"></i></span><span class="v">${eurC(c.cents)}</span></button>`).join("")}
+    <div class="t-head"><span class="t-ic">${T_COIN}</span><h2 id="t-money-h">${esc(tr("Geld"))}</h2><button class="t-link" data-act="money">${esc(tr("Öffnen"))}</button></div>
+    <div class="t-mbig"><b>${eurC(g.spent)}</b><span>${esc(tr(g.running ? "{month} bisher ausgegeben" : "{month} ausgegeben", { month: name }))}${
+      diff != null && !g.running ? ` · ${esc(tr("{diff} % zum Vormonat", { diff: (diff > 0 ? "+" : "") + diff }))}` : g.prev != null ? ` · ${esc(tr("Vormonat {amount}", { amount: eurC(g.prev) }))}` : ""}</span></div>
+    ${g.cats.map((c) => `<button class="t-mcat" data-act="money"><span class="n">${esc(tr(c.name))}</span><span class="bar"><i style="width:${Math.round(c.cents / max * 100)}%"></i></span><span class="v">${eurC(c.cents)}</span></button>`).join("")}
     ${yr ? `<p class="t-mline">${yr}</p>` : ""}
-    ${old ? `<p class="t-mline warn">Umsätze bis ${fmtDate(g.last)} – neue CSV importieren</p>` : ""}
+    ${old ? `<p class="t-mline warn">${esc(tr("Umsätze bis {date} – neue CSV importieren", { date: fmtDate(g.last) }))}</p>` : ""}
   </section>`;
 }
 
@@ -1381,8 +1549,8 @@ function pickAvatar(url, done) {
   input.onchange = async () => {
     const f = input.files[0]; if (!f) return;
     const fd = new FormData(); fd.append("file", f);
-    try { await api(url, { method: "PUT", body: fd }); toast("Profilbild gespeichert"); done(); }
-    catch (e) { toast("Fehler: " + e.message, 4000); }
+    try { await api(url, { method: "PUT", body: fd }); toast(tr("Profilbild gespeichert")); done(); }
+    catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
   };
   input.click();
 }
@@ -1402,10 +1570,10 @@ function todayMembers() {
 function todayDueRow(d) {
   const n = dueDays(d), u = n < 0 ? "over" : n <= 7 ? "soon" : "later";
   const [y, mo, day] = d.due_date.slice(0, 10).split("-").map(Number);
-  const label = n < 0 ? "überfällig" : n === 0 ? "heute" : n === 1 ? "morgen" : n <= 7 ? `in ${n} Tagen`
-    : new Date(y, mo - 1, day).toLocaleDateString("de-DE", { day: "numeric", month: "short" });
+  const label = n < 0 ? tr("überfällig") : n === 0 ? tr("heute") : n === 1 ? tr("morgen") : n <= 7 ? tr("in {n} Tagen", { n })
+    : new Date(y, mo - 1, day).toLocaleDateString(LOC, { day: "numeric", month: "short" });
   const sub = d.due_note || d.sender || "";
-  const who = d.due_assignee != null && d.due_assignee === state.me.id ? "Ich" : d.due_assignee_name;
+  const who = d.due_assignee != null && d.due_assignee === state.me.id ? tr("Ich") : d.due_assignee_name;
   const done = today.checked.has(d.id);
   // Auswahl „Wer kümmert sich?“: die Zeile wählt aus statt zu öffnen (nur, was ich bearbeiten darf)
   const picking = today.assigning && d.can_edit, picked = picking && today.pick.has(d.id);
@@ -1413,19 +1581,19 @@ function todayDueRow(d) {
     ${picking ? `<span class="t-box" aria-hidden="true"></span>` : ""}
     <button class="t-open" ${picking ? `data-pick="${d.id}" aria-pressed="${picked}"` : `data-open="${d.id}"`}><span class="t-stripe"></span><span class="t-txt"><span class="t-title">${esc(d.title)}</span>${
       sub || who || d.due_repeat ? `<span class="t-sub">${sub ? `<span class="t-note">${esc(sub)}</span>` : ""}${d.due_repeat ? T_REPEAT : ""}${who ? `<span class="t-who">${esc(who)}</span>` : ""}</span>` : ""
-    }</span><span class="t-pill" title="${esc(`${d.due_note || "Frist"} · ${fmtDate(d.due_date)}`)}">${esc(label)}</span></button>
-    ${d.can_edit && !today.assigning ? `<button class="t-check" data-done="${d.id}" aria-label="Erledigt: ${esc(d.title)}" title="Erledigt"${done ? " disabled" : ""}></button>` : ""}
+    }</span><span class="t-pill" title="${esc(`${d.due_note || tr("Frist")} · ${fmtDate(d.due_date)}`)}">${esc(label)}</span></button>
+    ${d.can_edit && !today.assigning ? `<button class="t-check" data-done="${d.id}" aria-label="${esc(tr("Erledigt: {title}", { title: d.title }))}" title="${esc(tr("Erledigt"))}"${done ? " disabled" : ""}></button>` : ""}
   </div>`;
 }
 
 // „Wer kümmert sich?“ für mehrere: Zähler, alle, Person wählen (nur wer die jeweiligen Dokumente sieht – „2 von 3“)
 function dueAssignBar(editable) {
   const n = today.pick.size, p = today.people;
-  const opts = p ? p.people.map((x) => `<option value="${x.id}">${esc(x.display_name)}${x.count < p.total ? ` (${x.count} von ${p.total})` : ""}</option>`).join("") : "";
+  const opts = p ? p.people.map((x) => `<option value="${x.id}">${esc(x.display_name)}${x.count < p.total ? ` ${esc(tr("({count} von {total})", { count: x.count, total: p.total }))}` : ""}</option>`).join("") : "";
   return `<div class="t-assign">
-    <span class="t-assign-n">${n ? `${n} ausgewählt` : "Fristen antippen"}</span>
-    ${n < editable.length ? `<button class="t-link" data-act="pickall">Alle</button>` : ""}
-    <select id="t-assign-to" aria-label="Zuweisen an"${n && p ? "" : " disabled"}><option value="">Zuweisen an …</option>${opts}<option value="none">Niemand</option></select>
+    <span class="t-assign-n">${esc(n ? tr("{n} ausgewählt", { n }) : tr("Fristen antippen"))}</span>
+    ${n < editable.length ? `<button class="t-link" data-act="pickall">${esc(tr("Alle"))}</button>` : ""}
+    <select id="t-assign-to" aria-label="${esc(tr("Zuweisen an"))}"${n && p ? "" : " disabled"}><option value="">${esc(tr("Zuweisen an …"))}</option>${opts}<option value="none">${esc(tr("Niemand"))}</option></select>
   </div>`;
 }
 async function loadDuePeople() {
@@ -1440,11 +1608,11 @@ async function dueAssignChange(e) {
   e.target.disabled = true;
   try {
     const r = await api("/due/assign", json("POST", { ids, assignee: v === "none" ? null : Number(v) }));
-    toast(r.skipped ? `${r.updated} zugewiesen, ${r.skipped} übersprungen – die Person sieht diese Dokumente nicht`
-      : r.updated === 1 ? "1 Frist zugewiesen" : `${r.updated} Fristen zugewiesen`);
+    toast(r.skipped ? tr("{updated} zugewiesen, {skipped} übersprungen – die Person sieht diese Dokumente nicht", { updated: r.updated, skipped: r.skipped })
+      : trn(r.updated, "1 Frist zugewiesen", "{n} Fristen zugewiesen"));
     today.assigning = false; today.pick.clear(); today.people = null;
     renderToday(); renderFamily(true);
-  } catch (err) { e.target.disabled = false; toast("Fehler: " + err.message); }
+  } catch (err) { e.target.disabled = false; toast(tr("Fehler: {msg}", { msg: err.message })); }
 }
 $("#todayview").addEventListener("change", dueAssignChange);
 $("#familyview").addEventListener("change", dueAssignChange);
@@ -1455,22 +1623,48 @@ function dueList() { return (familyBrowsing() ? family.dues : today.data?.due) |
 // „Im Blick“: Ausweis läuft ab, Prüfung/Wartung fällig, teurer geworden, Erstattung offen (Server: /upcoming)
 function blickRow(i) {
   const n = i.date ? Math.round((new Date(i.date.slice(0, 10) + "T00:00") - new Date(new Date().toDateString())) / 864e5) : null;
-  const when = n == null ? "" : n < 0 ? (i.type === "expiry" ? "abgelaufen" : "überfällig") : n === 0 ? "heute"
-    : n <= 60 ? `in ${n} Tagen` : fmtDate(i.date);
-  const eur = (v) => (v == null ? "" : Number(v).toLocaleString("de-DE", { style: "currency", currency: "EUR" }));
+  const when = n == null ? "" : n < 0 ? (i.type === "expiry" ? tr("abgelaufen") : tr("überfällig")) : n === 0 ? tr("heute")
+    : n === 1 ? tr("morgen") : n <= 60 ? tr("in {n} Tagen", { n }) : fmtDate(i.date);
+  const eur = (v) => (v == null ? "" : Number(v).toLocaleString(LOC, { style: "currency", currency: "EUR" }));
   let title, sub, pill = when, u = n != null && n < 0 ? "over" : n != null && n <= 30 ? "soon" : "later";
-  if (i.type === "expiry") { title = i.what ? `${i.what} läuft ab` : "Läuft ab"; sub = i.title; }
-  else if (i.type === "service") { title = `${i.what} fällig`; sub = `zuletzt: ${i.title}`; }
-  else if (i.type === "warranty") { title = `${i.what} endet`; sub = `${i.title}${i.amount ? " · " + eur(i.amount) : ""} – Mängel jetzt noch melden`; u = n != null && n <= 14 ? "soon" : "later"; }
+  // what: Ausweis-/Prüfungsart bzw. Garantie/Gewährleistung kommt deutsch vom Server – nur die Anzeige übersetzen
+  if (i.type === "expiry") { title = i.what ? tr("{what} läuft ab", { what: tr(i.what) }) : tr("Läuft ab"); sub = i.title; }
+  else if (i.type === "service") { title = tr("{what} fällig", { what: tr(i.what) }); sub = tr("zuletzt: {title}", { title: i.title }); }
+  else if (i.type === "warranty") { title = tr("{what} endet", { what: tr(i.what) }); sub = tr("{title} – Mängel jetzt noch melden", { title: `${i.title}${i.amount ? " · " + eur(i.amount) : ""}` }); u = n != null && n <= 14 ? "soon" : "later"; }
   else if (i.type === "price") {
-    title = `${i.what} ist teurer`; sub = `${eur(i.from)} → ${eur(i.amount)} (+${i.percent} %)` + (i.cancel_by ? ` · kündbar bis ${fmtDate(i.cancel_by)}` : "");
-    pill = `seit ${fmtDate(i.date)}`; u = "later";
-  } else { title = "Erstattung offen"; sub = `${i.title}${i.amount ? " · " + eur(i.amount) : ""}`; pill = i.date ? fmtDate(i.date) : ""; u = "later"; }
+    title = tr("{what} ist teurer", { what: i.what }); sub = `${eur(i.from)} → ${eur(i.amount)} (+${i.percent} %)` + (i.cancel_by ? ` · ${tr("kündbar bis {date}", { date: fmtDate(i.cancel_by) })}` : "");
+    pill = tr("seit {date}", { date: fmtDate(i.date) }); u = "later";
+  } else { title = tr("Erstattung offen"); sub = `${i.title}${i.amount ? " · " + eur(i.amount) : ""}`; pill = i.date ? fmtDate(i.date) : ""; u = "later"; }
   // aus dem Konto erkannt (kein Beleg): führt in „Geld“
   return `<div class="t-row ${u}"><button class="t-open" ${i.document_id ? `data-open="${i.document_id}"` : `data-act="money"`}><span class="t-stripe"></span><span class="t-txt"><span class="t-title">${esc(title)}</span>
     <span class="t-sub"><span class="t-note">${esc(sub || "")}</span></span></span>${pill ? `<span class="t-pill">${esc(pill)}</span>` : ""}</button></div>`;
 }
 
+// „Los geht’s“ auf Heute (wie die App): erste Schritte mit Häkchen, offene mit Knopf; Ausblenden gilt fürs Konto
+const ONB_STEPS = {
+  first_document: { title: "Erstes Dokument ablegen", sub: "PDF oder Foto hochladen – der Alligator sortiert es ein", act: "ob-upload", label: "Hochladen" },
+  app: { title: "App aufs iPhone", sub: "Papigator für iPhone und iPad über TestFlight – dann mit dem QR-Code verbinden", act: "ob-connect", label: "App verbinden" },
+  invite: { title: "Familie einladen", sub: "Link oder QR-Code – ohne Passwort abzutippen", act: "ob-invite", label: "Einladen" },
+  persons: { title: "Kinder als Personen anlegen", sub: "Ihre Dokumente landen dann von selbst in ihrem Ordner", act: "ob-persons", label: "Personen" },
+  inbox: { title: "Scanner oder E-Mail-Eingang einrichten", sub: "Papier und Rechnungs-Mails kommen dann von selbst", act: "ob-inbox", label: "Einrichten" },
+};
+const TESTFLIGHT = "https://testflight.apple.com/join/p4FjYp3Z";
+function onboardingCard() {
+  const o = today.onboarding;
+  if (!o) return "";
+  const steps = o.steps.filter((x) => ONB_STEPS[x.key]), done = steps.filter((x) => x.done).length;
+  return `<section class="tcard t-onb" aria-labelledby="t-onb-h">
+    <div class="t-head"><span class="t-ic">${T_CHECK}</span><h2 id="t-onb-h">${esc(tr("Los geht’s"))}</h2>
+      <span class="t-count">${esc(tr("{done} von {n} erledigt", { done, n: steps.length }))}</span>
+      <button class="t-link" data-act="ob-dismiss">${esc(tr("Ausblenden"))}</button></div>
+    ${steps.map((x) => {
+      const st = ONB_STEPS[x.key];
+      return `<div class="t-onb-row${x.done ? " done" : ""}" data-step="${x.key}"><span class="t-onb-box" aria-hidden="true">${x.done ? WN_SVG.check : ""}</span>
+        <span class="t-txt"><span class="t-title">${esc(tr(st.title))}</span><span class="t-sub"><span class="t-note">${esc(tr(st.sub))}</span></span></span>
+        ${x.done ? `<span class="sr-only">${esc(tr("erledigt"))}</span>` : `<span class="t-onb-acts">${x.key === "app" ? `<a class="btn" href="${TESTFLIGHT}" target="_blank" rel="noopener">TestFlight</a>` : ""}<button class="btn" data-act="${st.act}">${esc(tr(st.label))}</button></span>`}</div>`;
+    }).join("")}
+  </section>`;
+}
 function drawToday() {
   const box = $("#todayview"), t = today.data;
   if (!t) { box.innerHTML = ""; return; }
@@ -1478,37 +1672,37 @@ function drawToday() {
   const shown = today.showAllDue || today.assigning ? dues : dues.slice(0, TODAY_DUE_SHOWN);
   const editable = dues.filter((d) => d.can_edit);
   const dueCard = `<section class="tcard t-due" aria-labelledby="t-due-h">
-    <div class="t-head"><span class="t-ic orange">${T_ALARM}</span><h2 id="t-due-h">Fristen</h2>${dues.length ? `<span class="t-count">${dues.length} offen</span>` : ""}${
-      editable.length > 1 || today.assigning ? `<button class="t-link" data-act="assign" title="Mehrere Fristen auf einmal jemandem geben">${today.assigning ? "Fertig" : "Zuweisen"}</button>` : ""}</div>
+    <div class="t-head"><span class="t-ic orange">${T_ALARM}</span><h2 id="t-due-h">${esc(tr("Fristen"))}</h2>${dues.length ? `<span class="t-count">${esc(tr("{n} offen", { n: dues.length }))}</span>` : ""}${
+      editable.length > 1 || today.assigning ? `<button class="t-link" data-act="assign" title="${esc(tr("Mehrere Fristen auf einmal jemandem geben"))}">${esc(today.assigning ? tr("Fertig") : tr("Zuweisen"))}</button>` : ""}</div>
     ${today.assigning ? dueAssignBar(editable) : ""}
-    ${t.due === null ? `<p class="t-none">Fristen ließen sich gerade nicht laden.</p>` : dues.length ? "" : `<p class="t-none">Keine offenen Fristen – Zeit für einen Kaffee.</p>`}
+    ${t.due === null ? `<p class="t-none">${esc(tr("Fristen ließen sich gerade nicht laden."))}</p>` : dues.length ? "" : `<p class="t-none">${esc(tr("Keine offenen Fristen – Zeit für einen Kaffee."))}</p>`}
     ${shown.map(todayDueRow).join("")}
-    ${dues.length > TODAY_DUE_SHOWN && !today.assigning ? `<button class="t-more" data-act="more">${today.showAllDue ? "Weniger zeigen" : `Alle ${dues.length} Fristen zeigen`}</button>` : ""}
+    ${dues.length > TODAY_DUE_SHOWN && !today.assigning ? `<button class="t-more" data-act="more">${esc(today.showAllDue ? tr("Weniger zeigen") : tr("Alle {n} Fristen zeigen", { n: dues.length }))}</button>` : ""}
   </section>`;
   const review = t.review ? `<button class="t-review" data-act="review"><span class="t-ic">${T_CHECK}</span>
-    <span class="t-rv"><b>${t.review === 1 ? "1 Dokument" : `${t.review} Dokumente`} zum Prüfen</b><small>Kurz drüberschauen – dauert keine Minute</small></span><span aria-hidden="true">›</span></button>` : "";
+    <span class="t-rv"><b>${esc(trn(t.review, "1 Dokument zum Prüfen", "{n} Dokumente zum Prüfen"))}</b><small>${esc(tr("Kurz drüberschauen – dauert keine Minute"))}</small></span><span aria-hidden="true">›</span></button>` : "";
   const up = t.upcoming || [];
   const blick = up.length ? `<section class="tcard t-blick" aria-labelledby="t-blick-h">
-    <div class="t-head"><span class="t-ic">${T_ALARM}</span><h2 id="t-blick-h">Im Blick</h2></div>
+    <div class="t-head"><span class="t-ic">${T_ALARM}</span><h2 id="t-blick-h">${esc(tr("Im Blick"))}</h2></div>
     ${up.map(blickRow).join("")}
   </section>` : "";
   const members = todayMembers(), em = today.family?.emergency;
   const family = members.length > 1 || em ? `<section class="tcard t-family" aria-labelledby="t-fam-h">
-    <div class="t-head"><span class="t-ic">${T_PEOPLE}</span><h2 id="t-fam-h">Familie</h2></div>
-    ${members.length > 1 ? `<div class="t-people">${members.map((m) => `<button class="t-person" data-member="${m.key}" title="Dokumente von ${esc(m.name)}">
+    <div class="t-head"><span class="t-ic">${T_PEOPLE}</span><h2 id="t-fam-h">${esc(tr("Familie"))}</h2></div>
+    ${members.length > 1 ? `<div class="t-people">${members.map((m) => `<button class="t-person" data-member="${m.key}" title="${esc(tr("Dokumente von {name}", { name: m.name }))}">
       ${avatarHtml(m.img, m.name, m.color)}<b>${esc(m.name)}</b>
-      <small>${m.count == null ? "&nbsp;" : m.count === 1 ? "1 Dokument" : `${m.count} Dokumente`}</small></button>`).join("")}</div>` : ""}
-    ${em ? `<button class="t-emerg" data-act="emergency">${T_CROSS}<b>Notfallmappe</b><small>${em.documents.length ? (em.documents.length === 1 ? "1 Dokument" : `${em.documents.length} Dokumente`) : "Noch leer"}</small></button>` : ""}
+      <small>${m.count == null ? "&nbsp;" : esc(trn(m.count, "1 Dokument", "{n} Dokumente"))}</small></button>`).join("")}</div>` : ""}
+    ${em ? `<button class="t-emerg" data-act="emergency">${T_CROSS}<b>${esc(tr("Notfallmappe"))}</b><small>${esc(em.documents.length ? trn(em.documents.length, "1 Dokument", "{n} Dokumente") : tr("Noch leer"))}</small></button>` : ""}
   </section>` : "";
-  const recent = (t.recent || []).length ? `<div class="t-head t-new-h"><span class="t-ic small">${SMART_SVG}</span><h2>Neu</h2><button class="t-link" data-act="all">Alle Dokumente</button></div>
+  const recent = (t.recent || []).length ? `<div class="t-head t-new-h"><span class="t-ic small">${SMART_SVG}</span><h2>${esc(tr("Neu"))}</h2><button class="t-link" data-act="all">${esc(tr("Alle Dokumente"))}</button></div>
     <div class="t-new">${t.recent.map((d) => {
       const ready = d.status === "done" || d.status === "tagging";
-      return `<button class="t-doc" data-open="${d.id}"><span class="t-thumb">${ready ? `<img loading="lazy" src="${d.thumbnail_url}?v=${enc(d.updated_at)}" alt="">` : `<span class="pending">${d.status === "error" ? "Fehler" : "OCR läuft …"}</span>`}</span>
+      return `<button class="t-doc" data-open="${d.id}"><span class="t-thumb">${ready ? `<img loading="lazy" src="${d.thumbnail_url}?v=${enc(d.updated_at)}" alt="">` : `<span class="pending">${esc(d.status === "error" ? tr("Fehler") : tr("OCR läuft …"))}</span>`}</span>
         <span class="t-dtitle">${esc(d.title)}</span>${d.tags.length ? pill(d.tags[0]) : `<span class="t-dsub">${docDateHtml(d)}</span>`}</button>`;
     }).join("")}</div>` : "";
   const moneyCard = todayMoneyCard();
   const empty = !dues.length && !t.review && !up.length && !(t.recent || []).length && t.due !== null;
-  box.innerHTML = empty ? "" : `<div class="t-cols"><div class="t-main">${dueCard}</div>${review || blick || moneyCard || family ? `<div class="t-side">${review}${blick}${moneyCard}${family}</div>` : ""}</div>${recent}`;
+  box.innerHTML = onboardingCard() + (empty ? "" : `<div class="t-cols"><div class="t-main">${dueCard}</div>${review || blick || moneyCard || family ? `<div class="t-side">${review}${blick}${moneyCard}${family}</div>` : ""}</div>${recent}`);
   if (!empty) balanceToday();
   $("#empty").classList.toggle("hidden", !empty);
   if (empty) { state.docs = []; renderEmpty(); }
@@ -1518,7 +1712,7 @@ function drawToday() {
 function showMember(m) {
   const c = m.account != null ? { kind: "owner", label: m.name, owner_id: m.account }
     : { kind: "person", label: m.name, value: m.name, tag: true };
-  showChip(c, `von ${m.name}`);
+  showChip(c, tr("von {name}", { name: m.name }));
 }
 function showChip(c, text) {
   clearTimeout(searchTimer); smartSeq++;
@@ -1528,7 +1722,7 @@ function showChip(c, text) {
 }
 
 async function dueViewClick(e) {
-  const el = e.target.closest("button"); if (!el) return;
+  const el = e.target.closest("button"); if (!el || el.closest("#family-manage")) return;
   if (el.dataset.open) return openDetail(Number(el.dataset.open));
   if (el.dataset.pick) {
     const id = Number(el.dataset.pick);
@@ -1541,8 +1735,8 @@ async function dueViewClick(e) {
     today.checked.add(id); redrawDue();
     try {
       const d = await api(`/documents/${id}`, json("PATCH", { due_done: true }));
-      toast(d && d.due_date && !d.due_done ? `Erledigt – nächste Frist ${fmtDate(d.due_date)}` : "Erledigt");
-    } catch (err) { today.checked.delete(id); toast("Fehler: " + err.message); }
+      toast(d && d.due_date && !d.due_done ? tr("Erledigt – nächste Frist {date}", { date: fmtDate(d.due_date) }) : tr("Erledigt"));
+    } catch (err) { today.checked.delete(id); toast(tr("Fehler: {msg}", { msg: err.message })); }
     setTimeout(() => { if (todayBrowsing()) renderToday(); if (familyBrowsing()) renderFamily(true); }, 600);
     return;
   }
@@ -1552,15 +1746,24 @@ async function dueViewClick(e) {
     case "pickall":
       for (const d of dueList().filter((x) => x.due_date && !x.due_done && x.can_edit)) today.pick.add(d.id);
       redrawDue(); loadDuePeople(); break;
-    case "fam-sect": openSettingsSection(el.dataset.sect); break;
+    case "fam-sect": openFamilySection(el.dataset.sect); break;
     case "review": state.review = true; renderTagBar(); loadDocs(); break;
     case "emergency": {   // als Ordner-Chip über alles, was ich sehe (wie die Mappe selbst) – nicht nur im Bereich „Meine“
       const em = today.family?.emergency;
       if (em) showChip({ kind: "word", label: em.name, value: em.name, tag: true }, em.name);
       break;
     }
-    case "all": $('#mode-seg button[data-mode="tiles"]').click(); break;
-    case "money": $('#mode-seg button[data-mode="money"]').click(); break;
+    case "all": setMode("tiles"); break;
+    case "ob-upload": $("#file-input").click(); break;
+    case "ob-connect": openSettingsSection("s-connect-sect"); break;
+    case "ob-invite": openFamilySection("s-invite-sect"); break;
+    case "ob-persons": openFamilySection("s-persons-sect"); break;
+    case "ob-inbox": openSettingsSection(state.me?.is_admin ? "s-mail" : "s-inbox-sect"); break;
+    case "ob-dismiss":
+      today.onboardingOff = true; today.onboarding = null; drawToday();
+      api("/onboarding/dismiss", { method: "POST" }).catch(() => {});
+      break;
+    case "money": setMode("money"); break;
   }
 }
 $("#todayview").addEventListener("click", dueViewClick);
@@ -1579,6 +1782,8 @@ async function renderFamily(force = false) {
   $("#main").classList.toggle("family-on", on);
   box.classList.toggle("hidden", !on);
   if (!on) return;
+  // Einladen legt nur ein Admin an (Server: require_admin), in der Demo nicht
+  $("#s-invite-sect").classList.toggle("hidden", !state.me?.is_admin || !!state.me?.demo);
   if (family.dues) drawFamily();
   if (!force && Date.now() - family.at < 15000) return;     // nicht bei jedem Tastendruck/Polling neu laden
   const seq = ++family.seq;
@@ -1594,13 +1799,13 @@ async function renderFamily(force = false) {
   drawFamily();
 }
 function drawFamily() {
-  const box = $("#familyview"), me = state.me, members = todayMembers();
+  const me = state.me, members = todayMembers();
   const dues = family.dues || [];
   // Wer kümmert sich? – nach Zuständigen; dringendste Gruppe oben, „Noch niemand“ zuletzt
   const groups = new Map();
   for (const d of dues) {
     const a = d.due_assignee ?? null, k = a === null ? "none" : String(a);
-    if (!groups.has(k)) groups.set(k, { a, name: a === null ? "Noch niemand" : a === me.id ? "Ich" : d.due_assignee_name || "Jemand anderes", docs: [] });
+    if (!groups.has(k)) groups.set(k, { a, name: a === null ? tr("Noch niemand") : a === me.id ? tr("Ich") : d.due_assignee_name || tr("Jemand anderes"), docs: [] });
     groups.get(k).docs.push(d);
   }
   const urg = (g) => [g.docs.filter((d) => dueDays(d) < 0).length, g.docs.filter((d) => { const n = dueDays(d); return n >= 0 && n <= 7; }).length];
@@ -1608,39 +1813,62 @@ function drawFamily() {
   const editable = dues.filter((d) => d.can_edit);
   const memberOf = (a) => members.find((m) => m.account === a);
   const who = `<section class="tcard t-due" aria-labelledby="f-who-h">
-    <div class="t-head"><span class="t-ic orange">${T_ALARM}</span><h2 id="f-who-h">Wer kümmert sich?</h2>${dues.length ? `<span class="t-count">${dues.length} offen</span>` : ""}${
-      editable.length > 1 || today.assigning ? `<button class="t-link" data-act="assign">${today.assigning ? "Fertig" : "Zuweisen"}</button>` : ""}</div>
+    <div class="t-head"><span class="t-ic orange">${T_ALARM}</span><h2 id="f-who-h">${esc(tr("Wer kümmert sich?"))}</h2>${dues.length ? `<span class="t-count">${esc(tr("{n} offen", { n: dues.length }))}</span>` : ""}${
+      editable.length > 1 || today.assigning ? `<button class="t-link" data-act="assign">${esc(today.assigning ? tr("Fertig") : tr("Zuweisen"))}</button>` : ""}</div>
     ${today.assigning ? dueAssignBar(editable) : ""}
-    ${family.dues === null ? `<p class="t-none">Lädt …</p>` : dues.length ? "" : `<p class="t-none">Keine offenen Fristen.</p>`}
+    ${family.dues === null ? `<p class="t-none">${esc(tr("Lädt …"))}</p>` : dues.length ? "" : `<p class="t-none">${esc(tr("Keine offenen Fristen."))}</p>`}
     ${sorted.map((g) => {
       const m = memberOf(g.a), [over, soon] = urg(g);
       return `<div class="f-group"><div class="f-gh">${avatarHtml(m?.img, g.name, m?.color || "#94a3b8", "t-av small")}<b>${esc(g.name)}</b>
-        <span class="f-pills">${over ? `<span class="f-pill over">${over} überfällig</span>` : ""}${soon ? `<span class="f-pill soon">${soon} bald</span>` : ""}<span class="muted small">${g.docs.length === 1 ? "1 Frist" : `${g.docs.length} Fristen`}</span></span></div>
+        <span class="f-pills">${over ? `<span class="f-pill over">${esc(tr("{n} überfällig", { n: over }))}</span>` : ""}${soon ? `<span class="f-pill soon">${esc(tr("{n} bald", { n: soon }))}</span>` : ""}<span class="muted small">${esc(trn(g.docs.length, "1 Frist", "{n} Fristen"))}</span></span></div>
         ${g.docs.map(todayDueRow).join("")}</div>`;
     }).join("")}
   </section>`;
   const people = `<section class="tcard t-family" aria-labelledby="f-mem-h">
-    <div class="t-head"><span class="t-ic">${T_PEOPLE}</span><h2 id="f-mem-h">Familie</h2></div>
-    <div class="t-people">${members.map((m) => `<button class="t-person" data-member="${m.key}" title="Dokumente von ${esc(m.name)}">
+    <div class="t-head"><span class="t-ic">${T_PEOPLE}</span><h2 id="f-mem-h">${esc(tr("Familie"))}</h2></div>
+    <div class="t-people">${members.map((m) => `<button class="t-person" data-member="${m.key}" title="${esc(tr("Dokumente von {name}", { name: m.name }))}">
       ${avatarHtml(m.img, m.name, m.color)}<b>${esc(m.name)}</b>
-      <small>${m.count == null ? "&nbsp;" : m.count === 1 ? "1 Dokument" : `${m.count} Dokumente`}</small></button>`).join("")}</div>
-    <p class="m-note" style="margin-top:10px">Konten, die mit dir teilen, und Personen ohne Konto (z. B. Kinder). Personen anlegen und Bilder wählen:
-      <button class="linkish" data-act="fam-sect" data-sect="s-persons-sect">Personen verwalten</button></p>
+      <small>${m.count == null ? "&nbsp;" : esc(trn(m.count, "1 Dokument", "{n} Dokumente"))}</small></button>`).join("")}</div>
+    <p class="m-note" style="margin-top:10px">${esc(tr("Konten, die mit dir teilen, und Personen ohne Konto (z. B. Kinder). Personen anlegen und Bilder wählen:"))}
+      <button class="linkish" data-act="fam-sect" data-sect="s-persons-sect">${esc(tr("Personen verwalten"))}</button></p>
   </section>`;
   const em = today.family?.emergency;
-  const emerg = `<section class="tcard"><div class="t-head"><span class="t-ic">${T_CROSS}</span><h2>Notfallmappe</h2></div>
-    <p class="m-note" style="margin:-2px 0 8px">Was Angehörige im Ernstfall brauchen: Vollmachten, Verfügungen, Versicherungen.</p>
+  const emerg = `<section class="tcard"><div class="t-head"><span class="t-ic">${T_CROSS}</span><h2>${esc(tr("Notfallmappe"))}</h2></div>
+    <p class="m-note" style="margin:-2px 0 8px">${esc(tr("Was Angehörige im Ernstfall brauchen: Vollmachten, Verfügungen, Versicherungen."))}</p>
     <div class="row" style="gap:8px;flex-wrap:wrap">
-      ${em && em.documents.length ? `<button class="btn" data-act="emergency">${em.documents.length === 1 ? "1 Dokument" : `${em.documents.length} Dokumente`} ansehen</button>` : `<span class="muted small">Noch leer</span>`}
-      <button class="btn ghost" data-act="fam-sect" data-sect="s-emergency-sect">Füllen und teilen</button></div></section>`;
-  const clean = `<section class="tcard"><div class="t-head"><span class="t-ic">${T_CHECK}</span><h2>Aufräumen</h2></div>
-    <p class="m-note" style="margin:-2px 0 8px">${family.cleanup == null ? "Was nach Ablauf der Aufbewahrungsfrist weg darf."
-      : family.cleanup ? `${family.cleanup} Dokument${family.cleanup === 1 ? " darf" : "e dürfen"} nach Ablauf der Aufbewahrungsfrist weg.` : "Nichts zum Aufräumen – alles liegt noch in seiner Frist."}</p>
-    <button class="btn ghost" data-act="fam-sect" data-sect="s-cleanup-sect">${family.cleanup ? "Ansehen" : "Fristen ansehen"}</button></section>`;
-  box.innerHTML = `<div class="t-cols"><div class="t-main">${who}</div><div class="t-side">${people}${emerg}${clean}</div></div>`;
-  balanceColumns(box.querySelector(".t-main"), box.querySelector(".t-side"), 14);
+      ${em && em.documents.length ? `<button class="btn" data-act="emergency">${esc(trn(em.documents.length, "1 Dokument ansehen", "{n} Dokumente ansehen"))}</button>` : `<span class="muted small">${esc(tr("Noch leer"))}</span>`}
+      <button class="btn ghost" data-act="fam-sect" data-sect="s-emergency-sect">${esc(tr("Füllen und teilen"))}</button></div></section>`;
+  const clean = `<section class="tcard"><div class="t-head"><span class="t-ic">${T_CHECK}</span><h2>${esc(tr("Aufräumen"))}</h2></div>
+    <p class="m-note" style="margin:-2px 0 8px">${esc(family.cleanup == null ? tr("Was nach Ablauf der Aufbewahrungsfrist weg darf.")
+      : family.cleanup ? trn(family.cleanup, "1 Dokument darf nach Ablauf der Aufbewahrungsfrist weg.", "{n} Dokumente dürfen nach Ablauf der Aufbewahrungsfrist weg.") : tr("Nichts zum Aufräumen – alles liegt noch in seiner Frist."))}</p>
+    <button class="btn ghost" data-act="fam-sect" data-sect="s-cleanup-sect">${esc(family.cleanup ? tr("Ansehen") : tr("Fristen ansehen"))}</button></section>`;
+  const cards = $("#family-cards");
+  cards.innerHTML = `<div class="t-cols"><div class="t-main">${who}</div><div class="t-side">${people}${emerg}${clean}</div></div>`;
+  balanceColumns(cards.querySelector(".t-main"), cards.querySelector(".t-side"), 14);
 }
-// Einstellungen öffnen und gleich den passenden Abschnitt aufklappen (Personen, Notfallmappe, Aufräumen)
+// Abschnitt unter „Familie“ aufklappen (Personen, Notfallmappe, Aufräumen, Einladen) – auch aus den Einstellungen
+async function openFamilySection(id) {
+  if (!$("#settings").classList.contains("hidden")) await leaveSettingsThen();
+  if (state.mode !== "family" || !familyBrowsing()) { closeOverlays(); clearAllSearch(); await setMode("family"); }
+  const d = document.getElementById(id);
+  if (!d || d.classList.contains("hidden")) return;
+  if (!d.open) { d.open = true; d.dispatchEvent(new Event("toggle")); }
+  d.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+// Einstellungen verlassen und erst danach weitermachen: das Schließen blättert im Verlauf zurück (asynchron) – ein
+// neuer Eintrag direkt danach (Papierkorb) würde sonst gleich wieder mit weggenommen
+function leaveSettingsThen() {
+  return new Promise((resolve) => {
+    const top = layers[layers.length - 1];
+    const back = top && top.name === "settings" && history.state && history.state.lid === top.lid;
+    const done = () => { leaveSettings(); resolve(); };
+    if (back) window.addEventListener("popstate", done, { once: true });
+    closeLayer("settings");
+    if (!back) done();
+  });
+}
+for (const b of document.querySelectorAll("[data-family-sect]")) b.onclick = () => openFamilySection(b.dataset.familySect);
+// Einstellungen öffnen und gleich den passenden Abschnitt aufklappen (Wochenübersicht aus der Mail)
 async function openSettingsSection(id) {
   await openSettings();
   const d = document.getElementById(id);
@@ -1656,7 +1884,7 @@ async function openSettingsSection(id) {
 // sind Ebenen – Browser-Zurück führt zur Übersicht.
 const money = { yearly: null, yearlyOpen: false, q: "", search: null, period: "6m", account: "", cat: null, sorting: false, data: null, cats: null, sort: null, accounts: null, seq: 0, lastImport: null };
 function moneyBrowsing() { return state.mode === "money" && !state.trash && !state.review && !state.due && !state.warranty; }
-const eurC = (c) => (c / 100).toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+const eurC = (c) => (c / 100).toLocaleString(LOC, { style: "currency", currency: "EUR" });
 function moneyRange() {
   const d = new Date(), pad = (n) => String(n).padStart(2, "0");
   const iso = (y, m, day = 1) => `${y}-${pad(m)}-${pad(day)}`;
@@ -1699,15 +1927,15 @@ async function renderMoney() {
 function moneyTxRow(t, edit = false) {
   const [y, m, d] = t.booked.split("-");
   const who = t.counterparty || "–";
-  const doc = t.document_id ? `<button class="m-pill" data-open="${t.document_id}">Beleg</button>` : "";
+  const doc = t.document_id ? `<button class="m-pill" data-open="${t.document_id}">${esc(tr("Beleg"))}</button>` : "";
   // in der Kategorie: falsch einsortiert? hier umstellen
   const cats = (money.accounts && money.accounts.categories) || [];
   // Noch nicht einsortiert: Platzhalter statt der ersten Kategorie – sonst sähe es aus, als wäre schon gewählt
-  const sel = edit ? `<select data-mrecat="${t.id}" data-key="${esc(t.key || "")}" aria-label="Kategorie von ${esc(who)}" class="m-recat${t.category ? "" : " empty"}">${
-    t.category ? "" : `<option value="" selected disabled>Kategorie wählen …</option>`}${cats.map((c) =>
-    `<option${c === t.category ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>` : "";
-  const year = edit && t.cents < 0 && money.yearly ? `<button class="m-pill" data-myear="${t.id}" data-val="true" title="Kommt einmal im Jahr – zu den jährlichen Kosten">Jährlich</button>` : "";
-  return `<div class="m-tx"><span class="d">${d}.${m}.</span><span class="w"><b>${esc(who)}</b><small>${esc(t.purpose || "")}</small></span>${sel}${doc}${year}
+  const sel = edit ? `<select data-mrecat="${t.id}" data-key="${esc(t.key || "")}" aria-label="${esc(tr("Kategorie von {name}", { name: who }))}" class="m-recat${t.category ? "" : " empty"}">${
+    t.category ? "" : `<option value="" selected disabled>${esc(tr("Kategorie wählen …"))}</option>`}${cats.map((c) =>
+    `<option value="${esc(c)}"${c === t.category ? " selected" : ""}>${esc(tr(c))}</option>`).join("")}</select>` : "";
+  const year = edit && t.cents < 0 && money.yearly ? `<button class="m-pill" data-myear="${t.id}" data-val="true" title="${esc(tr("Kommt einmal im Jahr – zu den jährlichen Kosten"))}">${esc(tr("Jährlich"))}</button>` : "";
+  return `<div class="m-tx"><span class="d">${LANG === "de" ? `${d}.${m}.` : new Date(+y, m - 1, +d).toLocaleDateString(LOC, { day: "2-digit", month: "2-digit" })}</span><span class="w"><b>${esc(who)}</b><small>${esc(t.purpose || "")}</small></span>${sel}${doc}${year}
     <span class="a${t.cents > 0 ? " plus" : ""}">${t.cents > 0 ? "+" : ""}${eurC(t.cents)}</span></div>`;
 }
 // Fokus nach dem Zeichnen: in eine Ebene hinein auf „‹ Geld“, beim Schließen zurück auf den Knopf, der sie geöffnet
@@ -1723,31 +1951,30 @@ function drawMoney() {
 function drawMoneyView() {
   const box = $("#moneyview"), a = money.accounts, s = money.data;
   const accs = (a && a.accounts) || [];
-  const periods = [["month", "Monat"], ["6m", "6 Monate"], ["year", "Jahr"], ["all", "Alles"]];
+  const periods = [["month", tr("Monat")], ["6m", tr("6 Monate")], ["year", tr("Jahr")], ["all", tr("Alles")]];
   // Konten nach Umsätzen sortiert (Gemeinschaftskonto zuerst, kleine Pockets hinten)
   const byUse = [...accs].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  const accSel = accs.length > 1 ? `<select id="m-account" class="m-accsel" aria-label="Konto"><option value="">Alle ${accs.length} Konten</option>${byUse.map((x) =>
+  const accSel = accs.length > 1 ? `<select id="m-account" class="m-accsel" aria-label="${esc(tr("Konto"))}"><option value="">${esc(tr("Alle {n} Konten", { n: accs.length }))}</option>${byUse.map((x) =>
     `<option value="${x.id}"${String(x.id) === String(money.account) ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select>` : "";
   const picked = accs.find((x) => String(x.id) === String(money.account));
-  const which = picked ? picked.name : accs.length === 1 ? accs[0].name : accs.length ? `${accs.length} Konten` : "Noch kein Konto";
-  const covered = s && s.covered ? `Umsätze vom ${fmtDate(s.covered.first)} bis ${fmtDate(s.covered.last)}` : "";
+  const which = picked ? picked.name : accs.length === 1 ? accs[0].name : accs.length ? tr("{n} Konten", { n: accs.length }) : tr("Noch kein Konto");
+  const covered = s && s.covered ? tr("Umsätze vom {from} bis {to}", { from: fmtDate(s.covered.first), to: fmtDate(s.covered.last) }) : "";
   const from = moneyRange().from;
   const gap = s && s.covered && from && s.covered.first > from && accs.length
-    ? `<p class="m-warn">Der Zeitraum beginnt am ${fmtDate(from)}, die Umsätze erst am ${fmtDate(s.covered.first)} – ältere fehlen, die Summen sind zu klein.</p>` : "";
-  const undo = money.lastImport ? `<p class="m-note">${money.lastImport.new} Umsätze importiert · <button class="linkish" data-mact="undo">Zurücknehmen</button></p>` : "";
+    ? `<p class="m-warn">${esc(tr("Der Zeitraum beginnt am {from}, die Umsätze erst am {first} – ältere fehlen, die Summen sind zu klein.", { from: fmtDate(from), first: fmtDate(s.covered.first) }))}</p>` : "";
+  const undo = money.lastImport ? `<p class="m-note">${esc(tr("{n} Umsätze importiert", { n: money.lastImport.new }))} · <button class="linkish" data-mact="undo">${esc(tr("Zurücknehmen"))}</button></p>` : "";
   // Kopf in zwei ruhigen Zeilen: Titel mit kurzer Unterzeile und Import rechts; darunter Zeitraum und Konto
-  const head = `<div class="m-head"><div class="grow"><h2>Geld</h2><p class="m-sub">${esc(which)}${covered ? " · " + covered : ""}</p></div></div>
-    <div class="m-controls">${accs.length ? `<div class="segmented" role="group" aria-label="Zeitraum">${periods.map(([k, l]) =>
-      `<button data-mperiod="${k}" class="${money.period === k ? "active" : ""}">${l}</button>`).join("")}</div>${accSel}` : ""}
-      <span class="spacer"></span><button class="btn primary" data-mact="import">CSV importieren</button></div>${gap}${undo}`;
+  const head = `<div class="m-head"><div class="grow"><h2>${esc(tr("Geld"))}</h2><p class="m-sub">${esc(which)}${covered ? " · " + esc(covered) : ""}</p></div></div>
+    <div class="m-controls">${accs.length ? `<div class="segmented" role="group" aria-label="${esc(tr("Zeitraum"))}">${periods.map(([k, l]) =>
+      `<button data-mperiod="${k}" class="${money.period === k ? "active" : ""}">${esc(l)}</button>`).join("")}</div>${accSel}` : ""}
+      <span class="spacer"></span>${accs.length ? `<button class="btn primary" data-mact="import">${esc(tr("CSV importieren"))}</button>` : ""}</div>${gap}${undo}`;   // ohne Konto: der Knopf steht in der Karte darunter
   if (!accs.length) {
-    box.innerHTML = head + `<section class="tcard"><h3 style="margin:0 0 6px">Wofür geht euer Geld?</h3>
-      <p class="muted" style="margin:0 0 10px">Ladet die Umsätze als CSV-Export aus dem Online-Banking eurer Bank hoch. Papigator sortiert sie in Kategorien,
-      findet die passenden Belege und zeigt, was teurer geworden ist. Kein Bank-Login, alles bleibt auf eurem Server.</p>
-      <button class="btn primary" data-mact="import">CSV importieren</button></section>`;
+    box.innerHTML = head + `<section class="tcard"><h3 style="margin:0 0 6px">${esc(tr("Wofür geht euer Geld?"))}</h3>
+      <p class="muted" style="margin:0 0 10px">${esc(tr("Ladet die Umsätze als CSV-Export aus dem Online-Banking eurer Bank hoch. Papigator sortiert sie in Kategorien, findet die passenden Belege und zeigt, was teurer geworden ist. Kein Bank-Login, alles bleibt auf eurem Server."))}</p>
+      <button class="btn primary" data-mact="import">${esc(tr("CSV importieren"))}</button></section>`;
     return;
   }
-  if (!s) { box.innerHTML = head + `<p class="muted">Umsätze ließen sich gerade nicht laden.</p>`; return; }
+  if (!s) { box.innerHTML = head + `<p class="muted">${esc(tr("Umsätze ließen sich gerade nicht laden."))}</p>`; return; }
   if (money.sorting) { box.innerHTML = head + drawMoneySort(); return; }
   if (money.yearlyOpen) { box.innerHTML = head + drawMoneyYearly(); return; }
   if (money.q) { box.innerHTML = head + drawMoneySearch(); return; }
@@ -1755,52 +1982,52 @@ function drawMoneyView() {
   const max = Math.max(1, ...cats.map((c) => c.cents));
   const sel = money.cat ? cats.find((c) => c.name === money.cat) : null;
   const kpis = `<div class="m-kpis">
-    <div class="m-kpi"><span class="k">Ausgaben</span><b>${eurC(s.spent)}</b><small>${s.months.length ? `ø ${eurC(Math.round(s.spent / s.months.length))} im Monat` : "&nbsp;"}</small></div>
-    <div class="m-kpi"><span class="k">Einnahmen</span><b>${eurC(s.income)}</b><small>${s.income - s.spent >= 0 ? `${eurC(s.income - s.spent)} übrig` : `${eurC(s.spent - s.income)} mehr ausgegeben`}</small></div>
-    ${sel ? `<div class="m-kpi sel"><span class="k">${esc(sel.name)}</span><b>${eurC(sel.cents)}</b><small>${s.spent ? Math.round(sel.cents / s.spent * 100) : 0} % der Ausgaben</small></div>` : ""}
-    <div class="m-kpi"><span class="k">Mit Beleg</span><b>${s.out_count ? Math.round(s.with_doc / s.out_count * 100) : 0} %</b><small>${s.with_doc} von ${s.out_count} Abbuchungen</small></div></div>`;
-  const bars = `<section class="tcard" aria-labelledby="m-cat-h"><div class="t-head"><h2 id="m-cat-h">Wofür</h2><span class="m-note">Rücksendungen sind abgezogen, Umbuchungen zählen nicht</span></div>
-    ${cats.map((c) => `<button class="m-bar${c.name === money.cat ? " on" : ""}" data-mcat="${esc(c.name)}"><span class="n">${esc(c.name)}</span>
-      <span class="track"><span class="fill" style="width:${Math.max(1, Math.round(c.cents / max * 100))}%"></span></span><span class="v">${eurC(c.cents)}</span></button>`).join("") || `<p class="muted">Keine Ausgaben in diesem Zeitraum.</p>`}</section>`;
+    <div class="m-kpi"><span class="k">${esc(tr("Ausgaben"))}</span><b>${eurC(s.spent)}</b><small>${s.months.length ? esc(tr("ø {amount} im Monat", { amount: eurC(Math.round(s.spent / s.months.length)) })) : "&nbsp;"}</small></div>
+    <div class="m-kpi"><span class="k">${esc(tr("Einnahmen"))}</span><b>${eurC(s.income)}</b><small>${esc(s.income - s.spent >= 0 ? tr("{amount} übrig", { amount: eurC(s.income - s.spent) }) : tr("{amount} mehr ausgegeben", { amount: eurC(s.spent - s.income) }))}</small></div>
+    ${sel ? `<div class="m-kpi sel"><span class="k">${esc(tr(sel.name))}</span><b>${eurC(sel.cents)}</b><small>${esc(tr("{pct} % der Ausgaben", { pct: s.spent ? Math.round(sel.cents / s.spent * 100) : 0 }))}</small></div>` : ""}
+    <div class="m-kpi"><span class="k">${esc(tr("Mit Beleg"))}</span><b>${s.out_count ? Math.round(s.with_doc / s.out_count * 100) : 0} %</b><small>${esc(tr("{n} von {total} Abbuchungen", { n: s.with_doc, total: s.out_count }))}</small></div></div>`;
+  const bars = `<section class="tcard" aria-labelledby="m-cat-h"><div class="t-head"><h2 id="m-cat-h">${esc(tr("Wofür"))}</h2><span class="m-note">${esc(tr("Rücksendungen sind abgezogen, Umbuchungen zählen nicht"))}</span></div>
+    ${cats.map((c) => `<button class="m-bar${c.name === money.cat ? " on" : ""}" data-mcat="${esc(c.name)}"><span class="n">${esc(tr(c.name))}</span>
+      <span class="track"><span class="fill" style="width:${Math.max(1, Math.round(c.cents / max * 100))}%"></span></span><span class="v">${eurC(c.cents)}</span></button>`).join("") || `<p class="muted">${esc(tr("Keine Ausgaben in diesem Zeitraum."))}</p>`}</section>`;
   const cd = money.catData;
   const detail = money.cat && cd ? (() => {
     const mmax = Math.max(1, ...cd.months.map((m) => Math.abs(m.cents)));
-    const mon = (k) => new Date(k + "-01T00:00").toLocaleDateString("de-DE", { month: "short" });
-    return `<section class="tcard m-detail" aria-labelledby="m-det-h"><button class="btn m-backcat" data-mact="closecat">‹ Alle Kategorien</button>
-      <div class="t-head"><h2 id="m-det-h">${esc(cd.name)}</h2>
-      <span class="t-count">${eurC(cd.cents)} · ${cd.count} Buchungen</span></div>
-      ${cd.top ? `<p class="m-note" style="margin:0 0 4px">Am meisten bei ${esc(cd.top.name)} (${eurC(cd.top.cents)})</p>` : ""}
-      <label class="toggle m-note" style="margin:0 0 6px"><input type="checkbox" id="m-recat-all"${money.recatAll === false ? "" : " checked"}> Umstellen gilt für alle Buchungen desselben Händlers</label>
-      <div class="m-months">${cd.months.map((m) => `<div class="mo"><b>${eurC(m.cents).replace(/,\d\d/, "")}</b><span class="col" style="height:${Math.round(Math.abs(m.cents) / mmax * 100)}px"></span>${mon(m.month)}</div>`).join("")}</div>
+    const mon = (k) => new Date(k + "-01T00:00").toLocaleDateString(LOC, { month: "short" });
+    return `<section class="tcard m-detail" aria-labelledby="m-det-h"><button class="btn m-backcat" data-mact="closecat">${esc(tr("‹ Alle Kategorien"))}</button>
+      <div class="t-head"><h2 id="m-det-h">${esc(tr(cd.name))}</h2>
+      <span class="t-count">${esc(trn(cd.count, "{amount} · 1 Buchung", "{amount} · {n} Buchungen", { amount: eurC(cd.cents) }))}</span></div>
+      ${cd.top ? `<p class="m-note" style="margin:0 0 4px">${esc(tr("Am meisten bei {name} ({amount})", { name: cd.top.name, amount: eurC(cd.top.cents) }))}</p>` : ""}
+      <label class="toggle m-note" style="margin:0 0 6px"><input type="checkbox" id="m-recat-all"${money.recatAll === false ? "" : " checked"}> ${esc(tr("Umstellen gilt für alle Buchungen desselben Händlers"))}</label>
+      <div class="m-months">${cd.months.map((m) => `<div class="mo"><b>${eurC(m.cents).replace(LANG === "de" ? /,\d\d/ : /\.\d\d/, "")}</b><span class="col" style="height:${Math.round(Math.abs(m.cents) / mmax * 100)}px"></span>${mon(m.month)}</div>`).join("")}</div>
       ${cd.transactions.map((t) => moneyTxRow(t, true)).join("")}
-      <button class="btn m-backcat" data-mact="closecat" style="margin-top:12px">‹ Alle Kategorien</button></section>`;
+      <button class="btn m-backcat" data-mact="closecat" style="margin-top:12px">${esc(tr("‹ Alle Kategorien"))}</button></section>`;
   })() : "";
-  const side = `<div class="t-side">${s.to_sort ? `<button class="m-sortbtn" data-mact="sort"><span style="flex:1"><b>${s.to_sort === 1 ? "1 Buchung" : `${s.to_sort} Buchungen`} einsortieren</b>
-      <small>Unbekannte Händler, PayPal, Amazon – einmal zugeordnet, merkt Papigator sich das</small></span><span aria-hidden="true">›</span></button>` : ""}
+  const side = `<div class="t-side">${s.to_sort ? `<button class="m-sortbtn" data-mact="sort"><span style="flex:1"><b>${esc(trn(s.to_sort, "1 Buchung einsortieren", "{n} Buchungen einsortieren"))}</b>
+      <small>${esc(tr("Unbekannte Händler, PayPal, Amazon – einmal zugeordnet, merkt Papigator sich das"))}</small></span><span aria-hidden="true">›</span></button>` : ""}
     ${moneyYearlyCard()}
-    ${(money.insights || []).length ? `<section class="tcard"><div class="t-head"><h2>Aus dem Konto erkannt</h2></div>
-      <p class="m-note" style="margin:-4px 0 6px">Abbuchungen sind verlässlicher als Rechnungen</p>
-      ${money.insights.map((i) => `<div class="m-tx"><span class="w"><b>${esc(i.name)} ${i.type === "price" ? "ist teurer" : "– neue Abbuchung"}</b>
-        <small>${i.type === "price" ? `${eurC(Math.round(i.from * 100))} → ${eurC(Math.round(i.to * 100))} seit ${fmtDate(i.since)} (+${i.percent} %)`
-          : `${eurC(Math.round(i.to * 100))} ${esc(i.interval)} seit ${fmtDate(i.since)} – kein Beleg im Archiv`}</small></span></div>`).join("")}</section>` : ""}
-    <section class="tcard"><div class="t-head"><h2>Konten</h2><span class="t-count">${accs.length}</span></div>${(() => {
+    ${(money.insights || []).length ? `<section class="tcard"><div class="t-head"><h2>${esc(tr("Aus dem Konto erkannt"))}</h2></div>
+      <p class="m-note" style="margin:-4px 0 6px">${esc(tr("Abbuchungen sind verlässlicher als Rechnungen"))}</p>
+      ${money.insights.map((i) => `<div class="m-tx"><span class="w"><b>${esc(tr(i.type === "price" ? "{name} ist teurer" : "{name} – neue Abbuchung", { name: i.name }))}</b>
+        <small>${esc(i.type === "price" ? tr("{from} → {to} seit {date} (+{pct} %)", { from: eurC(Math.round(i.from * 100)), to: eurC(Math.round(i.to * 100)), date: fmtDate(i.since), pct: i.percent })
+          : tr("{amount} {interval} seit {date} – kein Beleg im Archiv", { amount: eurC(Math.round(i.to * 100)), interval: tr(i.interval), date: fmtDate(i.since) }))}</small></span></div>`).join("")}</section>` : ""}
+    <section class="tcard"><div class="t-head"><h2>${esc(tr("Konten"))}</h2><span class="t-count">${accs.length}</span></div>${(() => {
       // kompakt: die vier meistgenutzten, der Rest aufklappbar
       const people = (money.accounts && money.accounts.people) || [];
       const seen = (x) => { const n = people.filter((p) => (x.visible_to || []).includes(p.id)).map((p) => p.name);
-        return !x.is_own ? "mitgeteilt" : n.length ? `sichtbar für ${n.join(", ")}` : "nur du"; };
+        return !x.is_own ? tr("mitgeteilt") : n.length ? tr("sichtbar für {names}", { names: n.join(", ") }) : tr("nur du"); };
       // Wer ein Konto sieht, lässt sich hier jederzeit ändern (Sparkonto privat, Gemeinschaftskonto geteilt)
       const share = (x) => x.is_own && people.length ? `<div class="m-share${money.shareOpen === x.id ? "" : " hidden"}" data-mshare="${x.id}">
-        ${people.map((p) => `<label class="toggle small"><input type="checkbox" data-mvis="${x.id}" value="${p.id}"${(x.visible_to || []).includes(p.id) ? " checked" : ""}> ${esc(p.name)} sieht das Konto</label>`).join("")}</div>` : "";
+        ${people.map((p) => `<label class="toggle small"><input type="checkbox" data-mvis="${x.id}" value="${p.id}"${(x.visible_to || []).includes(p.id) ? " checked" : ""}> ${esc(tr("{name} sieht das Konto", { name: p.name }))}</label>`).join("")}</div>` : "";
       const row = (x) => `<div class="m-tx"><span class="w"><b>${esc(x.name)}</b>
-        <small>${x.count} Umsätze · ${esc(seen(x))}</small></span>
-        ${x.is_own && people.length ? `<button class="m-pill" data-mvisbtn="${x.id}" aria-expanded="${money.shareOpen === x.id}">Wer sieht's?</button>` : ""}
-        ${x.is_own ? `<button class="m-pill" data-mdel="${x.id}" title="Konto samt Umsätzen löschen">Löschen</button>` : ""}</div>${share(x)}`;
+        <small>${esc(tr("{n} Umsätze", { n: x.count }))} · ${esc(seen(x))}</small></span>
+        ${x.is_own && people.length ? `<button class="m-pill" data-mvisbtn="${x.id}" aria-expanded="${money.shareOpen === x.id}">${esc(tr("Wer sieht's?"))}</button>` : ""}
+        ${x.is_own ? `<button class="m-pill" data-mdel="${x.id}" title="${esc(tr("Konto samt Umsätzen löschen"))}">${esc(tr("Löschen"))}</button>` : ""}</div>${share(x)}`;
       const top = byUse.slice(0, 4), rest = byUse.slice(4);
-      return top.map(row).join("") + (rest.length ? `<details class="m-rules"><summary>${rest.length} weitere Konten</summary>${rest.map(row).join("")}</details>` : "");
+      return top.map(row).join("") + (rest.length ? `<details class="m-rules"><summary>${esc(tr("{n} weitere Konten", { n: rest.length }))}</summary>${rest.map(row).join("")}</details>` : "");
     })()}
-      ${(money.rules || []).length ? `<details class="m-rules"><summary>${money.rules.length} eigene Regeln</summary>${money.rules.map((r) =>
-        `<div class="m-tx"><span class="w"><b>${r.pattern.startsWith("kat:") ? `Bank-Kategorie „${esc(r.pattern.slice(4))}“` : `„${esc(r.pattern)}“`}</b><small>→ ${esc(r.category)}</small></span><button class="m-pill" data-mrule="${r.id}">Entfernen</button></div>`).join("")}</details>` : ""}
-      <p class="m-note">Die Umsätze bleiben auf eurem Server und erscheinen nie in Freigabe-Links.</p></section></div>`;
+      ${(money.rules || []).length ? `<details class="m-rules"><summary>${esc(tr("{n} eigene Regeln", { n: money.rules.length }))}</summary>${money.rules.map((r) =>
+        `<div class="m-tx"><span class="w"><b>${esc(r.pattern.startsWith("kat:") ? tr("Bank-Kategorie „{name}“", { name: r.pattern.slice(4) }) : tr("„{word}“", { word: r.pattern }))}</b><small>→ ${esc(tr(r.category))}</small></span><button class="m-pill" data-mrule="${r.id}">${esc(tr("Entfernen"))}</button></div>`).join("")}</details>` : ""}
+      <p class="m-note">${esc(tr("Die Umsätze bleiben auf eurem Server und erscheinen nie in Freigabe-Links."))}</p></section></div>`;
   box.innerHTML = head + kpis + `<div class="m-cols"><div class="m-main" style="display:flex;flex-direction:column;gap:16px;min-width:0">${detail}${bars}</div>${side}</div>`;
   // wie Heute: Karten rechts (Einsortieren, Jährliche Kosten, Erkannt, Konten) in die kürzere Spalte – keine Lücke unter „Wofür“
   balanceColumns(box.querySelector(".m-main"), box.querySelector(".m-cols > .t-side"), 16);
@@ -1811,66 +2038,67 @@ function drawMoneyView() {
 }
 // Suche in „Geld“ (Feld oben): Zeitraum und Suchwörter als Chips, Summe, die Buchungen (umsortierbar)
 // Jährliche Kosten (Server: /bank/yearly): Karte in der Seitenspalte und eigene Ebene mit Vorjahr, Topf und Vorschau
-const fmtMonth = (iso) => new Date(iso.slice(0, 7) + "-01T00:00").toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+const fmtMonth = (iso) => new Date(iso.slice(0, 7) + "-01T00:00").toLocaleDateString(LOC, { month: "long", year: "numeric" });
 function moneyPotLine(y) {
   const need = y.totals.monthly_needed, pot = y.pot;
-  if (!pot) return `Nötig im Monat: ${eurC(need)}`;
+  if (!pot) return esc(tr("Nötig im Monat: {amount}", { amount: eurC(need) }));
   const diff = need - pot.monthly;
-  return `${esc(pot.name)}: ${eurC(pot.monthly)} im Monat – ` + (Math.abs(diff) < 100 ? "passt" : diff > 0 ? `${eurC(diff)} zu wenig (nötig ${eurC(need)})` : `${eurC(-diff)} mehr als nötig`);
+  // Aufbau „Topf: Betrag im Monat – Stand“ auch auf Englisch: drawMoneyYearly schneidet den Teil bis „– “ ab
+  return esc(tr("{name}: {amount} im Monat – {status}", { name: pot.name, amount: eurC(pot.monthly),
+    status: Math.abs(diff) < 100 ? tr("passt") : diff > 0 ? tr("{diff} zu wenig (nötig {need})", { diff: eurC(diff), need: eurC(need) }) : tr("{amount} mehr als nötig", { amount: eurC(-diff) }) }));
 }
 function moneyYearlyCard() {
   const y = money.yearly;
   if (!y || (!y.items.length && !y.pot)) return "";
   const top = y.items.filter((i) => i.in_sum && i.active).slice(0, 3);
-  return `<section class="tcard"><div class="t-head"><h2>Jährliche Kosten</h2><span class="t-count">${eurC(y.totals.per_year)} im Jahr</span></div>
+  return `<section class="tcard"><div class="t-head"><h2>${esc(tr("Jährliche Kosten"))}</h2><span class="t-count">${esc(tr("{amount} im Jahr", { amount: eurC(y.totals.per_year) }))}</span></div>
     <p class="m-note" style="margin:-4px 0 6px">${moneyPotLine(y)}</p>
-    ${top.map((i) => `<div class="m-tx"><span class="w"><b>${esc(i.label || i.name)}</b><small>nächste ${fmtMonth(i.next)}</small></span><span class="a">${eurC(i.per_year)}</span></div>`).join("")}
-    <button class="btn" data-mact="yearly" style="margin-top:8px">Alle ${y.items.length} ansehen</button></section>`;
+    ${top.map((i) => `<div class="m-tx"><span class="w"><b>${esc(i.label || i.name)}</b><small>${esc(tr("nächste {month}", { month: fmtMonth(i.next) }))}</small></span><span class="a">${eurC(i.per_year)}</span></div>`).join("")}
+    <button class="btn" data-mact="yearly" style="margin-top:8px">${esc(tr("Alle {n} ansehen", { n: y.items.length }))}</button></section>`;
 }
 function drawMoneyYearly() {
   const y = money.yearly;
-  if (!y) return `<section class="tcard"><p class="muted" style="margin:0">Jährliche Kosten lassen sich gerade nicht laden.</p></section>`;
+  if (!y) return `<section class="tcard"><p class="muted" style="margin:0">${esc(tr("Jährliche Kosten lassen sich gerade nicht laden."))}</p></section>`;
   const Y = y.year, pot = y.pot;
-  const potSel = `<select id="m-pot" aria-label="Rücklagen-Topf"><option value="">kein Topf</option>${y.accounts.map((a) =>
+  const potSel = `<select id="m-pot" aria-label="${esc(tr("Rücklagen-Topf"))}"><option value="">${esc(tr("kein Topf"))}</option>${y.accounts.map((a) =>
     `<option value="${a.id}"${pot && pot.id === a.id ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>`;
   const live = y.items.filter((i) => i.in_sum && i.active).length;
   const kpis = `<div class="m-kpis">
-    <div class="m-kpi"><span class="k">Pro Jahr</span><b>${eurC(y.totals.per_year)}</b><small>${live} Posten, je der aktuelle Betrag</small></div>
-    <div class="m-kpi"><span class="k">Nötig im Monat</span><b>${eurC(y.totals.monthly_needed)}</b><small>Jahressumme ÷ 12</small></div>
-    <div class="m-kpi"><span class="k">Rücklagen-Topf</span><b>${pot ? eurC(pot.monthly) : "–"}</b><small>${pot ? moneyPotLine(y).replace(/^[^:]*: [^–]*– /, "") : "Konto wählen:"} ${potSel}</small></div>
-    <div class="m-kpi"><span class="k">${Y - 1} → ${Y}</span><b>${eurC(y.totals.last)} → ${eurC(y.totals.this)}</b><small>abgebucht im Kalenderjahr</small></div></div>`;
+    <div class="m-kpi"><span class="k">${esc(tr("Pro Jahr"))}</span><b>${eurC(y.totals.per_year)}</b><small>${esc(tr("{n} Posten, je der aktuelle Betrag", { n: live }))}</small></div>
+    <div class="m-kpi"><span class="k">${esc(tr("Nötig im Monat"))}</span><b>${eurC(y.totals.monthly_needed)}</b><small>${esc(tr("Jahressumme ÷ 12"))}</small></div>
+    <div class="m-kpi"><span class="k">${esc(tr("Rücklagen-Topf"))}</span><b>${pot ? eurC(pot.monthly) : "–"}</b><small>${pot ? moneyPotLine(y).replace(/^[^:]*: [^–]*– /, "") : esc(tr("Konto wählen:"))} ${potSel}</small></div>
+    <div class="m-kpi"><span class="k">${Y - 1} → ${Y}</span><b>${eurC(y.totals.last)} → ${eurC(y.totals.this)}</b><small>${esc(tr("abgebucht im Kalenderjahr"))}</small></div></div>`;
   const short = y.covered && (new Date(y.today) - new Date(y.covered.first)) / 864e5 < 400
-    ? `<p class="m-warn">Die Umsätze beginnen erst am ${fmtDate(y.covered.first)}. Jahresposten erkennt Papigator an einer Abbuchung gut ein Jahr vorher – oder ihr markiert eine Buchung als „Jährlich“.</p>` : "";
+    ? `<p class="m-warn">${esc(tr("Die Umsätze beginnen erst am {date}. Jahresposten erkennt Papigator an einer Abbuchung gut ein Jahr vorher – oder ihr markiert eine Buchung als „Jährlich“.", { date: fmtDate(y.covered.first) }))}</p>` : "";
   const row = (i) => {
     const ch = i.change_pct ? ` <span class="m-chg${i.change_pct > 0 ? " up" : ""}">${i.change_pct > 0 ? "+" : ""}${i.change_pct} %</span>` : "";
-    const state = !i.in_sum ? "nur Beleg, keine Abbuchung gefunden – zählt nicht mit" : !i.active ? "weggefallen" : `nächste ${fmtMonth(i.next)}`;
-    const doc = i.document_id ? `<button class="m-pill" data-open="${i.document_id}">Beleg</button>` : "";
+    const state = !i.in_sum ? tr("nur Beleg, keine Abbuchung gefunden – zählt nicht mit") : !i.active ? tr("weggefallen") : tr("nächste {month}", { month: fmtMonth(i.next) });
+    const doc = i.document_id ? `<button class="m-pill" data-open="${i.document_id}">${esc(tr("Beleg"))}</button>` : "";
     const act = i.source === "document" ? "" : i.source === "marked"
-      ? `<button class="m-pill" data-myear="${i.mark_tx}" data-val="null" title="Markierung zurücknehmen">Markierung weg</button>`
-      : `<button class="m-pill" data-myear="${i.mark_tx}" data-val="false" title="Ist kein Jahresposten – ausblenden">Nicht jährlich</button>`;
+      ? `<button class="m-pill" data-myear="${i.mark_tx}" data-val="null" title="${esc(tr("Markierung zurücknehmen"))}">${esc(tr("Markierung weg"))}</button>`
+      : `<button class="m-pill" data-myear="${i.mark_tx}" data-val="false" title="${esc(tr("Ist kein Jahresposten – ausblenden"))}">${esc(tr("Nicht jährlich"))}</button>`;
     const yv = (k) => i.years[String(k)] ? eurC(i.years[String(k)]) : "–";
-    return `<div class="m-yrow${i.active && i.in_sum ? "" : " dim"}"><span class="w"><b>${esc(i.label || i.name)}</b><small>${i.label ? esc(i.name) + " · " : ""}${state}${i.source === "marked" ? " · von Hand" : ""}${i.source === "pot" ? " · aus dem Topf genommen" : i.from_pot ? " · aus dem Topf bezahlt" : ""}</small></span>
+    return `<div class="m-yrow${i.active && i.in_sum ? "" : " dim"}"><span class="w"><b>${esc(i.label || i.name)}</b><small>${i.label ? esc(i.name) + " · " : ""}${esc(state)}${i.source === "marked" ? " · " + esc(tr("von Hand")) : ""}${i.source === "pot" ? " · " + esc(tr("aus dem Topf genommen")) : i.from_pot ? " · " + esc(tr("aus dem Topf bezahlt")) : ""}</small></span>
       <span class="v">${yv(Y - 1)}</span><span class="v">${yv(Y)}</span><span class="v strong">${eurC(i.per_year)}${ch}</span><span class="acts">${doc}${act}</span></div>`;
   };
-  const head = `<div class="m-yrow head"><span class="w">Posten</span><span class="v">${Y - 1}</span><span class="v">${Y}</span><span class="v per">pro Jahr</span><span class="acts"></span></div>`;
-  const sched = y.schedule.length ? `<section class="tcard"><div class="t-head"><h2>Die nächsten 12 Monate</h2></div>${y.schedule.map((m) =>
+  const head = `<div class="m-yrow head"><span class="w">${esc(tr("Posten"))}</span><span class="v">${Y - 1}</span><span class="v">${Y}</span><span class="v per">${esc(tr("pro Jahr"))}</span><span class="acts"></span></div>`;
+  const sched = y.schedule.length ? `<section class="tcard"><div class="t-head"><h2>${esc(tr("Die nächsten 12 Monate"))}</h2></div>${y.schedule.map((m) =>
     `<div class="m-tx"><span class="d" style="flex-basis:120px">${fmtMonth(m.month)}</span><span class="w"><b>${m.items.map((x) => esc(x.name)).join(", ")}</b></span><span class="a">${eurC(m.cents)}</span></div>`).join("")}</section>` : "";
-  return `<div class="m-layer"><div class="t-head m-layer-h"><button class="m-back" data-mact="closeyearly" aria-label="Zurück zu Geld">‹ Geld</button><h2>Jährliche Kosten</h2></div>${short}${kpis}
-    <section class="tcard m-ylist">${y.items.length ? head + y.items.map(row).join("") : `<p class="muted" style="margin:0">Noch keine Jahresposten erkannt.</p>`}
-      <p class="m-note">Erkannt an Abbuchungen, die es etwa ein Jahr vorher schon einmal gab. Was erst einmal abgebucht wurde (neues Jahresabo), markiert ihr in einer Kategorie an der Buchung mit „Jährlich“.
-      Was ihr aus dem Rücklagen-Topf herausnehmt, zählt immer mit – auch wenn es von einem anderen Konto bezahlt wird.</p></section>${sched}</div>`;
+  return `<div class="m-layer"><div class="t-head m-layer-h"><button class="m-back" data-mact="closeyearly" aria-label="${esc(tr("Zurück zu Geld"))}">${esc(tr("‹ Geld"))}</button><h2>${esc(tr("Jährliche Kosten"))}</h2></div>${short}${kpis}
+    <section class="tcard m-ylist">${y.items.length ? head + y.items.map(row).join("") : `<p class="muted" style="margin:0">${esc(tr("Noch keine Jahresposten erkannt."))}</p>`}
+      <p class="m-note">${esc(tr("Erkannt an Abbuchungen, die es etwa ein Jahr vorher schon einmal gab. Was erst einmal abgebucht wurde (neues Jahresabo), markiert ihr in einer Kategorie an der Buchung mit „Jährlich“. Was ihr aus dem Rücklagen-Topf herausnehmt, zählt immer mit – auch wenn es von einem anderen Konto bezahlt wird."))}</p></section>${sched}</div>`;
 }
 function drawMoneySearch() {
   const r = money.search;
-  if (!r) return `<section class="tcard"><p class="muted" style="margin:0">Suche läuft …</p></section>`;
+  if (!r) return `<section class="tcard"><p class="muted" style="margin:0">${esc(tr("Suche läuft …"))}</p></section>`;
   const range = r.range ? `<span class="chip active">${fmtDate(r.range.from)} – ${fmtDate(r.range.to)}</span>` : "";
   const words = r.words.map((w) => `<span class="chip active">${esc(w)}</span>`).join("");
-  return `<section class="tcard"><div class="t-head m-search-h"><h2>Suche</h2>${range}${words}
-      <span class="t-count">${r.count === 1 ? "1 Buchung" : `${r.count} Buchungen`} · ${eurC(r.cents)}</span>
-      <button class="t-link" data-mact="clearsearch">✕ Suche löschen</button></div>
-    ${r.words.length ? "" : `<p class="muted">Gib einen Händler oder eine Kategorie ein, z. B. „Amazon September 2026“.</p>`}
-    ${r.count > r.transactions.length ? `<p class="m-note">Die neuesten ${r.transactions.length} von ${r.count}:</p>` : ""}
-    ${r.transactions.map((t) => moneyTxRow(t, true)).join("") || (r.words.length ? `<p class="muted">Keine Buchungen gefunden.</p>` : "")}</section>`;
+  return `<section class="tcard"><div class="t-head m-search-h"><h2>${esc(tr("Suche"))}</h2>${range}${words}
+      <span class="t-count">${esc(trn(r.count, "1 Buchung", "{n} Buchungen"))} · ${eurC(r.cents)}</span>
+      <button class="t-link" data-mact="clearsearch">${esc(tr("✕ Suche löschen"))}</button></div>
+    ${r.words.length ? "" : `<p class="muted">${esc(tr("Gib einen Händler oder eine Kategorie ein, z. B. „Amazon September 2026“."))}</p>`}
+    ${r.count > r.transactions.length ? `<p class="m-note">${esc(tr("Die neuesten {n} von {total}:", { n: r.transactions.length, total: r.count }))}</p>` : ""}
+    ${r.transactions.map((t) => moneyTxRow(t, true)).join("") || (r.words.length ? `<p class="muted">${esc(tr("Keine Buchungen gefunden."))}</p>` : "")}</section>`;
 }
 const MONEY_QUICK = ["Online-Shopping", "Kleidung", "Lebensmittel", "Haushalt", "Kinder", "Freizeit & Ausgehen", "Sonstiges"];
 function drawMoneySort() {
@@ -1881,14 +2109,14 @@ function drawMoneySort() {
     const base = t.cents > 0 ? ["Einnahmen", "Umbuchung", "Sonstiges"] : [...MONEY_QUICK.slice(0, 5), "Umbuchung"];
     const quick = [...new Set([t.category, ...base].filter(Boolean))].slice(0, 6);
     return `<section class="tcard m-card" data-tx="${t.id}"><div class="m-tx" style="border:0;padding:0">${moneyTxRow(t).replace(/^<div class="m-tx">|<\/div>$/g, "")}</div>
-      ${t.cat_source === "ai" ? `<p class="m-note" style="margin:0">Vorschlag der KI: <b>${esc(t.category)}</b> – bitte bestätigen</p>` : ""}
-      ${t.bank_category ? `<label class="toggle m-note" style="margin:0"><input type="checkbox" data-mbank checked> Alle mit Bank-Kategorie „${esc(t.bank_category)}“ genauso</label>` : ""}
-      <div class="m-choices">${quick.map((c) => `<button class="m-choice${c === t.category ? " sug" : ""}" data-mpick="${esc(c)}">${esc(c)}</button>`).join("")}
-        <select data-mother aria-label="Andere Kategorie"><option value="">Andere …</option>${all.filter((c) => !quick.includes(c)).map((c) => `<option>${esc(c)}</option>`).join("")}</select>
-        ${t.key ? `<label class="toggle" style="margin-left:auto"><input type="checkbox" data-mremember="${esc(t.key)}"${t.counterparty && /paypal|amazon|amzn|klarna/i.test(t.counterparty) && !/paypal/i.test(t.key) ? "" : " checked"}> Immer so für „${esc(t.key)}“</label>` : ""}</div></section>`;
+      ${t.cat_source === "ai" ? `<p class="m-note" style="margin:0">${tr("Vorschlag der KI: <b>{category}</b> – bitte bestätigen", { category: esc(tr(t.category)) })}</p>` : ""}
+      ${t.bank_category ? `<label class="toggle m-note" style="margin:0"><input type="checkbox" data-mbank checked> ${esc(tr("Alle mit Bank-Kategorie „{name}“ genauso", { name: t.bank_category }))}</label>` : ""}
+      <div class="m-choices">${quick.map((c) => `<button class="m-choice${c === t.category ? " sug" : ""}" data-mpick="${esc(c)}">${esc(tr(c))}</button>`).join("")}
+        <select data-mother aria-label="${esc(tr("Andere Kategorie"))}"><option value="">${esc(tr("Andere …"))}</option>${all.filter((c) => !quick.includes(c)).map((c) => `<option value="${esc(c)}">${esc(tr(c))}</option>`).join("")}</select>
+        ${t.key ? `<label class="toggle" style="margin-left:auto"><input type="checkbox" data-mremember="${esc(t.key)}"${t.counterparty && /paypal|amazon|amzn|klarna/i.test(t.counterparty) && !/paypal/i.test(t.key) ? "" : " checked"}> ${esc(tr("Immer so für „{key}“", { key: t.key }))}</label>` : ""}</div></section>`;
   }).join("");
-  return `<div class="m-layer"><div class="t-head m-layer-h"><button class="m-back" data-mact="closesort" aria-label="Zurück zu Geld">‹ Geld</button><h2>Einsortieren</h2><span class="t-count">${list.length} offen</span></div>
-    ${cards || `<section class="tcard"><p class="muted" style="margin:0">Alles einsortiert.</p></section>`}</div>`;
+  return `<div class="m-layer"><div class="t-head m-layer-h"><button class="m-back" data-mact="closesort" aria-label="${esc(tr("Zurück zu Geld"))}">${esc(tr("‹ Geld"))}</button><h2>${esc(tr("Einsortieren"))}</h2><span class="t-count">${esc(tr("{n} offen", { n: list.length }))}</span></div>
+    ${cards || `<section class="tcard"><p class="muted" style="margin:0">${esc(tr("Alles einsortiert."))}</p></section>`}</div>`;
 }
 async function moneyPick(card, category) {
   const id = Number(card.dataset.tx), rem = card.querySelector("[data-mremember]"), bk = card.querySelector("[data-mbank]");
@@ -1896,24 +2124,25 @@ async function moneyPick(card, category) {
     const r = await api(`/bank/tx/${id}`, json("PATCH", { category, remember: rem && rem.checked ? rem.dataset.mremember : null,
                                                          remember_bank: !!(bk && bk.checked) }));
     card.remove();
-    toast(r.applied ? `${category} – ${r.applied} weitere gleich mit` : category);
+    toast(r.applied ? tr("{category} – {n} weitere gleich mit", { category: tr(category), n: r.applied }) : tr(category));
     if (r.applied) renderMoney();
-  } catch (e) { toast("Fehler: " + e.message); }
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 }
 $("#moneyview").addEventListener("change", (e) => {
   if (e.target.id === "m-account") { money.account = e.target.value; money.cat = null; renderMoney(); }
   if (e.target.id === "m-pot") {
     api("/bank/yearly/pot", json("PUT", { account_id: e.target.value ? Number(e.target.value) : null }))
-      .then(() => { toast(e.target.value ? "Rücklagen-Topf gespeichert" : "Kein Rücklagen-Topf"); renderMoney(); })
-      .catch((err) => toast("Fehler: " + err.message));
+      .then(() => { toast(e.target.value ? tr("Rücklagen-Topf gespeichert") : tr("Kein Rücklagen-Topf")); renderMoney(); })
+      .catch((err) => toast(tr("Fehler: {msg}", { msg: err.message })));
   }
   if (e.target.matches("[data-mother]") && e.target.value) moneyPick(e.target.closest("[data-tx]"), e.target.value);
   if (e.target.id === "m-recat-all") money.recatAll = e.target.checked;
   if (e.target.matches("[data-mrecat]")) {
     const all = money.recatAll !== false && e.target.dataset.key;
     api(`/bank/tx/${e.target.dataset.mrecat}`, json("PATCH", { category: e.target.value, remember: all ? e.target.dataset.key : null }))
-      .then((r) => { toast(`Umsortiert: ${e.target.value}` + (r.applied ? ` – ${r.applied} weitere von „${e.target.dataset.key}“` : "")); renderMoney(); })
-      .catch((err) => toast("Fehler: " + err.message));
+      .then((r) => { toast(r.applied ? tr("Umsortiert: {category} – {n} weitere von „{key}“", { category: tr(e.target.value), n: r.applied, key: e.target.dataset.key })
+        : tr("Umsortiert: {category}", { category: tr(e.target.value) })); renderMoney(); })
+      .catch((err) => toast(tr("Fehler: {msg}", { msg: err.message })));
   }
 });
 $("#moneyview").addEventListener("change", async (e) => {
@@ -1922,9 +2151,9 @@ $("#moneyview").addEventListener("change", async (e) => {
   const ids = [...box.querySelectorAll("input:checked")].map((i) => Number(i.value));
   try {
     await api(`/bank/accounts/${id}`, json("PATCH", { visible_to: ids }));
-    toast(ids.length ? "Gespeichert – das Konto ist jetzt mitgeteilt" : "Gespeichert – das Konto siehst nur du");
+    toast(ids.length ? tr("Gespeichert – das Konto ist jetzt mitgeteilt") : tr("Gespeichert – das Konto siehst nur du"));
     renderMoney();
-  } catch (err) { e.target.checked = !e.target.checked; toast("Fehler: " + err.message); }
+  } catch (err) { e.target.checked = !e.target.checked; toast(tr("Fehler: {msg}", { msg: err.message })); }
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || !moneyBrowsing() || document.querySelector("dialog[open]")) return;
@@ -1932,8 +2161,9 @@ document.addEventListener("keydown", (e) => {
   const top = layers.length ? layers[layers.length - 1].name : "";
   if (!$("#detail").classList.contains("hidden") || !$("#settings").classList.contains("hidden")) return;
   if (top !== "money-yearly" && top !== "money-sort") return;
-  if (money.yearlyOpen) { money.yearlyOpen = false; money.focus = '[data-mact="yearly"]'; closeLayer("money-yearly"); renderMoney(); }
-  else if (money.sorting) { money.sorting = false; money.focus = '[data-mact="sort"]'; closeLayer("money-sort"); renderMoney(); }
+  // preventDefault: ein Esc schließt nur eine Ebene (der allgemeine Esc-Lauscher für Fragen/Dokument lässt es dann)
+  if (money.yearlyOpen) { e.preventDefault(); money.yearlyOpen = false; money.focus = '[data-mact="yearly"]'; closeLayer("money-yearly"); renderMoney(); }
+  else if (money.sorting) { e.preventDefault(); money.sorting = false; money.focus = '[data-mact="sort"]'; closeLayer("money-sort"); renderMoney(); }
 });
 $("#moneyview").addEventListener("click", async (e) => {
   const el = e.target.closest("button"); if (!el) return;
@@ -1943,9 +2173,9 @@ $("#moneyview").addEventListener("click", async (e) => {
     const v = el.dataset.val, val = v === "true" ? true : v === "false" ? false : null;
     try {
       await api("/bank/yearly/mark", json("PUT", { tx_id: Number(el.dataset.myear), yearly: val }));
-      toast(val === true ? "Zu den jährlichen Kosten genommen" : val === false ? "Ausgeblendet – zählt nicht mehr als jährlich" : "Markierung zurückgenommen");
+      toast(val === true ? tr("Zu den jährlichen Kosten genommen") : val === false ? tr("Ausgeblendet – zählt nicht mehr als jährlich") : tr("Markierung zurückgenommen"));
       renderMoney();
-    } catch (err) { toast("Fehler: " + err.message); }
+    } catch (err) { toast(tr("Fehler: {msg}", { msg: err.message })); }
     return;
   }
   if (el.dataset.mcat) {
@@ -1957,8 +2187,8 @@ $("#moneyview").addEventListener("click", async (e) => {
   }
   if (el.dataset.mpick) return moneyPick(el.closest("[data-tx]"), el.dataset.mpick);
   if (el.dataset.mrule) {
-    try { await api(`/bank/rules/${el.dataset.mrule}`, { method: "DELETE" }); toast("Regel entfernt – bereits Einsortiertes bleibt"); renderMoney(); }
-    catch (err) { toast("Fehler: " + err.message); }
+    try { await api(`/bank/rules/${el.dataset.mrule}`, { method: "DELETE" }); toast(tr("Regel entfernt – bereits Einsortiertes bleibt")); renderMoney(); }
+    catch (err) { toast(tr("Fehler: {msg}", { msg: err.message })); }
     return;
   }
   if (el.dataset.mvisbtn) {
@@ -1968,8 +2198,8 @@ $("#moneyview").addEventListener("click", async (e) => {
     return;
   }
   if (el.dataset.mdel) {
-    if (!confirm("Konto samt allen importierten Umsätzen löschen? Belege im Archiv bleiben.")) return;
-    try { await api(`/bank/accounts/${el.dataset.mdel}`, { method: "DELETE" }); money.account = ""; renderMoney(); } catch (err) { toast("Fehler: " + err.message); }
+    if (!confirm(tr("Konto samt allen importierten Umsätzen löschen? Belege im Archiv bleiben."))) return;
+    try { await api(`/bank/accounts/${el.dataset.mdel}`, { method: "DELETE" }); money.account = ""; renderMoney(); } catch (err) { toast(tr("Fehler: {msg}", { msg: err.message })); }
     return;
   }
   switch (el.dataset.mact) {
@@ -1983,8 +2213,8 @@ $("#moneyview").addEventListener("click", async (e) => {
     case "clearsearch": money.q = ""; money.search = null; $("#search").value = ""; renderMoney(); break;
     case "closecat": money.cat = null; money.jump = "bars"; closeLayer("money-cat"); renderMoney(); break;
     case "undo":
-      try { const r = await api(`/bank/imports/${money.lastImport.import_id}`, { method: "DELETE" }); toast(`${r.removed} Umsätze entfernt`); }
-      catch (err) { toast("Fehler: " + err.message); }
+      try { const r = await api(`/bank/imports/${money.lastImport.import_id}`, { method: "DELETE" }); toast(tr("{n} Umsätze entfernt", { n: r.removed })); }
+      catch (err) { toast(tr("Fehler: {msg}", { msg: err.message })); }
       money.lastImport = null; renderMoney(); break;
   }
 });
@@ -1995,9 +2225,9 @@ function openBankImport() {
   for (const id of ["#bk-preview", "#bk-target", "#bk-error"]) $(id).classList.add("hidden");
   $("#bk-go").disabled = true;
   const own = ((money.accounts && money.accounts.accounts) || []).filter((a) => a.is_own);
-  $("#bk-account").innerHTML = own.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("") + `<option value="">Neues Konto …</option>`;
+  $("#bk-account").innerHTML = own.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("") + `<option value="">${esc(tr("Neues Konto …"))}</option>`;
   $("#bk-people").innerHTML = ((money.accounts && money.accounts.people) || []).map((p) =>
-    `<label class="toggle"><input type="checkbox" value="${p.id}" checked> ${esc(p.name)}</label>`).join("") || `<span class="muted small">Niemand – du teilst noch keine Dokumente.</span>`;
+    `<label class="toggle"><input type="checkbox" value="${p.id}" checked> ${esc(p.name)}</label>`).join("") || `<span class="muted small">${esc(tr("Niemand – du teilst noch keine Dokumente."))}</span>`;
   bankTargetChanged();
   showDialog($("#bank-dialog"));
 }
@@ -2015,19 +2245,21 @@ async function bankPreview() {
   $("#bk-error").classList.add("hidden"); $("#bk-go").disabled = true;
   try {
     const r = await api("/bank/import", { method: "POST", body: fd });
-    const map = Object.entries(r.mapping).map(([k, v]) => `${{ date: "Datum", amount: "Betrag", counterparty: "Gegenüber", purpose: "Zweck", currency: "Währung", category: "Kategorie der Bank", kind: "Buchungsart", valuta: "Valuta", debit: "Soll", credit: "Haben", acc_no: "Konto-Nr.", acc_name: "Kontoname" }[k] || k}: „${esc(v)}“`).join(" · ");
+    const cols = { date: tr("Datum"), amount: tr("Betrag"), counterparty: tr("Gegenüber"), purpose: tr("Zweck"), currency: tr("Währung"), category: tr("Kategorie der Bank"),
+      kind: tr("Buchungsart"), valuta: tr("Valuta"), debit: tr("Soll"), credit: tr("Haben"), acc_no: tr("Konto-Nr."), acc_name: tr("Kontoname") };
+    const map = Object.entries(r.mapping).map(([k, v]) => esc(tr("{label}: „{value}“", { label: cols[k] || k, value: v }))).join(" · ");
     bankMulti = r.accounts || null;
-    const accList = bankMulti ? `<div class="bk-accounts"><p class="small" style="margin:8px 0 4px"><b>${bankMulti.length} Konten in der Datei</b> – geteilte sehen die angehakten Personen unten, private nur du</p>
-      ${bankMulti.map((a) => `<div class="m-tx"><span class="w"><b>${esc(a.name)}</b><small>··${esc(a.tail)} · ${a.count} Umsätze${a.existing ? ` · schon da, ${a.new} neu` : " · neu"}</small></span>
-        ${a.existing ? `<span class="m-pill">wird ergänzt</span>` : `<label class="toggle small"><input type="checkbox" data-bkshare="${esc(a.key)}" checked> teilen</label>`}</div>`).join("")}</div>` : "";
-    $("#bk-preview").innerHTML = `<p class="small" style="margin:0"><b>${r.bank ? esc(r.bank) + " · " : ""}${r.count} Umsätze</b> vom ${fmtDate(r.first)} bis ${fmtDate(r.last)}:
-      ${r.new} neu${r.duplicates ? `, ${r.duplicates} schon da` : ""}${r.skipped ? `, ${r.skipped} Zeilen ohne Datum/Betrag übersprungen` : ""}${r.to_sort ? ` · ${r.to_sort} zum Einsortieren` : ""}</p>
-      <p class="muted small" style="margin:4px 0 0">Erkannte Spalten: ${map}</p>${accList}
+    const accList = bankMulti ? `<div class="bk-accounts"><p class="small" style="margin:8px 0 4px">${tr("<b>{n} Konten in der Datei</b> – geteilte sehen die angehakten Personen unten, private nur du", { n: bankMulti.length })}</p>
+      ${bankMulti.map((a) => `<div class="m-tx"><span class="w"><b>${esc(a.name)}</b><small>··${esc(a.tail)} · ${esc(tr("{n} Umsätze", { n: a.count }))} · ${esc(a.existing ? tr("schon da, {n} neu", { n: a.new }) : tr("neu"))}</small></span>
+        ${a.existing ? `<span class="m-pill">${esc(tr("wird ergänzt"))}</span>` : `<label class="toggle small"><input type="checkbox" data-bkshare="${esc(a.key)}" checked> ${esc(tr("teilen"))}</label>`}</div>`).join("")}</div>` : "";
+    $("#bk-preview").innerHTML = `<p class="small" style="margin:0"><b>${r.bank ? esc(r.bank) + " · " : ""}${esc(tr("{n} Umsätze", { n: r.count }))}</b> ${esc(tr("vom {from} bis {to}:", { from: fmtDate(r.first), to: fmtDate(r.last) }))}
+      ${esc(tr("{n} neu", { n: r.new }))}${r.duplicates ? `, ${esc(tr("{n} schon da", { n: r.duplicates }))}` : ""}${r.skipped ? `, ${esc(tr("{n} Zeilen ohne Datum/Betrag übersprungen", { n: r.skipped }))}` : ""}${r.to_sort ? ` · ${esc(tr("{n} zum Einsortieren", { n: r.to_sort }))}` : ""}</p>
+      <p class="muted small" style="margin:4px 0 0">${tr("Erkannte Spalten: {map}", { map })}</p>${accList}
       <table class="bk-table">${(r.rows || []).map((x) => `<tr><td>${fmtDate(x.booked)}</td><td>${esc(x.counterparty || "")}<br><span class="muted">${esc((x.purpose || "").slice(0, 60))}</span></td>
-        <td>${x.category ? esc(x.category) : `<span class="muted">offen</span>`}</td><td class="r">${eurC(x.cents)}</td></tr>`).join("")}</table>`;
+        <td>${x.category ? esc(tr(x.category)) : `<span class="muted">${esc(tr("offen"))}</span>`}</td><td class="r">${eurC(x.cents)}</td></tr>`).join("")}</table>`;
     $("#bk-preview").classList.remove("hidden"); $("#bk-target").classList.remove("hidden"); bankTargetChanged();
-    if (!$("#bk-name").value && r.bank) $("#bk-name").value = `${r.bank} Girokonto`;
-    $("#bk-go").disabled = !r.new; $("#bk-go").textContent = r.new ? `${r.new} Umsätze importieren` : "Nichts Neues";
+    if (!$("#bk-name").value && r.bank) $("#bk-name").value = tr("{bank} Girokonto", { bank: r.bank });
+    $("#bk-go").disabled = !r.new; $("#bk-go").textContent = r.new ? tr("{n} Umsätze importieren", { n: r.new }) : tr("Nichts Neues");
   } catch (e) { $("#bk-error").textContent = e.message; $("#bk-error").classList.remove("hidden"); }
 }
 $("#bk-file").onchange = (e) => { bankFile = e.target.files[0] || null; bankPreview(); };
@@ -2048,7 +2280,7 @@ $("#bk-go").onclick = async () => {
     const r = await api("/bank/import", { method: "POST", body: fd });
     money.lastImport = r; money.account = ""; money.cat = null;
     $("#bank-dialog").close();
-    toast(`${r.new} Umsätze importiert` + (r.to_sort ? ` – ${r.to_sort} zum Einsortieren` : ""));
+    toast(r.to_sort ? tr("{n} Umsätze importiert – {sort} zum Einsortieren", { n: r.new, sort: r.to_sort }) : tr("{n} Umsätze importiert", { n: r.new }));
     renderMoney();
   } catch (e) { $("#bk-error").textContent = e.message; $("#bk-error").classList.remove("hidden"); $("#bk-go").disabled = false; }
 };
@@ -2061,13 +2293,16 @@ $("#bk-go").onclick = async () => {
 // normale Suche ohne eigenen Verlaufseintrag: Zurück aus einem Dokument landet wieder bei Chips und Treffern.
 let searchTimer, smartSeq = 0, smartMissing = false;
 const SMART_WORD = /^(fällig\w*|faellig\w*|überfällig\w*|ueberfällig\w*|fristen?|deadlines?|due|overdue)$/i;
+// Ein einzelnes Wort, das eine Dokumentart sein kann (Liste wie smartsearch._KIND_WORDS): der Server entscheidet, ob es
+// zum Chip „Art“ wird – sonst bleibt es die normale Live-Suche (siehe smartSearch)
+const SMART_KIND = /^(rechnung(en)?|invoices?|gutschrift(en)?|mahnung(en)?|abrechnung(en)?|lohnabrechnung(en)?|gehaltsabrechnung(en)?|payslips?|kontoausz(ug|üge|uege)|bescheide?|vertr(ag|äge|aege)|contracts?|versicherungsscheine?|police(n)?|k(ü|ue)ndigung(en)?|angebote?|best(ä|ae)tigung(en)?|spendenquittung(en)?|spendenbescheinigung(en)?|bescheinigung(en)?|certificates?|zeugnis(se|sen)?|diplomas?|urkunden?|ausweise?|befunde?n?|arztbriefe?|berichte?|antr(ag|äge|aege))$/i;
 function smartOn() { return !!state.smart && !state.trash; }
 function wantsSmart(text) {
   if (smartMissing || state.trash || !text) return false;
   if (state.mode === "folders" && state.tag) return false;   // im geöffneten Ordner: suchen in diesem Ordner (In …/Überall)
   const words = text.split(/\s+/);
   if (words.some((w) => w.startsWith("-"))) return false;   // „sam -alex“: Ausschließen kann nur die normale Suche
-  return words.length > 1 || SMART_WORD.test(words[0]);
+  return words.length > 1 || SMART_WORD.test(words[0]) || SMART_KIND.test(words[0]);
 }
 function plainSearch(text) {
   smartSeq++;   // eine noch laufende Satz-Suche ist damit überholt
@@ -2077,7 +2312,7 @@ function plainSearch(text) {
 async function smartSearch(text) {
   const seq = ++smartSeq;
   let r;
-  try { r = await api("/search?" + new URLSearchParams({ q: text, limit: 50 })); }
+  try { r = await api("/search?" + new URLSearchParams({ q: text, limit: 50, lang: LANG })); }   // lang: Beschriftungen der Chips
   catch (e) {
     if (seq !== smartSeq) return;
     if (e.status === 404) smartMissing = true;   // älterer Server ohne Satz-Suche: ab jetzt wie früher
@@ -2086,6 +2321,9 @@ async function smartSearch(text) {
   }
   if (seq !== smartSeq || $("#search").value.trim() !== text) return;   // inzwischen weitergetippt
   if (!r || !Array.isArray(r.chips) || !r.chips.length) return plainSearch(text);
+  // Einzelnes Wort ohne Chip „Art“ (keine Dokumente dieser Art, Ordner gleichen Namens): Treffer der Chips nehmen,
+  // nur ohne Treffer wie bisher die Live-Suche
+  if (!/\s/.test(text) && SMART_KIND.test(text) && !r.chips.some((c) => c.kind === "doc_kind") && !(r.documents || []).length) return plainSearch(text);
   state.smart = { chips: r.chips, dropped: r.dropped || [] };
   state.q = text;
   renderSmartBar(); loadDocs();
@@ -2101,6 +2339,8 @@ function smartParams() {
     else if (c.kind === "owner" && c.owner_id != null) p.owner = c.owner_id;
     else if (c.kind === "due") p.due = "true";
   }
+  const kinds = state.smart.chips.filter((c) => c.kind === "doc_kind" && c.code).map((c) => c.code);
+  if (kinds.length) p.kind = kinds.join(",");
   return p;
 }
 function renderSmartBar() {
@@ -2108,20 +2348,23 @@ function renderSmartBar() {
   const on = smartOn();
   bar.classList.toggle("hidden", !on);
   if (!on) return;
-  const lbl = document.createElement("span"); lbl.className = "bar-label"; lbl.textContent = "Gesucht:";
+  const lbl = document.createElement("span"); lbl.className = "bar-label"; lbl.textContent = tr("Gesucht:");
   bar.appendChild(lbl);
   for (const c of state.smart.chips) {
     const tagLike = (c.kind === "word" || c.kind === "person") && c.tag;
     const known = tagLike ? (state.tags || []).find((t) => t.name.toLowerCase() === String(c.value).toLowerCase()) : null;
     const color = tagLike ? tagColor(known ? known.name : c.value, known?.color) : null;
-    const el = chip(c.kind === "owner" || c.kind === "person" ? `von ${c.label}` : c.label, true, () => removeSmartChip(c), color);
-    el.classList.add("smart-chip"); el.dataset.kind = c.kind; el.title = "Filter entfernen";
+    // Zeitraum im Datumsformat der Einstellungen, Art wie im Filter „Art“ – sonst die Beschriftung vom Server (lang)
+    const label = c.kind === "range" && c.from && c.to ? `${fmtDate(c.from)} – ${fmtDate(c.to)}` : c.kind === "doc_kind" ? state.kindLabels[c.code] || c.label : c.label;
+    const text = c.kind === "owner" || c.kind === "person" ? tr("von {name}", { name: label }) : c.kind === "doc_kind" ? tr("Art: {kind}", { kind: label }) : label;
+    const el = chip(text, true, () => removeSmartChip(c), color);
+    el.classList.add("smart-chip"); el.dataset.kind = c.kind; el.title = tr("Filter entfernen");
     el.appendChild(closeX()); bar.appendChild(el);
   }
   if (state.smart.dropped.length) {
     const h = document.createElement("span"); h.className = "smart-hint muted small";
-    h.textContent = `Ohne ${state.smart.dropped.map((d) => `„${d}“`).join(", ")} gesucht`;
-    h.title = "Damit zusammen gab es keinen Treffer";
+    h.textContent = tr("Ohne {words} gesucht", { words: state.smart.dropped.map((d) => tr("„{word}“", { word: d })).join(", ") });
+    h.title = tr("Damit zusammen gab es keinen Treffer");
     bar.appendChild(h);
   }
 }
@@ -2134,19 +2377,21 @@ function removeSmartChip(c) {
 function clearSearch() {
   clearTimeout(searchTimer);
   $("#search").value = "";
+  renderAskOffer();
   plainSearch("");
 }
 // Im Reiter „Geld“ sucht das Feld oben in den Buchungen (nicht in den Dokumenten)
 function moneySearch(text) { if (text) closeMoneyLayers(); money.q = text; money.search = null; money.cat = null; renderMoney(); }
 // Kategorie, Einsortieren und Jährliche Kosten schließen (Suche, Wechsel der Ansicht) – samt Verlaufseinträgen
 function closeMoneyLayers() {
-  const i = layers.findIndex((l) => l.name.startsWith("money-"));
   money.cat = null; money.sorting = false; money.yearlyOpen = false;
-  if (i >= 0) closeLayer(layers[i].name);
+  closeLayers((l) => l.name.startsWith("money-"));
 }
 $("#search").addEventListener("input", (e) => {
   clearTimeout(searchTimer);
   const text = e.target.value.trim();
+  if (!text && !$("#ask-panel").classList.contains("hidden")) closeAsk();   // Feld geleert: Antwort weg
+  renderAskOffer();
   if (state.mode === "money") { searchTimer = setTimeout(() => moneySearch(text), 350); return; }
   if (wantsSmart(text)) searchTimer = setTimeout(() => smartSearch(text), 500);   // erst wenn der Satz steht
   else searchTimer = setTimeout(() => plainSearch(text), text ? 250 : 0);
@@ -2156,6 +2401,7 @@ $("#search").addEventListener("keydown", (e) => {
   e.preventDefault();
   clearTimeout(searchTimer);
   const text = e.target.value.trim();
+  if (looksLikeQuestion(text)) askNow(text);
   if (state.mode === "money") return moneySearch(text);
   if (wantsSmart(text)) smartSearch(text); else plainSearch(text);
 });
@@ -2163,15 +2409,16 @@ $("#search").addEventListener("keydown", (e) => {
 // ---------- KI-Erkennung pausieren ----------
 function pauseText(until) {
   if (!until) return "";
-  if (until === "forever") return "pausiert, bis du fortsetzt";
+  if (until === "forever") return tr("pausiert, bis du fortsetzt");
   const d = new Date(until), today = new Date();
-  const time = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const time = d.toLocaleTimeString(LOC, { hour: "2-digit", minute: "2-digit" });
   const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-  const day = d.toDateString() === today.toDateString() ? "" : d.toDateString() === tomorrow.toDateString() ? "morgen " : fmtDate(d.toISOString().slice(0, 10)) + " ";
-  return `pausiert bis ${day}${time} Uhr`;
+  if (d.toDateString() === today.toDateString()) return tr("pausiert bis {time} Uhr", { time });
+  if (d.toDateString() === tomorrow.toDateString()) return tr("pausiert bis morgen {time} Uhr", { time });
+  return tr("pausiert bis {day} {time} Uhr", { day: fmtDate(d.toISOString().slice(0, 10)), time });
 }
 function renderLlmPause(until) {
-  $("#s-llm-pause-status").textContent = until ? "Erkennung " + pauseText(until) : "Erkennung läuft.";
+  $("#s-llm-pause-status").textContent = until ? tr("Erkennung {status}", { status: pauseText(until) }) : tr("Erkennung läuft.");
   $("#s-llm-pause-status").classList.toggle("warn", !!until);
   $("#s-llm-resume-btn").classList.toggle("hidden", !until);
 }
@@ -2186,14 +2433,14 @@ function pauseEnd(choice) {
 $("#s-llm-pause-btn").onclick = async () => {
   try {
     const r = await api("/settings/llm/pause", json("POST", { until: pauseEnd($("#s-llm-pause-for").value) }));
-    renderLlmPause(r.llm_paused_until); toast("KI-Erkennung " + pauseText(r.llm_paused_until)); updateProgress();
-  } catch (e) { toast("Fehler: " + e.message); }
+    renderLlmPause(r.llm_paused_until); toast(tr("KI-Erkennung {status}", { status: pauseText(r.llm_paused_until) })); updateProgress();
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 };
 $("#s-llm-resume-btn").onclick = async () => {
   try {
     const r = await api("/settings/llm/pause", json("POST", { until: null }));
-    renderLlmPause(r.llm_paused_until); toast("KI-Erkennung läuft wieder"); updateProgress();
-  } catch (e) { toast("Fehler: " + e.message); }
+    renderLlmPause(r.llm_paused_until); toast(tr("KI-Erkennung läuft wieder")); updateProgress();
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 };
 
 async function updateProgress() {
@@ -2212,17 +2459,18 @@ async function updateProgress() {
     const per = (bfDone - state.backfillStart.done) / Math.max(secs, 1);
     const mins = per > 0 ? Math.round(bf / per / 60) : null;
     box.classList.remove("hidden");
-    $("#progress-label").textContent = `KI ergänzt ältere Dokumente (Art, Empfänger, Nummern) · ${bfDone} von ${bfTotal} fertig`;
-    $("#progress-eta").textContent = h.llm_paused_until ? "KI-Erkennung " + pauseText(h.llm_paused_until)
-      : mins !== null && secs > 30 ? `noch ca. ${mins < 60 ? mins + " min" : (mins / 60).toFixed(1) + " h"}` : "";
+    $("#progress-label").textContent = tr("KI ergänzt ältere Dokumente (Art, Empfänger, Nummern) · {done} von {total} fertig", { done: bfDone, total: bfTotal });
+    $("#progress-eta").textContent = h.llm_paused_until ? tr("KI-Erkennung {status}", { status: pauseText(h.llm_paused_until) })
+      : mins !== null && secs > 30 ? tr("noch ca. {time}", { time: mins < 60 ? mins + " min" : (mins / 60).toFixed(1) + " h" }) : "";
     $("#progress-bar").style.width = `${Math.round(100 * bfDone / Math.max(bfTotal, 1))}%`;
     return false;
   }
   state.backfillStart = null;
   if (!open) {
     box.classList.add("hidden"); state.progressStart = null;
-    if (h.llm_failed) toastOnce(`${h.llm_failed} Dokument(e) ohne LLM-Tags – wird automatisch nachgeholt, sobald das LLM erreichbar ist`);
-    else if (h.backup?.stale && state.me?.is_admin) toastOnce("Sicherung veraltet oder fehlgeschlagen – siehe Einstellungen → Ablage");
+    if (h.llm_failed) toastOnce(trn(h.llm_failed, "1 Dokument ohne LLM-Tags – wird automatisch nachgeholt, sobald das LLM erreichbar ist",
+      "{n} Dokumente ohne LLM-Tags – werden automatisch nachgeholt, sobald das LLM erreichbar ist"));
+    else if (h.backup?.stale && state.me?.is_admin) toastOnce(tr("Sicherung veraltet oder fehlgeschlagen – siehe Einstellungen → Ablage"));
     return false;
   }
   const done = total - open;
@@ -2231,22 +2479,27 @@ async function updateProgress() {
   const rate = (done - state.progressStart.done) / Math.max(elapsed, 1);
   const eta = rate > 0 ? Math.round(open / rate / 60) : null;
   box.classList.remove("hidden");
-  $("#progress-label").textContent = `${done} von ${total} verarbeitet · ${c.pending || 0} warten · ${c.processing || 0} OCR · ${c.tagging || 0} Tagging`
-    + (bf ? ` · ${bf} ältere werden ergänzt` : "");
+  $("#progress-label").textContent = tr("{done} von {total} verarbeitet · {pending} warten · {ocr} OCR · {tagging} Tagging",
+    { done, total, pending: c.pending || 0, ocr: c.processing || 0, tagging: c.tagging || 0 })
+    + (bf ? " · " + tr("{n} ältere werden ergänzt", { n: bf }) : "");
   // Pausiert: keine Restzeit schätzen, stattdessen sagen, bis wann
-  $("#progress-eta").textContent = h.llm_paused_until && c.tagging ? "KI-Erkennung " + pauseText(h.llm_paused_until)
-    : eta !== null && elapsed > 20 ? `noch ca. ${eta < 60 ? eta + " min" : (eta / 60).toFixed(1) + " h"}` : "";
+  $("#progress-eta").textContent = h.llm_paused_until && c.tagging ? tr("KI-Erkennung {status}", { status: pauseText(h.llm_paused_until) })
+    : eta !== null && elapsed > 20 ? tr("noch ca. {time}", { time: eta < 60 ? eta + " min" : (eta / 60).toFixed(1) + " h" }) : "";
   $("#progress-bar").style.width = `${Math.round(100 * done / Math.max(total, 1))}%`;
   return true;
 }
 let _toasted = "";
 function toastOnce(msg) { if (_toasted !== msg) { _toasted = msg; toast(msg, 5000); } }
 
+// Zurück in den Tab: gleich einmal nachsehen, statt bis zu 5 s auf den nächsten Takt zu warten
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.poll && !$("#main").classList.contains("hidden")) updateProgress();
+});
 function startPolling() {
   clearInterval(state.poll);
   updateProgress();
   state.poll = setInterval(async () => {
-    if ($("#main").classList.contains("hidden")) return;
+    if ($("#main").classList.contains("hidden") || document.hidden) return;   // Tab im Hintergrund: nicht abfragen
     const busy = await updateProgress();
     // In „Heute“ gibt es keine Kacheln – dort hält „Neu“ fest, ob noch etwas verarbeitet wird
     const todayBusy = todayBrowsing() && (today.data?.recent || []).some((d) => d.status !== "done");
@@ -2257,35 +2510,55 @@ function startPolling() {
 }
 
 // ---------- Fragen ----------
-function closeAsk() { $("#ask-panel").classList.add("hidden"); closeLayer("ask"); }
-$("#ask-btn").onclick = () => {
-  if (!$("#ask-panel").classList.contains("hidden")) return closeAsk();
-  $("#ask-panel").classList.remove("hidden"); $("#ask-input").focus();
-  openLayer("ask", () => $("#ask-panel").classList.add("hidden"));
-};
+// Ein Feld für Suchen und Fragen (wie „Heute“ in der App). Unter dem Feld steht „Papigator fragen“; gefragt wird nur
+// auf Enter bei einer Frage (looksLikeQuestion) oder beim Antippen – nie beim Tippen. Über alles, was ich sehe (scope
+// all, wie die App und Siri); lang = Sprache der Oberfläche (Server: Antwort folgt der Sprache der Frage).
+let askSeq = 0;
+function closeAsk() { askSeq++; $("#ask-panel").classList.add("hidden"); closeLayer("ask"); }
 $("#ask-close").onclick = closeAsk;
-$("#ask-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const q = $("#ask-input").value.trim(); if (!q) return;
+// Fragezeichen am Ende oder ein Fragewort vorne (TodayView.looksLikeQuestion der App)
+const QUESTION_WORDS = new Set(["wie", "was", "wann", "wo", "wer", "wem", "wen", "welche", "welcher", "welches", "welchen", "warum", "wieso",
+  "weshalb", "wieviel", "wohin", "woher", "how", "what", "when", "where", "who", "which", "why"]);
+function looksLikeQuestion(text) {
+  const t = String(text || "").trim().toLowerCase();
+  if (t.endsWith("?")) return true;
+  return QUESTION_WORDS.has(t.split(/\s+/)[0] || "");
+}
+function renderAskOffer() {
+  const q = $("#search").value.trim(), on = q.length >= 3 && !state.trash;
+  const el = $("#ask-offer");
+  el.classList.toggle("hidden", !on || (!$("#ask-panel").classList.contains("hidden") && $("#ask-question").textContent === q));
+  el.classList.toggle("question", on && looksLikeQuestion(q));
+  $("#ask-offer-q").textContent = on ? tr("„{q}“", { q }) : "";
+}
+$("#ask-offer").onclick = () => askNow($("#search").value.trim());
+async function askNow(q) {
+  if (!q || q.length < 3) return;
+  const seq = ++askSeq;
   const st = $("#ask-status"), an = $("#ask-answer"), so = $("#ask-sources");
-  st.classList.remove("hidden"); st.textContent = "Suche passende Dokumente und frage das LLM … (10–40 s)";
-  an.classList.add("hidden"); so.classList.add("hidden"); $("#ask-submit").disabled = true;
+  if ($("#ask-panel").classList.contains("hidden")) openLayer("ask", () => { askSeq++; $("#ask-panel").classList.add("hidden"); renderAskOffer(); });
+  $("#ask-panel").classList.remove("hidden");
+  $("#ask-question").textContent = q;
+  st.classList.remove("hidden"); st.textContent = tr("Suche passende Dokumente und frage das LLM … (10–40 s)");
+  an.classList.add("hidden"); so.classList.add("hidden");
+  renderAskOffer();
   try {
-    const r = await api("/ask", json("POST", { question: q, scope: state.scope }));
-    const span = r.range ? `Zeitraum ${fmtDate(r.range.from)} – ${fmtDate(r.range.to)}` : "";
-    const kw = r.keywords?.length ? "Gesucht nach: " + r.keywords.join(", ") : "";
+    const r = await api("/ask", json("POST", { question: q, scope: "all", lang: LANG }));
+    if (seq !== askSeq) return;   // inzwischen neu gefragt oder geschlossen
+    const span = r.range ? tr("Zeitraum {from} – {to}", { from: fmtDate(r.range.from), to: fmtDate(r.range.to) }) : "";
+    const kw = r.keywords?.length ? tr("Gesucht nach: {words}", { words: r.keywords.join(", ") }) : "";
     st.textContent = [span, kw].filter(Boolean).join(" · ");
+    st.classList.toggle("hidden", !st.textContent);
     an.classList.remove("hidden");
-    an.innerHTML = esc(r.answer).replace(/\[Dok\s*(\d+)\]/g, (m, n) => `<span class="src" data-n="${n}">${n}</span>`);
+    an.innerHTML = esc(r.answer).replace(/\[(?:Dok|Doc)\s*(\d+)\]/g, (m, n) => `<span class="src" data-n="${n}">${n}</span>`);
     for (const el of an.querySelectorAll(".src")) el.onclick = () => { const src = r.sources.find((x) => String(x.n) === el.dataset.n); if (src) openDetail(src.id); };
     so.innerHTML = ""; so.classList.toggle("hidden", !r.sources.length);
     for (const src of r.sources) {
       const c = chip(`${src.title}${src.document_date ? " · " + fmtDate(src.document_date) : ""}`, false, () => openDetail(src.id));
       const b = document.createElement("b"); b.textContent = src.n; c.insertBefore(b, c.firstChild); so.appendChild(c);
     }
-  } catch (err) { st.textContent = "Fehler: " + err.message; }
-  $("#ask-submit").disabled = false;
-});
+  } catch (err) { if (seq === askSeq) st.textContent = tr("Fehler: {msg}", { msg: err.message }); }
+}
 
 // ---------- Upload ----------
 $("#file-input").addEventListener("change", (e) => uploadFiles([...e.target.files]));
@@ -2298,76 +2571,556 @@ document.addEventListener("dragover", (e) => { if (isFileDrag(e)) e.preventDefau
 document.addEventListener("drop", (e) => {
   if (!isFileDrag(e)) return;
   e.preventDefault(); dragDepth = 0; $("#dropzone").classList.add("hidden");
-  const all = [...e.dataTransfer.files];
-  const pdfs = all.filter((f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"));
-  if (all.length > pdfs.length) toast(`${all.length - pdfs.length} Datei(en) übersprungen – hochladen geht im Browser nur mit PDF`, 4500);
-  uploadFiles(pdfs);
+  uploadFiles([...e.dataTransfer.files]);
 });
-async function uploadFiles(files) {
-  if (!files.length) return;
+// Was der Server annimmt: PDF oder Bild (JPEG, PNG, TIFF). HEIC (iPhone-Fotos) nicht – Safari wandelt beim Auswählen
+// selbst in JPEG, beim Hineinziehen aus Fotos aber nicht
+const fileKind = (f) => {
+  const n = f.name.toLowerCase();
+  if (f.type === "application/pdf" || n.endsWith(".pdf")) return "pdf";
+  if (/^image\/(jpeg|png|tiff)$/.test(f.type) || /\.(jpe?g|png|tiff?)$/.test(n)) return "image";
+  if (/^image\/hei[cf]/.test(f.type) || /\.hei[cf]$/.test(n)) return "heic";
+  return "";
+};
+async function uploadFiles(all) {
+  if (!all.length) return;
+  const pdfs = all.filter((f) => fileKind(f) === "pdf"), images = all.filter((f) => fileKind(f) === "image");
+  const heic = all.filter((f) => fileKind(f) === "heic").length, other = all.length - pdfs.length - images.length - heic;
+  if (heic) toast(trn(heic, "1 HEIC-Foto übersprungen – bitte als JPEG senden (iPhone: Einstellungen › Kamera › Formate › „Maximale Kompatibilität“)",
+    "{n} HEIC-Fotos übersprungen – bitte als JPEG senden (iPhone: Einstellungen › Kamera › Formate › „Maximale Kompatibilität“)"), 7000);
+  else if (other) toast(trn(other, "1 Datei übersprungen – hochladen geht nur mit PDF oder Fotos (JPEG, PNG, TIFF)", "{n} Dateien übersprungen – hochladen geht nur mit PDF oder Fotos (JPEG, PNG, TIFF)"), 4500);
+  if (!pdfs.length && !images.length) { $("#file-input").value = ""; return; }
   // Im geöffneten Ordner bzw. bei gewähltem Tag: das Dokument bekommt diesen Tag und liegt damit dort
   const into = !state.trash && state.tag ? state.tag : null;
   let ok = 0;
-  for (const f of files) {
-    const fd = new FormData(); fd.append("file", f);
+  // PDFs einzeln, alle Fotos in EINEM Aufruf (mehrere file-Felder) – der Server macht daraus eine mehrseitige PDF
+  const batches = [...pdfs.map((f) => [f]), ...(images.length ? [images] : [])];
+  for (const batch of batches) {
+    const fd = new FormData();
+    for (const f of batch) fd.append("file", f);
     if (into) fd.append("tags", into);
     try { await api("/documents", { method: "POST", body: fd }); ok++; }
-    catch (e) { toast(`${f.name}: ${e.message}`, 4000); }
+    catch (e) { toast(batch.length > 1 ? tr("{n} Fotos: {msg}", { n: batch.length, msg: e.message }) : `${batch[0].name}: ${e.message}`, 5000); }
   }
-  if (ok) toast(into ? `${ok} Dokument(e) hochgeladen – in „${into}“` :
-    folderBrowsing() ? `${ok} Dokument(e) hochgeladen – noch ohne Ordner, zu finden unter „Kacheln“ oder „Zu prüfen“` : `${ok} Dokument(e) hochgeladen`, 4000);
+  if (ok && images.length > 1) toast(tr("{n} Fotos als ein Dokument mit {n} Seiten abgelegt", { n: images.length }), 4000);
+  else if (ok) toast(into ? trn(ok, "1 Dokument hochgeladen – in „{folder}“", "{n} Dokumente hochgeladen – in „{folder}“", { folder: into }) :
+    folderBrowsing() ? trn(ok, "1 Dokument hochgeladen – noch ohne Ordner, zu finden unter „Kacheln“ oder „Zu prüfen“", "{n} Dokumente hochgeladen – noch ohne Ordner, zu finden unter „Kacheln“ oder „Zu prüfen“")
+      : trn(ok, "1 Dokument hochgeladen", "{n} Dokumente hochgeladen"), 4000);
   $("#file-input").value = "";
   if (state.scope === "partner") { state.scope = "mine"; renderScopeBar(); await loadTags(); }
   await loadDocs();
 }
 
 // ---------- Detail ----------
+// Lesekarte wie in der App (DocumentDetailView): Titel, Absender · Datum · Betrag, Zusammenfassung, Chips, Frist –
+// alles direkt änderbar. Jedes Feld speichert beim Verlassen (Textfelder) bzw. sofort (Auswahl, Häkchen) für sich:
+// ein PATCH mit nur diesem Feld, nacheinander wie DocumentSaver der App. Kein „Speichern“-Knopf, nichts zu verwerfen.
+const phoneDetail = matchMedia("(max-width: 767px)");
+const noteDrafts = new Map();   // angefangene Notiz je Dokument – Schließen verwirft sie nicht
 async function openDetail(id) {
   const d = await api(`/documents/${id}?include_text=true`);
   state.current = d;
+  saver.pending.clear(); saver.failed = null;
   show("#detail");
-  setPdf(`${d.file_url}#view=FitH`);
+  setDetailPdf(d);
   $("#download-btn").href = d.file_url + "?download=1";
   $("#share-btn").classList.toggle("hidden", !d.is_own);
-  $("#m-owner").classList.toggle("hidden", d.is_own);
-  $("#m-owner").textContent = d.is_own ? "" : `Dokument von ${d.owner_name}${d.can_edit ? "" : " · nur lesen"}`;
-  const canAssign = d.can_edit && (state.owners || []).some((u) => u.id === d.owner_id) && state.owners.length > 1;
-  $("#m-owner-row").classList.toggle("hidden", !canAssign);
-  $("#m-owner-select").value = String(d.owner_id);
-  $("#m-title").value = d.title || "";
-  $("#m-date").value = isoToDmy(d.document_date);
-  updateDateHint(); renderDetailReasons(d);
-  $("#m-sender").value = d.sender || "";
-  fillKind(d);
-  $("#m-amount").value = d.amount ?? "";
-  $("#m-currency").value = d.currency || "";
-  $("#m-direction").value = d.direction || "";
-  fillDue(d);
-  $("#m-due-note").value = d.due_note || "";
-  loadAssignees(d);
-  fillWarranty(d); fillBlick(d);
-  $("#m-summary").classList.toggle("hidden", !d.summary);
-  $("#m-summary-text").textContent = d.summary || "";
-  $("#m-llm-hint").classList.toggle("hidden", !d.tags.some((t) => t.source === "llm"));
-  const src = { pdf: "Text aus PDF", ocr: "OCR", client: "Text vom Gerät" }[d.text_source] || "kein Text";
-  $("#m-info").textContent = `${d.page_count} Seite(n) · ${src} · ${d.original_name || ""} · hinzugefügt ${fmtDate(d.created_at)}` +
-    (d.ext_from && !d.ext_pending ? ` · über Briefkasten „${d.ext_from}“` : "");
-  $("#m-ext").classList.toggle("hidden", !d.ext_pending);
-  $("#m-ext-from").textContent = d.ext_from ? `über „${d.ext_from}“` : "";
-  $("#m-ext-accept").disabled = $("#m-ext-delete").disabled = !d.can_edit;
+  $("#m-more").open = false;
+  $("#m-error").classList.add("hidden");
   $("#save-state").textContent = "";
-  for (const el of ["#m-title", "#m-date", "#m-sender", "#m-amount", "#m-currency", "#m-direction", "#m-due", "#m-due-note", "#m-due-done", "#m-due-repeat", "#m-due-assignee", "#m-warranty", "#m-expires", "#m-service", "#m-refund", "#m-tag-input", "#save-btn", "#delete-btn", "#reprocess-btn"])
-    $(el).disabled = !d.can_edit;
-  renderMetaTags(d.tags.map((t) => t.name));
-  // Personen ohne Konto (Familie): eigene kleine Zeile über den Feldern
-  const persons = d.tags.filter((t) => t.kind === "person");
-  $("#m-persons").classList.toggle("hidden", !persons.length);
-  $("#m-persons").innerHTML = persons.length ? `<span class="muted small">Für</span>` +
-    persons.map((t) => `<span class="person-pill" style="--tag:${tagColor(t.name, t.color)}">${esc(t.name)}</span>`).join("") : "";
-  $("#m-note-text").value = "";
+  payment.key = null; $("#m-pay").classList.add("hidden");
+  fillCard(d);
+  loadAssignees(d);
+  $("#m-note-text").value = noteDrafts.get(id) || "";
   renderNotes(d);
   history.pushState({ id }, "", `#doc-${id}`);
 }
+// Breit: PDF links eingebettet. Handy: nur das erste Blatt als Vorschau (antippen öffnet das PDF) – kein iframe laden
+function setDetailPdf(d) {
+  const phone = phoneDetail.matches;
+  setPdf(phone || !d ? null : `${d.file_url}#view=FitH`);
+  if (!d) return;
+  $("#pdf-preview").href = d.file_url;
+  const ready = d.status === "done" || d.status === "tagging";
+  $("#pdf-thumb").src = ready ? `${d.thumbnail_url}?v=${enc(d.updated_at)}` : "";
+  $("#pdf-thumb").classList.toggle("hidden", !ready);
+  $("#pdf-pages").textContent = (d.page_count ? trn(d.page_count, "1 Seite", "{n} Seiten") + " · " : "") + tr("PDF öffnen");
+}
+phoneDetail.addEventListener("change", () => { if (!$("#detail").classList.contains("hidden") && state.current) setDetailPdf(state.current); });
+// Bearbeiten nur mit Schreibrecht – und nicht, solange ein Briefkasten-Einwurf nicht übernommen ist: jedes Speichern
+// übernähme ihn sonst stillschweigend (der Server setzt ext_pending=0)
+function docEditable(d) { return !!d && d.can_edit && !d.ext_pending; }
+// Feld neu füllen – außer es hat gerade den Fokus oder seine Änderung ist noch unterwegs (sonst springt Getipptes zurück)
+function setVal(el, v) {
+  if (typeof el === "string") el = $(el);
+  if (!el) return false;
+  const typing = el === document.activeElement && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type !== "checkbox"));
+  if (!el || typing || saver.pending.get(FIELD_OF[el.id] || (el.dataset.ref ? "refs" : ""))) return false;
+  if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
+  el.classList.remove("invalid");
+  return true;
+}
+function fillCard(d) {
+  const ro = !docEditable(d);
+  $("#detail .meta").classList.toggle("ro", ro);
+  $("#m-owner").classList.toggle("hidden", d.is_own);
+  $("#m-owner").textContent = d.is_own ? "" : tr("Dokument von {name}", { name: d.owner_name }) + (d.can_edit ? "" : " · " + tr("nur lesen"));
+  const canAssign = d.can_edit && (state.owners || []).some((u) => u.id === d.owner_id) && state.owners.length > 1;
+  $("#m-owner-row").classList.toggle("hidden", !canAssign);
+  setVal("#m-owner-select", String(d.owner_id));
+  if (setVal("#m-title", d.title || "")) growTitle();
+  setVal("#m-sender", d.sender || "");
+  setVal("#m-date", isoToDmy(d.document_date));
+  setVal("#m-currency", d.currency || "");
+  if ($("#m-amount") !== document.activeElement) setVal("#m-amount", fmtMoney(d.amount, d.currency));
+  setVal("#m-direction", d.direction || "");
+  // Absender · Datum · Betrag: Leeres nur zeigen, wenn man es eintragen kann
+  $("#m-sender-part").classList.toggle("hidden", ro && !d.sender);
+  $("#m-amount-part").classList.toggle("hidden", ro && d.amount == null);
+  updateDateHint(); renderDetailReasons(d);
+  fillKind(d);
+  fillDue(d);
+  fillWarranty(d); fillBlick(d);
+  fillChips(d);
+  $("#m-summary").classList.toggle("hidden", !d.summary);
+  $("#m-summary-text").textContent = d.summary || "";
+  $("#m-llm-hint").classList.toggle("hidden", !d.tags.some((t) => t.source === "llm"));
+  const src = { pdf: tr("Text aus PDF"), ocr: "OCR", client: tr("Text vom Gerät") }[d.text_source] || tr("kein Text");
+  $("#m-info").textContent = trn(d.page_count, "1 Seite", "{n} Seiten") + ` · ${src} · ${d.original_name || ""} · ` + tr("hinzugefügt {date}", { date: fmtDate(d.created_at) }) +
+    (d.ext_from && !d.ext_pending ? " · " + tr("über Briefkasten „{name}“", { name: d.ext_from }) : "");
+  $("#m-ext").classList.toggle("hidden", !d.ext_pending);
+  $("#m-ext-from").textContent = d.ext_from ? tr("über „{name}“", { name: d.ext_from }) : "";
+  $("#m-ext-accept").disabled = $("#m-ext-delete").disabled = !d.can_edit;
+  for (const el of $("#detail .meta").querySelectorAll("input, select, textarea"))
+    if (el.id !== "m-note-text") el.disabled = ro;
+  $("#m-no-date").disabled = ro;
+  for (const el of ["#delete-btn", "#reprocess-btn"]) $(el).disabled = !d.can_edit;
+  if (!saver.pending.get("tags")) renderMetaTags(d.tags.map((t) => t.name));
+  renderDocPersons(d);
+  for (const el of $("#detail .meta").querySelectorAll("input.fv")) fitInput(el);
+  loadPayment(d);
+}
+// Bezahlen per QR (GiroCode): neu fragen, wenn sich ändert, was der Server dafür braucht (wie PaymentCard.key der App).
+// Jeder Fehler (404 – aus, nichts zu bezahlen, alter Server) heißt: keine Karte. Nichts davon wird gespeichert.
+const payment = { key: null, data: null, seq: 0 };
+async function loadPayment(d) {
+  const key = state.me?.pay_qr ? [d.id, d.due_done, d.due_date, d.amount, d.direction, d.updated_at].join("|") : "off";
+  if (key === payment.key) return;
+  payment.key = key;
+  const seq = ++payment.seq;
+  const p = key === "off" ? null : await api(`/documents/${d.id}/payment`).catch(() => null);
+  if (seq !== payment.seq || state.current?.id !== d.id) return;
+  payment.data = p;
+  $("#m-pay").classList.toggle("hidden", !p);
+  if (!p) { $("#m-pay-qr").innerHTML = ""; return; }
+  try { $("#m-pay-qr").innerHTML = QR.svg(p.epc); } catch { $("#m-pay-qr").innerHTML = ""; }
+  $("#m-pay-name").textContent = p.name;
+  $("#m-pay-iban").textContent = p.iban.replace(/(.{4})/g, "$1 ").trim();
+  $("#m-pay-bic").textContent = p.bic || "";
+  $("#m-pay-bic-k").classList.toggle("hidden", !p.bic); $("#m-pay-bic-v").classList.toggle("hidden", !p.bic);
+  $("#m-pay-amount").textContent = fmtMoney(p.amount, p.currency);
+  $("#m-pay-ref").textContent = p.reference || "–";
+  const src = p.sources || {};
+  $("#m-pay-iban-src").textContent = src.iban ? tr("im Brief: {line}", { line: src.iban }) : "";
+  $("#m-pay-amount-src").textContent = src.amount ? tr("im Brief: {line}", { line: src.amount }) : "";
+  // Betrag steht so nicht im Brief (z. B. von Hand geändert): deutlich warnen
+  $("#m-pay-warn").classList.toggle("hidden", "amount" in src ? !!src.amount : true);
+}
+$("#m-pay").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-copy]"), p = payment.data;
+  if (!b || !p) return;
+  const v = { name: p.name, iban: p.iban, amount: Number(p.amount).toFixed(2).replace(".", LANG === "de" ? "," : "."), reference: p.reference || "" }[b.dataset.copy];
+  copyText(v, b);
+});
+// Chips unter der Zusammenfassung: was sonst in „Mehr Angaben“ steht, als kurzer Hinweis (Antippen öffnet es)
+function fillChips(d) {
+  const set = (id, text, title = "") => {
+    const c = $(id); c.textContent = text || ""; c.title = title; c.classList.toggle("hidden", !text);
+  };
+  set("#m-chip-direction", d.amount != null && d.direction ? { out: tr("Ausgabe"), in: tr("Einnahme"), none: tr("keine Zahlung") }[d.direction] : "", tr("Betrag ist"));
+  set("#m-chip-warranty", d.warranty_until ? warrantyText(d) : d.warranty_months > 0 ? tr("Garantie ohne Ende (kein Datum)") : "");
+  set("#m-chip-expires", d.expires_on ? (d.expires_what ? tr("{what} gültig bis {date}", { what: tr(d.expires_what), date: fmtDate(d.expires_on) })
+    : tr("Gültig bis {date}", { date: fmtDate(d.expires_on) })) : "");
+  set("#m-chip-service", d.service_what && d.service_next ? tr("{what}: {date}", { what: tr(d.service_what), date: fmtDate(d.service_next) }) : "");
+  set("#m-chip-refund", d.refund_state ? { open: tr("Erstattung offen"), done: tr("Erstattet"), none: tr("Nicht einreichen") }[d.refund_state] : "");
+  // Art und Empfänger: nur lesbar und leer – dann weg statt „– noch nicht erkannt –“
+  const ro = !docEditable(d);
+  $("#m-kind-chip").classList.toggle("hidden", ro && !d.doc_kind);
+  $("#m-recipient-chip").classList.toggle("hidden", ro && !d.recipient);
+}
+for (const c of document.querySelectorAll(".d-chips [data-more]")) c.onclick = () => {
+  $("#m-more").open = true;
+  const el = $("#" + c.dataset.more);
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (!el.disabled) el.focus({ preventScroll: true });
+};
+// Titel als mehrzeiliges Feld, so hoch wie sein Text
+function growTitle() { const t = $("#m-title"); t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; }
+$("#m-title").addEventListener("input", growTitle);
+// Felder in der Zeile so breit wie ihr Inhalt (field-sizing kann noch nicht jeder Browser)
+const fitCtx = document.createElement("canvas").getContext("2d");
+function fitInput(el) {
+  if (!el.offsetParent) return;
+  const cs = getComputedStyle(el);
+  fitCtx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  // Ziffern in gleicher Breite (tabular-nums) kennt die Leinwand nicht – dann jede Ziffer so breit wie die breiteste messen
+  let text = el.value || el.placeholder || "";
+  if (cs.fontVariantNumeric.includes("tabular")) text = text.replace(/\d/g, "0");
+  const w = fitCtx.measureText(text).width * 1.02;
+  const extra = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+  el.style.width = Math.ceil(w + extra + 2) + "px";
+}
+// Auswahl in einem Chip (Art) so breit wie die gewählte Beschriftung, nicht wie die längste
+function fitSelect(el) {
+  if (!el.offsetParent) return;
+  const cs = getComputedStyle(el);
+  fitCtx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const w = fitCtx.measureText(el.selectedOptions[0]?.textContent || "").width;
+  el.style.width = Math.ceil(w + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2) + "px";
+}
+$("#m-kind").addEventListener("change", (e) => fitSelect(e.target));
+$("#detail .meta").addEventListener("input", (e) => { if (e.target.matches("input.fv")) fitInput(e.target); });
+$("#m-more").addEventListener("toggle", () => { if ($("#m-more").open) for (const el of $("#m-more").querySelectorAll("input.fv")) fitInput(el); });
+
+// ---------- Speichern: ein Feld, ein PATCH, nacheinander ----------
+const saver = { chain: Promise.resolve(), pending: new Map(), failed: null, changed: false };
+const FIELD_OF = { "m-title": "title", "m-sender": "sender", "m-date": "document_date", "m-amount": "amount", "m-currency": "currency",
+  "m-direction": "direction", "m-kind": "doc_kind", "m-recipient": "recipient", "m-due": "due_date", "m-due-note": "due_note",
+  "m-due-done": "due_done", "m-due-repeat": "due_repeat", "m-due-assignee": "due_assignee", "m-warranty": "warranty",
+  "m-expires": "expires_on", "m-service": "service_next", "m-refund": "refund_state", "m-owner-select": "owner" };
+const TEXT_FIELDS = new Set(["title", "sender", "document_date", "amount", "currency", "recipient", "due_date", "due_note", "expires_on", "service_next", "refs"]);
+const BAD = Symbol("ungültig");
+const isoDay = (s) => (s || "").slice(0, 10);
+function refsOf(obj) { return Object.fromEntries(Object.keys(REF_LABELS).map((k) => [k, String(obj?.[k] || "").trim()]).filter(([, v]) => v)); }
+// Deutsch „1.234,56“ oder „547,88 €“, Englisch „1,234.56“ (Komma trennt Tausender), „1234.56“ überall → Zahl; leer → null
+function parseAmount(s) {
+  let t = String(s || "").replace(/[^\d.,-]/g, "");
+  if (!t) return String(s || "").trim() ? BAD : null;
+  if (LANG === "en") t = t.replace(/,/g, "");
+  else if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
+  const v = Number(t);
+  return isFinite(v) && v >= 0 ? Math.round(v * 100) / 100 : BAD;
+}
+// Wert im Feld so, wie ihn der Server bekommt
+function uiValue(name) {
+  const date = (sel) => { const v = dmyToIso($(sel).value); return v === null ? BAD : v; };
+  switch (name) {
+    case "title": return $("#m-title").value.replace(/\s+/g, " ").trim() || BAD;
+    case "sender": return $("#m-sender").value.trim() || null;
+    case "document_date": { const v = date("#m-date"); return v === BAD ? BAD : v || null; }
+    case "amount": return parseAmount($("#m-amount").value);
+    case "currency": return $("#m-currency").value.trim().toUpperCase() || null;
+    case "direction": return $("#m-direction").value || null;
+    case "doc_kind": return $("#m-kind").value;
+    case "recipient": return $("#m-recipient").value.replace(/\s+/g, " ").trim();
+    case "refs": return refsOf(Object.fromEntries([...document.querySelectorAll("#m-refs input")].map((i) => [i.dataset.ref, i.value])));
+    case "due_date": return date("#m-due");
+    case "due_note": return $("#m-due-note").value.trim() || null;
+    case "due_done": return $("#m-due-done").checked;
+    case "due_repeat": return $("#m-due-repeat").value || null;
+    case "due_assignee": { const v = $("#m-due-assignee").value; return v ? Number(v) : null; }
+    case "warranty": return $("#m-warranty").value;
+    case "expires_on": return date("#m-expires");
+    case "service_next": return date("#m-service");
+    case "refund_state": return $("#m-refund").value;
+    case "owner": return Number($("#m-owner-select").value);
+  }
+}
+// Derselbe Wert aus dem gespeicherten Stand – gleich: nichts zu tun
+function serverValue(name, d) {
+  switch (name) {
+    case "document_date": return isoDay(d.document_date) || null;
+    case "amount": return d.amount ?? null;
+    case "doc_kind": return d.doc_kind || "";
+    case "recipient": return d.recipient || "";
+    case "refs": return refsOf(d.refs);
+    case "due_date": case "expires_on": case "service_next": return isoDay(d[name]);
+    case "due_done": return !!d.due_done;
+    case "due_assignee": return d.due_assignee ?? null;
+    case "warranty": return warrantyValue(d);
+    case "refund_state": return d.refund_state || "open";
+    case "owner": return d.owner_id;
+    default: return d[name] ?? null;
+  }
+}
+function patchBody(name, v) {
+  if (name === "warranty") {   // „nicht festgelegt“ wird nie geschickt – sonst wäre es eine Korrektur
+    if (!v) return null;
+    const [m, kind] = v.split(":");
+    return { warranty_months: Number(m), ...(kind ? { warranty_kind: kind } : {}) };
+  }
+  if (name === "direction" && !v) return null;
+  return { [name]: v };
+}
+// Feld verlassen bzw. Auswahl geändert: nur, was sich vom gespeicherten Stand unterscheidet, geht an den Server
+function commitField(name) {
+  const d = state.current;
+  if (!d || !docEditable(d)) return;
+  const v = uiValue(name);
+  if (v === BAD) {
+    if (name === "title") { setVal("#m-title", d.title); growTitle(); return; }   // leerer Titel: zurück
+    if (name === "amount") { toast(tr("Betrag bitte als Zahl eingeben, z. B. 12,50")); setVal("#m-amount", fmtMoney(d.amount, d.currency)); return; }
+    const el = $({ document_date: "#m-date", due_date: "#m-due", expires_on: "#m-expires", service_next: "#m-service" }[name]);
+    el.classList.add("invalid");
+    toast(tr("Datum bitte als {fmt} eingeben", { fmt: dateFmt().placeholder }));
+    return;
+  }
+  if (JSON.stringify(v) === JSON.stringify(serverValue(name, d))) {
+    if (name === "amount" && $("#m-amount") !== document.activeElement) setVal("#m-amount", fmtMoney(d.amount, d.currency));
+    return;
+  }
+  if (name === "owner") return assignOwner(v);
+  const body = patchBody(name, v);
+  if (body) saveDoc(body, [name]);
+}
+function setSaveState(text) { $("#save-state").textContent = text; }
+// In die Kette: nie zwei Änderungen gleichzeitig, die Antwort des Servers ist der neue Stand der Karte
+function enqueue(names, work) {
+  for (const n of names) saver.pending.set(n, (saver.pending.get(n) || 0) + 1);
+  setSaveState(tr("Speichert …"));
+  const job = async () => {
+    try { await work(); }
+    finally {
+      for (const n of names) { const c = (saver.pending.get(n) || 1) - 1; if (c) saver.pending.set(n, c); else saver.pending.delete(n); }
+      if (!saver.pending.size && !saver.failed) setSaveState(tr("Gespeichert"));
+    }
+  };
+  saver.chain = saver.chain.then(job, job);
+  return saver.chain;
+}
+function saveDoc(body, names) {
+  const id = state.current.id;
+  return enqueue(names, async () => {
+    try {
+      const fresh = await api(`/documents/${id}`, json("PATCH", body));
+      saver.changed = true;
+      if (state.current?.id !== id) return;
+      saver.failed = null; $("#m-error").classList.add("hidden");
+      state.current = { ...fresh, text: state.current.text };
+      for (const n of names) saver.pending.delete(n);   // der eigene Wert steht jetzt fest – neu füllen
+      fillCard(state.current);
+      if (names.includes("due_assignee") || names.includes("due_date")) loadAssignees(state.current);
+      if (body.due_done) toast(fresh.due_date && !fresh.due_done ? tr("Erledigt – nächste Frist {date}", { date: fmtDate(fresh.due_date) }) : tr("Erledigt"));
+    } catch (e) {
+      if (state.current?.id !== id) { toast(tr("Nicht gespeichert: {msg}", { msg: e.message }), 5000); return; }
+      saver.failed = { body, names };
+      $("#m-error-text").textContent = tr("Nicht gespeichert: {msg}", { msg: e.message });
+      $("#m-error").classList.remove("hidden");
+      setSaveState("");
+      // Feld zurück auf den gespeicherten Stand
+      const fresh = await api(`/documents/${id}?include_text=true`).catch(() => null);
+      for (const n of names) saver.pending.delete(n);
+      if (fresh && state.current?.id === id) { state.current = fresh; fillCard(fresh); }
+      else if (state.current?.id === id) fillCard(state.current);
+      if (names.includes("due_assignee") && state.current?.id === id) loadAssignees(state.current);
+    }
+  });
+}
+$("#m-error-retry").onclick = () => {
+  const f = saver.failed; if (!f || !state.current) return;
+  saver.failed = null; $("#m-error").classList.add("hidden");
+  saveDoc(f.body, f.names);
+};
+// Besitzer: eigener Endpunkt (andere Rechte). Ohne Freigabe des neuen Besitzers ist das Dokument danach unsichtbar.
+function assignOwner(owner) {
+  const id = state.current.id;
+  return enqueue(["owner"], async () => {
+    try {
+      await api("/documents/owner", json("POST", { document_ids: [id], owner_id: owner }));
+      saver.changed = true;
+      const fresh = await api(`/documents/${id}?include_text=true`).catch(() => null);
+      if (state.current?.id !== id) return;
+      if (!fresh) { toast(tr("Zugeordnet")); closeDetail(); return; }
+      saver.pending.delete("owner");
+      state.current = fresh; fillCard(fresh); loadAssignees(fresh);
+    } catch (e) {
+      toast(tr("Fehler: {msg}", { msg: e.message }));
+      saver.pending.delete("owner");
+      if (state.current?.id === id) fillCard(state.current);
+    }
+  });
+}
+const meta = $("#detail .meta");
+// Textfelder speichern beim Verlassen; Auswahl und Häkchen sofort
+meta.addEventListener("focusout", (e) => {
+  const name = FIELD_OF[e.target.id] || (e.target.dataset.ref ? "refs" : "");
+  if (TEXT_FIELDS.has(name)) commitField(name);
+  if (e.target.id === "m-amount" && state.current && !saver.pending.get("amount") && uiValue("amount") !== BAD)
+    { const v = uiValue("amount"); e.target.value = fmtMoney(v, $("#m-currency").value || state.current.currency); fitInput(e.target); }
+});
+meta.addEventListener("change", (e) => {
+  const name = FIELD_OF[e.target.id];
+  if (name && !TEXT_FIELDS.has(name)) commitField(name);
+});
+// Kalender gewählt: wie Feld verlassen
+meta.addEventListener("picked", (e) => { const name = FIELD_OF[e.target.id]; if (name) commitField(name); });
+// Betrag: beim Antippen die nackte Zahl („547,88“), sonst formatiert („547,88 €“)
+meta.addEventListener("focusin", (e) => {
+  if (e.target.id !== "m-amount" || !state.current) return;
+  if (e.target.value !== fmtMoney(state.current.amount, state.current.currency)) return;   // schon bearbeitet
+  const a = state.current.amount;   // aus dem gespeicherten Stand, nicht aus dem formatierten Text („€1,234.56“)
+  e.target.value = a == null ? "" : (LANG === "de" ? Number(a).toFixed(2).replace(".", ",") : Number(a).toFixed(2));
+  fitInput(e.target);
+  e.target.select();   // ganz markiert: Tippen ersetzt die Zahl (mit Tab betreten markiert der Browser sonst den alten Text)
+});
+// Enter: Feld fertig (speichert); Esc: Änderung im Feld zurücknehmen, ohne das Dokument zu schließen
+meta.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (!t.matches("input:not([type=checkbox]), textarea") || t.id === "m-tag-input" || t.id === "m-note-text" || e.isComposing) return;
+  if (e.key === "Enter") { e.preventDefault(); t.blur(); }
+  else if (e.key === "Escape") {
+    e.preventDefault();
+    const name = FIELD_OF[t.id] || (t.dataset.ref ? "refs" : "");
+    const d = state.current;
+    if (d && name) {
+      const sv = serverValue(name, d);
+      t.value = name === "amount" ? (sv == null ? "" : String(sv)) : t.dataset.ref ? (d.refs?.[t.dataset.ref] || "")
+        : ["document_date", "due_date", "expires_on", "service_next"].includes(name) ? isoToDmy(sv) : sv ?? "";
+      t.classList.remove("invalid");
+    }
+    t.blur();
+  }
+});
+// Personen ohne Konto (Familie): eigene kleine Zeile über den Feldern. Passt der Empfänger zu einer Person, deren
+// Ordner fehlt (Server: family.person_hints – nur mit Schreibrecht, nur bekannte Namen), steht dort ein Vorschlag.
+// Nie automatisch; „Nein“ merkt sich dieser Browser für dieses Dokument.
+function personHintOff(docId, tagId) {
+  try { return (JSON.parse(localStorage.getItem("pg.personHintNo") || "[]")).includes(`${docId}:${tagId}`); } catch { return false; }
+}
+function personHintNo(docId, tagId) {
+  try {
+    const list = JSON.parse(localStorage.getItem("pg.personHintNo") || "[]");
+    list.push(`${docId}:${tagId}`);
+    localStorage.setItem("pg.personHintNo", JSON.stringify(list.slice(-500)));
+  } catch {}
+}
+function renderDocPersons(d) {
+  const row = $("#m-persons");
+  const persons = d.tags.filter((t) => t.kind === "person");
+  const names = new Set(($("#m-tags")._names || []).map((n) => n.toLowerCase()));
+  const hints = (d.person_hints || []).filter((h) => !names.has(h.name.toLowerCase()) && !personHintOff(d.id, h.id));
+  row.classList.toggle("hidden", !persons.length && !hints.length);
+  row.innerHTML = (persons.length ? `<span class="muted small">${esc(tr("Für"))}</span>` +
+    persons.map((t) => `<span class="person-pill" style="--tag:${tagColor(t.name, t.color)}">${esc(t.name)}</span>`).join("") : "") +
+    hints.map((h) => `<span class="person-hint"><span class="muted small">${esc(tr("An {name} –", { name: h.name }))}</span>` +
+      `<button type="button" class="linkish" data-person-add="${h.id}">${esc(tr("Person {name} zuordnen?", { name: h.name }))}</button>` +
+      `<button type="button" class="linkish muted" data-person-no="${h.id}" title="${esc(tr("Nicht mehr vorschlagen"))}" aria-label="${esc(tr("Nicht mehr vorschlagen"))}">${esc(tr("Nein"))}</button></span>`).join("");
+}
+$("#m-persons").addEventListener("click", async (e) => {
+  const d = state.current;
+  const add = e.target.closest("[data-person-add]"), no = e.target.closest("[data-person-no]");
+  if (!d || !(add || no)) return;
+  if (no) { personHintNo(d.id, Number(no.dataset.personNo)); renderDocPersons(d); return; }
+  add.disabled = true;
+  try {
+    const fresh = await api(`/documents/${d.id}/person`, json("POST", { tag_id: Number(add.dataset.personAdd) }));
+    if (state.current?.id !== d.id) return;
+    saver.changed = true;
+    state.current = { ...fresh, text: d.text }; fillCard(state.current);
+    loadTags();
+  } catch (err) { add.disabled = false; toast(tr("Fehler: {msg}", { msg: err.message })); }
+});
+// ---------- Paperless-ngx übernehmen (Admin) ----------
+// Erst ein Probelauf mit der gewählten Datei (dry_run), dann „Importieren“ mit genau derselben Datei. Große Exporte
+// dauern: Fortschritt beim Hochladen, danach ein Wartehinweis, bis der Server fertig ist.
+const pl = { file: null, dry: null, busy: false };
+function plSet() {
+  $("#s-pl-dry").disabled = !pl.file || pl.busy;
+  $("#s-pl-go").disabled = !pl.file || !pl.dry || pl.busy || !pl.dry.imported;
+}
+$("#s-paperless-sect").addEventListener("toggle", (e) => {
+  if (!e.target.open) return;
+  const sel = $("#s-pl-user"), keep = sel.value;
+  sel.innerHTML = (state.users || []).map((u) => `<option value="${esc(u.username)}">${esc(u.display_name)}${u.id === state.me?.id ? " " + esc(tr("(ich)")) : ""}</option>`).join("");
+  sel.value = keep || state.me?.username || "";
+  plSet();
+});
+$("#s-pl-file").onchange = (e) => { pl.file = e.target.files[0] || null; pl.dry = null; $("#s-pl-result").classList.add("hidden"); plSet(); };
+$("#s-pl-user").onchange = () => { pl.dry = null; $("#s-pl-result").classList.add("hidden"); plSet(); };
+// Hochladen mit Fortschritt (fetch kann das nicht); Fehlertext vom Server wie bei api()
+function postWithProgress(url, body, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", url); x.withCredentials = true; x.responseType = "json";
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    x.upload.onload = () => onProgress(1);
+    x.onload = () => {
+      if (x.status >= 200 && x.status < 300) return resolve(x.response);
+      if (x.status === 401) showLogin();
+      const d = x.response && x.response.detail;
+      const err = new Error(trErr(typeof d === "string" ? d : (d && d.message) || x.statusText || String(x.status))); err.status = x.status;
+      reject(err);
+    };
+    x.onerror = () => reject(new Error(tr("Keine Verbindung zum Server")));
+    x.send(body);
+  });
+}
+async function runPaperless(dry) {
+  if (!pl.file || pl.busy) return;
+  if (!dry && !confirm(trn(pl.dry.imported, "{n} Dokument aus Paperless übernehmen?", "{n} Dokumente aus Paperless übernehmen?"))) return;
+  pl.busy = true; plSet();
+  const box = $("#s-pl-result"), prog = $("#s-pl-progress"), label = $("#s-pl-progress-label"), bar = $("#s-pl-progress-bar");
+  box.innerHTML = ""; box.classList.add("hidden"); prog.classList.remove("hidden");
+  const fd = new FormData();
+  fd.append("file", pl.file);
+  fd.append("user", $("#s-pl-user").value);
+  fd.append("dry_run", dry ? "true" : "false");
+  try {
+    const r = await postWithProgress("/import/paperless", fd, (f) => {
+      bar.style.width = `${Math.round(f * 100)}%`;
+      label.textContent = f < 1 ? tr("Lädt hoch … {pct} %", { pct: Math.round(f * 100) })
+        : dry ? tr("Wird geprüft – bei großen Exporten kann das dauern …") : tr("Wird übernommen – bei großen Exporten kann das einige Minuten dauern …");
+    });
+    if (dry) pl.dry = r; else pl.dry = null;
+    const head = dry ? trn(r.imported, "Probelauf: {n} Dokument käme dazu", "Probelauf: {n} Dokumente kämen dazu")
+      : trn(r.imported, "{n} Dokument übernommen", "{n} Dokumente übernommen");
+    const more = [trn(r.total, "{n} im Export", "{n} im Export|pl"),
+      r.duplicates ? trn(r.duplicates, "{n} schon vorhanden", "{n} schon vorhanden|pl") : "",
+      r.skipped ? trn(r.skipped, "{n} übersprungen", "{n} übersprungen|pl") : ""].filter(Boolean).join(" · ");
+    box.innerHTML = `<p style="margin:0"><b>${esc(head)}</b> · ${esc(more)}</p>` +
+      ((r.problems || []).length ? `<p class="muted" style="margin:6px 0 2px">${esc(tr("Nicht übernommen:"))}</p><ul class="pl-problems">` +
+        r.problems.slice(0, 50).map((x) => `<li><b>${esc(x.title || "–")}</b> – ${esc(trErr(x.reason || ""))}</li>`).join("") +
+        (r.problems.length > 50 ? `<li>${esc(tr("… und {n} weitere", { n: r.problems.length - 50 }))}</li>` : "") + "</ul>" : "") +
+      (dry && r.imported ? `<p class="muted" style="margin:6px 0 0">${esc(tr("Passt das? Dann „Importieren“."))}</p>` : "");
+    box.classList.remove("hidden");
+    if (!dry) { toast(head, 5000); loadTags(); }
+  } catch (e) {
+    box.innerHTML = `<p class="error" style="margin:0">${esc(tr("Fehler: {msg}", { msg: e.message }))}</p>`;
+    box.classList.remove("hidden");
+  } finally {
+    pl.busy = false; prog.classList.add("hidden"); bar.style.width = "0"; plSet();
+  }
+}
+$("#s-pl-dry").onclick = () => runPaperless(true);
+$("#s-pl-go").onclick = () => runPaperless(false);
+
+// App verbinden (Einstellungen › Konto & Teilen): QR-Code für die iPhone-App mit der Server-Adresse und auf Wunsch dem
+// Benutzernamen – nie Passwort oder Token. Adresse: öffentliche Adresse (nur Admins lesen sie), sonst diese Seite.
+let connectBase = null;
+async function renderConnect() {
+  if (connectBase === null) {
+    const cfg = state.me?.is_admin ? await api("/settings").catch(() => null) : null;
+    connectBase = ((cfg && cfg.public_url) || location.origin).replace(/\/+$/, "");
+  }
+  const user = $("#s-connect-user").checked && state.me ? state.me.username : "";
+  const link = `papigator://connect?server=${encodeURIComponent(connectBase)}` + (user ? `&user=${encodeURIComponent(user)}` : "");
+  $("#s-connect-url").value = connectBase;
+  try { $("#s-connect-qr").innerHTML = QR.svg(link); } catch { $("#s-connect-qr").innerHTML = ""; }
+  $("#s-connect-qr").dataset.link = link;
+  const warn = $("#s-connect-warn");
+  warn.textContent = isPrivateUrl(connectBase) ? tr("Diese Adresse funktioniert nur in deinem Heimnetz (oder per VPN).") : "";
+  warn.classList.toggle("hidden", !warn.textContent);
+}
+$("#s-connect-sect").addEventListener("toggle", (e) => { if (e.target.open) renderConnect(); });
+// Bezahlen per QR ein-/ausschalten (pro Konto, gilt auf allen Geräten)
+$("#s-pay-sect").addEventListener("toggle", (e) => { if (e.target.open) $("#s-pay-qr").checked = !!state.me?.pay_qr; });
+$("#s-pay-qr").onchange = async (e) => {
+  const on = e.target.checked;
+  try { await api("/auth/me", json("PATCH", { pay_qr: on })); state.me.pay_qr = on; toast(on ? tr("Bezahlen per QR ist an") : tr("Bezahlen per QR ist aus")); }
+  catch (err) { e.target.checked = !on; toast(tr("Fehler: {msg}", { msg: err.message })); }
+};
+$("#s-connect-user").onchange = renderConnect;
+$("#s-connect-copy").onclick = (e) => copyText($("#s-connect-url").value, e.currentTarget);
 // Kalender-Abo (Server: /calendar/feed): Link anzeigen, abonnieren (webcal://), kopieren, neu, abschalten
 function renderCalFeed(path) {
   $("#s-cal-off").classList.toggle("hidden", !!path);
@@ -2381,16 +3134,94 @@ $("#s-cal-sect").addEventListener("toggle", async (e) => {
   if (e.target.open) renderCalFeed((await api("/calendar/feed").catch(() => ({}))).path);
 });
 $("#s-cal-create").onclick = $("#s-cal-new").onclick = async (e) => {
-  if (e.target.id === "s-cal-new" && !confirm("Neuen Link erstellen? Der bisherige funktioniert dann nicht mehr – abonnierte Kalender müssen neu abonniert werden.")) return;
-  try { renderCalFeed((await api("/calendar/feed", { method: "POST" })).path); } catch (err) { toast("Fehler: " + err.message); }
+  if (e.target.id === "s-cal-new" && !confirm(tr("Neuen Link erstellen? Der bisherige funktioniert dann nicht mehr – abonnierte Kalender müssen neu abonniert werden."))) return;
+  try { renderCalFeed((await api("/calendar/feed", { method: "POST" })).path); } catch (err) { toast(tr("Fehler: {msg}", { msg: err.message })); }
 };
 $("#s-cal-del").onclick = async () => {
-  if (!confirm("Kalender-Abo abschalten? Abonnierte Kalender bekommen dann keine Fristen mehr.")) return;
-  try { await api("/calendar/feed", { method: "DELETE" }); renderCalFeed(null); } catch (err) { toast("Fehler: " + err.message); }
+  if (!confirm(tr("Kalender-Abo abschalten? Abonnierte Kalender bekommen dann keine Fristen mehr."))) return;
+  try { await api("/calendar/feed", { method: "DELETE" }); renderCalFeed(null); } catch (err) { toast(tr("Fehler: {msg}", { msg: err.message })); }
 };
 $("#s-cal-copy").onclick = async () => {
-  try { await navigator.clipboard.writeText($("#s-cal-url").value); toast("Link kopiert"); }
-  catch { $("#s-cal-url").select(); toast("Link markiert – jetzt kopieren"); }
+  try { await navigator.clipboard.writeText($("#s-cal-url").value); toast(tr("Link kopiert")); }
+  catch { $("#s-cal-url").select(); toast(tr("Link markiert – jetzt kopieren")); }
+};
+
+// Wochenübersicht per Mail (Server: /digest): Schalter, Wochentag und Adresse speichern sofort; Test-Mail an mich
+function renderDigest(d) {
+  if (!d) return;
+  const day = $("#s-digest-day");
+  if (!day.options.length) day.innerHTML = d.weekdays.map((w, i) => `<option value="${i}">${esc(w)}</option>`).join("");
+  $("#s-digest-on").checked = d.enabled;
+  day.value = String(d.weekday);
+  if (document.activeElement !== $("#s-digest-email")) $("#s-digest-email").value = d.email;
+  $("#s-digest-nosmtp").classList.toggle("hidden", d.smtp_ready);
+  $("#s-digest-test").disabled = !d.smtp_ready || !d.email;
+  const st = $("#s-digest-status"); st.className = "small muted";
+  if (d.last_error) { st.className = "small error"; st.textContent = tr("Letzter Versuch fehlgeschlagen: {error}", { error: d.last_error }); }
+  else if (d.enabled) st.textContent = tr("Kommt jeden {day} ab {hour} Uhr", { day: d.weekdays[d.weekday], hour: d.hour }) +
+    (d.last_sent ? " · " + tr("zuletzt {date}|sent", { date: fmtDate(d.last_sent) }) : "") + (d.links ? "" : " · " + tr("ohne Links (keine öffentliche Adresse eingetragen)"));
+  else st.textContent = tr("Aus.");
+}
+async function saveDigest(body) {
+  // lang: die Wochenübersicht kommt in der Sprache, in der man sie eingestellt hat (Server: digest_prefs.lang)
+  try { renderDigest(await api("/digest", json("PUT", { ...body, lang: LANG }))); toast(tr("Wochenübersicht gespeichert")); }
+  catch (err) {
+    renderDigest(await api(`/digest?lang=${LANG}`).catch(() => null));   // zurück auf den gespeicherten Stand, dann der Grund
+    const st = $("#s-digest-status"); st.className = "small error"; st.textContent = err.message;
+  }
+}
+$("#s-digest-sect").addEventListener("toggle", async (e) => {
+  if (e.target.open) renderDigest(await api(`/digest?lang=${LANG}`).catch(() => null));
+});
+$("#s-digest-on").onchange = (e) => saveDigest({ enabled: e.target.checked, email: $("#s-digest-email").value.trim() });
+$("#s-digest-day").onchange = (e) => saveDigest({ weekday: Number(e.target.value) });
+$("#s-digest-email").onchange = (e) => saveDigest({ email: e.target.value.trim() });
+$("#s-digest-test").onclick = async () => {
+  const st = $("#s-digest-status"); st.className = "small muted"; st.textContent = tr("Sende …");
+  try { const r = await api("/digest/test", { method: "POST" }); st.className = "small ok"; st.textContent = tr("Test-Mail an {to} gesendet.", { to: r.to }); }
+  catch (err) { st.className = "small error"; st.textContent = err.message; }
+};
+
+// Mail-Versand (Admin, Server: /settings/smtp) – für die Wochenübersicht; Vorschlag aus dem E-Mail-Eingang
+let smtpSuggestion = null;
+function smtpForm() {
+  const f = { smtp_host: $("#s-smtp-host").value.trim(), smtp_port: Number($("#s-smtp-port").value) || 587,
+              smtp_security: $("#s-smtp-sec").value, smtp_user: $("#s-smtp-user").value.trim(), smtp_from: $("#s-smtp-from").value.trim() };
+  if ($("#s-smtp-password").value) f.smtp_password = $("#s-smtp-password").value;
+  return f;
+}
+function renderSmtp(m) {
+  if (!m) return;
+  $("#s-smtp-host").value = m.smtp_host; $("#s-smtp-port").value = m.smtp_port; $("#s-smtp-sec").value = m.smtp_security;
+  $("#s-smtp-user").value = m.smtp_user; $("#s-smtp-from").value = m.smtp_from; $("#s-smtp-password").value = "";
+  $("#s-smtp-password").placeholder = m.smtp_password_from_imap ? tr("Passwort vom E-Mail-Eingang") : m.smtp_password_set ? tr("gespeichert – nur zum Ändern eintragen") : "";
+  smtpSuggestion = m.suggestion && m.suggestion.smtp_host ? m.suggestion : null;
+  $("#s-smtp-suggest-row").classList.toggle("hidden", !smtpSuggestion || !!m.smtp_host);
+  const st = $("#s-smtp-status"); st.className = "small " + (m.configured ? "ok" : "muted");
+  st.textContent = m.configured ? tr("Eingerichtet · Absender {from}", { from: m.smtp_from }) : tr("Noch nicht eingerichtet – es werden keine Mails verschickt.");
+}
+$("#s-smtp-suggest").onclick = () => {
+  if (!smtpSuggestion) return;
+  const s = smtpSuggestion;
+  $("#s-smtp-host").value = s.smtp_host; $("#s-smtp-port").value = s.smtp_port; $("#s-smtp-sec").value = s.smtp_security;
+  $("#s-smtp-user").value = s.smtp_user; if (s.smtp_from) $("#s-smtp-from").value = s.smtp_from;
+  $("#s-smtp-password").placeholder = tr("leer = Passwort vom E-Mail-Eingang");
+};
+$("#s-smtp-sec").onchange = (e) => {   // üblicher Port zur Verschlüsselung, solange keiner von Hand eingetragen ist
+  const p = $("#s-smtp-port");
+  if (e.target.value === "ssl" && (!p.value || p.value === "587")) p.value = "465";
+  if (e.target.value === "starttls" && (!p.value || p.value === "465")) p.value = "587";
+};
+$("#s-smtp-test").onclick = async () => {
+  const st = $("#s-smtp-status"); st.className = "small muted"; st.textContent = tr("Teste …");
+  try {
+    const r = await api("/settings/smtp/test", json("POST", smtpForm()));
+    st.className = "small " + (r.ok ? "ok" : "error"); st.textContent = r.ok ? (r.login ? tr("Verbunden und angemeldet.") : tr("Verbunden (ohne Anmeldung – Benutzer und Passwort fehlen).")) : r.error;
+  } catch (err) { st.className = "small error"; st.textContent = tr("Fehler: {msg}", { msg: err.message }); }
+};
+$("#s-smtp-save").onclick = async () => {
+  try { renderSmtp(await api("/settings/smtp", json("PATCH", smtpForm()))); toast(tr("Mail-Versand gespeichert")); }
+  catch (err) { const st = $("#s-smtp-status"); st.className = "small error"; st.textContent = err.message; }
 };
 
 // Notizen am Dokument: wer, wann, Text; löschen eigene (oder mit Bearbeitungsrecht alle)
@@ -2400,93 +3231,111 @@ async function renderNotes(d) {
   const list = await api(`/documents/${d.id}/notes`).catch(() => null);
   if (state.current?.id !== d.id) return;
   if (!list) { box.innerHTML = ""; return; }
-  box.innerHTML = list.length ? list.map((n) => `<div class="note"><p>${esc(n.text)}</p><span class="muted small">${esc(n.author || (n.mine ? "Ich" : "jemand"))} · ${esc(fmtDateTime(n.created_at))}${
-    n.mine || d.can_edit ? ` · <button class="linkish" data-note-del="${n.id}">löschen</button>` : ""}</span></div>`).join("")
-    : `<p class="muted small" style="margin:2px 0 6px">Noch keine Notizen.</p>`;
+  box.innerHTML = list.length ? list.map((n) => `<div class="note"><p>${esc(n.text)}</p><span class="muted small">${esc(n.author || (n.mine ? tr("Ich") : tr("jemand")))} · ${esc(fmtDateTime(n.created_at))}${
+    n.mine || d.can_edit ? ` · <button class="linkish" data-note-del="${n.id}">${esc(tr("löschen"))}</button>` : ""}</span></div>`).join("")
+    : `<p class="muted small" style="margin:2px 0 6px">${esc(tr("Noch keine Notizen."))}</p>`;
 }
 function fmtDateTime(s) {
   const t = new Date((s || "").replace(" ", "T"));
-  return isNaN(t) ? s : t.toLocaleString("de-DE", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return isNaN(t) ? s : t.toLocaleString(LOC, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 $("#m-note-add").onclick = async () => {
   const d = state.current, text = $("#m-note-text").value.trim();
   if (!d || !text) return;
   try { await api(`/documents/${d.id}/notes`, json("POST", { text })); $("#m-note-text").value = ""; renderNotes(d); }
-  catch (e) { toast("Fehler: " + e.message); }
+  catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 };
 $("#m-notes").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-note-del]"); if (!b || !state.current) return;
   try { await api(`/documents/${state.current.id}/notes/${b.dataset.noteDel}`, { method: "DELETE" }); renderNotes(state.current); }
-  catch (err) { toast("Fehler: " + err.message); }
+  catch (err) { toast(tr("Fehler: {msg}", { msg: err.message })); }
 });
-// Frist-Felder, die sich beim Speichern ändern können (wiederkehrend erledigt → nächster Termin, wieder offen)
+// Frist-Zeile: Datum, wofür, erledigt, wer – nur lesbar ohne Frist ganz weg; Farbe nach Dringlichkeit
 function fillDue(d) {
-  $("#m-due").value = isoToDmy(d.due_date);
-  $("#m-due-done").checked = !!d.due_done;
-  $("#m-due-repeat").value = d.due_repeat || "";
-  $("#m-due-done").parentElement.title = d.due_last_done ? `zuletzt erledigt ${fmtDate(d.due_last_done)}` : "";
-  $("#m-due-ics").classList.toggle("hidden", !d.due_date);
+  const has = !!d.due_date, ro = !docEditable(d);
+  $("#m-due-box").classList.toggle("hidden", ro && !has);
+  setVal("#m-due", isoToDmy(d.due_date));
+  setVal("#m-due-note", d.due_note || "");
+  setVal("#m-due-done", !!d.due_done);
+  setVal("#m-due-repeat", d.due_repeat || "");
+  $("#m-due-note").classList.toggle("hidden", !has && !$("#m-due-note").value);
+  $("#m-due-done-row").classList.toggle("hidden", !has);
+  $("#m-due-done-row").title = d.due_last_done ? tr("zuletzt erledigt {date}", { date: fmtDate(d.due_last_done) }) : "";
+  $("#m-due-rep").classList.toggle("hidden", !has || !d.due_repeat);
+  $("#m-due-ics").classList.toggle("hidden", !has);
   $("#m-due-ics").href = `/documents/${d.id}/due.ics`;
+  const n = has && !d.due_done ? dueDays(d) : null;
+  const box = $("#m-due-box");
+  box.classList.toggle("over", n != null && n < 0);
+  box.classList.toggle("soon", n != null && n >= 0 && n <= 7);
+  box.classList.toggle("done", has && !!d.due_done);
+  if (!has) $("#m-due-assignee-row").classList.add("hidden");
 }
 // „Wer kümmert sich?“: nur Personen, die das Dokument sehen. Eine eingetragene Person, die ich nicht kenne,
 // bleibt als „jemand anderes“ stehen und wird nur überschrieben, wenn ich etwas anderes wähle.
 async function loadAssignees(d) {
   const row = $("#m-due-assignee-row"), sel = $("#m-due-assignee");
-  row.classList.add("hidden");
+  if (!d.due_date) { row.classList.add("hidden"); return; }
   const list = await api(`/documents/${d.id}/assignees`).catch(() => []);
-  if (state.current?.id !== d.id) return;
+  if (state.current?.id !== d.id || saver.pending.get("due_assignee")) return;
   const cur = state.current.due_assignee;
-  const opts = [`<option value="">Niemand bestimmt</option>`,
-    ...list.map((u) => `<option value="${u.id}">${esc(u.id === state.me?.id ? `Ich (${u.display_name})` : u.display_name)}</option>`)];
-  if (cur != null && !list.some((u) => u.id === cur)) opts.push(`<option value="${cur}">${esc(state.current.due_assignee_name || "jemand anderes")}</option>`);
+  const opts = [`<option value="">${esc(tr("Niemand bestimmt"))}</option>`,
+    ...list.map((u) => `<option value="${u.id}">${esc(u.id === state.me?.id ? tr("Ich ({name})", { name: u.display_name }) : u.display_name)}</option>`)];
+  if (cur != null && !list.some((u) => u.id === cur)) opts.push(`<option value="${cur}">${esc(state.current.due_assignee_name || tr("jemand anderes"))}</option>`);
   sel.innerHTML = opts.join("");
   sel.value = cur == null ? "" : String(cur);
-  sel._initial = sel.value;
-  row.classList.toggle("hidden", list.length < 2 && cur == null);
+  sel.disabled = !docEditable(state.current);
+  row.classList.toggle("hidden", !state.current.due_date || (list.length < 2 && cur == null));
 }
 function updateDateHint() {
   // „Hat kein Datum“: bestätigt leer – kein Aufruf zum Eintragen, nur der Vermerk; ein eingetragenes Datum hebt ihn auf
-  const empty = !$("#m-date").value.trim(), none = !!state.current?.no_date;
+  const empty = !$("#m-date").value.trim(), none = !!state.current?.no_date, ro = !docEditable(state.current);
   $("#m-date-hint").classList.toggle("hidden", !empty);
-  $("#m-date-hint-text").textContent = none ? "Ohne Datum abgelegt" : "Kein Datum erkannt – bitte eintragen";
-  $("#m-no-date").classList.toggle("hidden", none || !state.current?.can_edit);
+  $("#m-date-hint-text").textContent = none ? tr("Ohne Datum abgelegt") : ro ? tr("Ohne Datum") : tr("Kein Datum erkannt – bitte eintragen");
+  $("#m-no-date").classList.toggle("hidden", none || ro);
+  $("#m-date-part").classList.toggle("hidden", ro && empty);
 }
-$("#m-no-date").onclick = async () => {
+$("#m-no-date").onclick = () => {
   const d = state.current; if (!d) return;
-  try {
-    state.current = { ...(await api(`/documents/${d.id}`, json("PATCH", { no_date: true }))), text: d.text };
-    $("#m-date").value = ""; updateDateHint(); renderDetailReasons(state.current);
-    toast("Ohne Datum abgelegt – nicht mehr unter „Zu prüfen“");
-    loadDocs();
-  } catch (e) { toast("Fehler: " + e.message); }
+  $("#m-date").value = "";
+  saveDoc({ no_date: true }, ["document_date"]).then(() => {
+    if (state.current?.id === d.id && state.current.no_date) toast(tr("Ohne Datum abgelegt – nicht mehr unter „Zu prüfen“"));
+  });
 };
 $("#m-date").addEventListener("input", updateDateHint);
-$("#m-date").closest(".datefield").querySelector(".dmy-picker").addEventListener("change", updateDateHint);
 function renderDetailReasons(d) {
   const r = reviewReasons(d);
   $("#m-reasons").classList.toggle("hidden", !r.length);
-  $("#m-reasons").textContent = r.length ? "Zu prüfen: " + r.join(" · ") : "";
+  $("#m-reasons").textContent = r.length ? tr("Zu prüfen: {reasons}", { reasons: r.join(" · ") }) : "";
 }
+// Tags: ✕ entfernt, Enter fügt hinzu – beides speichert sofort (die ganze Liste, wie der Server sie erwartet)
 function renderMetaTags(names) {
   const box = $("#m-tags"); box.innerHTML = ""; box._names = names;
+  const edit = docEditable(state.current);
   for (const n of names) {
     const known = state.tags.find((t) => t.name.toLowerCase() === n.toLowerCase());
     const c = chip(n, false, null, tagColor(n, known && known.color));
-    if (state.current?.can_edit) {
-      const x = document.createElement("span"); x.className = "x"; x.textContent = "✕";
-      x.onclick = () => renderMetaTags(names.filter((m) => m !== n));
+    if (edit) {
+      const x = document.createElement("button"); x.type = "button"; x.className = "x"; x.textContent = "✕";
+      x.setAttribute("aria-label", tr("Tag {name} entfernen", { name: n }));
+      x.onclick = () => saveTags(names.filter((m) => m !== n));
       c.appendChild(x);
     }
     box.appendChild(c);
   }
+  $("#m-tag-input").classList.toggle("hidden", !edit);
+}
+function saveTags(names) {
+  renderMetaTags(names);   // gleich zeigen; die Antwort des Servers bestätigt
+  saveDoc({ tags: names }, ["tags"]).then(() => loadTags());
 }
 $("#m-tag-input").addEventListener("keydown", (e) => {
-  if (e.key !== "Enter") return;
+  if (e.key !== "Enter" || e.isComposing) return;
   e.preventDefault();
   const v = e.target.value.trim(); if (!v) return;
-  const names = $("#m-tags")._names;
-  if (!names.some((n) => n.toLowerCase() === v.toLowerCase())) renderMetaTags([...names, v]);
+  const names = $("#m-tags")._names || [];
   e.target.value = "";
+  if (!names.some((n) => n.toLowerCase() === v.toLowerCase())) saveTags([...names, v]);
 });
 // ---------- Datum im Format der Browsersprache ----------
 // Das native <input type="date"> richtet sich nach der Oberflächensprache des Browsers, nicht nach der
@@ -2494,10 +3343,10 @@ $("#m-tag-input").addEventListener("keydown", (e) => {
 // im Format der ersten bevorzugten Sprache: Deutsch TT.MM.JJJJ, USA MM/DD/YYYY, UK DD/MM/YYYY usw.
 // Einstellbar unter Einstellungen → Darstellung (pro Browser); „auto“ nimmt die erste bevorzugte Sprache.
 var DATE_FORMATS = {
-  "dmy.": { order: ["day", "month", "year"], sep: ".", placeholder: "TT.MM.JJJJ" },
+  "dmy.": { order: ["day", "month", "year"], sep: ".", placeholder: LANG === "de" ? "TT.MM.JJJJ" : "DD.MM.YYYY" },
   "dmy/": { order: ["day", "month", "year"], sep: "/", placeholder: "DD/MM/YYYY" },
   "mdy/": { order: ["month", "day", "year"], sep: "/", placeholder: "MM/DD/YYYY" },
-  "ymd-": { order: ["year", "month", "day"], sep: "-", placeholder: "JJJJ-MM-TT" },
+  "ymd-": { order: ["year", "month", "day"], sep: "-", placeholder: LANG === "de" ? "JJJJ-MM-TT" : "YYYY-MM-DD" },
 };
 var _dateFmt;   // var statt const: fmtDate() kann schon vor dieser Zeile laufen
 function autoDateFormat() {
@@ -2507,7 +3356,7 @@ function autoDateFormat() {
   catch { return DATE_FORMATS["dmy."]; }
   const order = parts.filter((p) => ["day", "month", "year"].includes(p.type)).map((p) => p.type);
   const sep = (parts.find((p) => p.type === "literal") || { value: "." }).value.trim() || ".";
-  const de = lang.toLowerCase().startsWith("de");
+  const de = LANG === "de";   // Buchstaben nach der Oberflächensprache, Reihenfolge nach der Browsersprache
   const letter = { day: de ? "TT" : "DD", month: "MM", year: de ? "JJJJ" : "YYYY" };
   return { order, sep, placeholder: order.map((t) => letter[t]).join(sep) };
 }
@@ -2553,7 +3402,12 @@ for (const f of document.querySelectorAll(".datefield")) {
     pick.value = dmyToIso(text.value) || "";
     try { pick.showPicker(); } catch { pick.focus(); }
   };
-  pick.onchange = () => { if (pick.value) { text.value = isoToDmy(pick.value); text.classList.remove("invalid"); } };
+  pick.onchange = () => {
+    if (!pick.value) return;
+    text.value = isoToDmy(pick.value); text.classList.remove("invalid");
+    text.dispatchEvent(new Event("input", { bubbles: true }));
+    text.dispatchEvent(new Event("picked", { bubbles: true }));   // Dokument: gleich speichern
+  };
   text.onblur = () => {
     const iso = dmyToIso(text.value);
     text.classList.toggle("invalid", iso === null);
@@ -2562,82 +3416,48 @@ for (const f of document.querySelectorAll(".datefield")) {
   text.oninput = () => text.classList.remove("invalid");
 }
 
-$("#save-btn").onclick = async () => {
-  const d = state.current;
-  const docDate = dmyToIso($("#m-date").value), dueDate = dmyToIso($("#m-due").value);
-  const expDate = dmyToIso($("#m-expires").value), svcDate = dmyToIso($("#m-service").value);
-  const bad = [[docDate, "#m-date"], [dueDate, "#m-due"], [expDate, "#m-expires"], [svcDate, "#m-service"]].find(([v]) => v === null);
-  if (bad) {
-    $(bad[1]).classList.add("invalid");
-    toast(`Datum bitte als ${dateFmt().placeholder} eingeben`); return;
-  }
-  const body = {
-    title: $("#m-title").value.trim() || d.title,
-    document_date: docDate || null,
-    sender: $("#m-sender").value.trim() || null,
-    doc_kind: $("#m-kind").value,
-    recipient: $("#m-recipient").value.trim(),
-    refs: Object.fromEntries([...document.querySelectorAll("#m-refs input")].map((i) => [i.dataset.ref, i.value.trim()]).filter(([, v]) => v)),
-    amount: $("#m-amount").value === "" ? null : Number($("#m-amount").value),
-    currency: $("#m-currency").value.trim().toUpperCase() || null,
-    ...($("#m-direction").value ? { direction: $("#m-direction").value } : {}),
-    due_date: dueDate,
-    due_note: $("#m-due-note").value.trim() || null,
-    due_done: $("#m-due-done").checked,
-    due_repeat: $("#m-due-repeat").value || null,
-    tags: $("#m-tags")._names,
-  };
-  const who = $("#m-due-assignee");
-  if (!$("#m-due-assignee-row").classList.contains("hidden") && who.value !== who._initial)
-    body.due_assignee = who.value ? Number(who.value) : null;
-  if ($("#m-expires").value !== $("#m-expires")._initial) body.expires_on = expDate || "";
-  if ($("#m-service").value !== $("#m-service")._initial) body.service_next = svcDate || "";
-  if (!$("#m-refund-row").classList.contains("hidden") && $("#m-refund").value !== $("#m-refund")._initial) body.refund_state = $("#m-refund").value;
-  // Gewährleistung nur mitschicken, wenn geändert – sonst würde Speichern „nicht festgelegt“ zu einer Korrektur machen
-  const wsel = $("#m-warranty");
-  if (wsel.value !== wsel._initial && wsel.value !== "") {
-    const [m, kind] = wsel.value.split(":");
-    body.warranty_months = Number(m); if (kind) body.warranty_kind = kind;
-  }
-  try {
-    state.current = await api(`/documents/${d.id}`, json("PATCH", body));
-    // Besitzer getrennt, denn das Zuordnen prüft andere Rechte als das Bearbeiten
-    const owner = Number($("#m-owner-select").value);
-    if (!$("#m-owner-row").classList.contains("hidden") && owner && owner !== d.owner_id) {
-      await api("/documents/owner", json("POST", { document_ids: [d.id], owner_id: owner }));
-      // Ohne Freigabe des neuen Besitzers ist das Dokument für mich jetzt unsichtbar – dann zurück zur Liste
-      const fresh = await api(`/documents/${d.id}?include_text=true`).catch(() => null);
-      if (!fresh) { toast("Zugeordnet"); closeDetail(); await Promise.all([loadDocs(), loadTags(), loadYears()]); return; }
-      state.current = fresh;
-    }
-    renderDetailReasons(state.current); updateDateHint();
-    fillDue(state.current); fillWarranty(state.current); fillBlick(state.current);
-    $("#m-due-note").value = state.current.due_note || "";
-    loadAssignees(state.current);
-    $("#save-state").textContent = "Gespeichert";
-    toast(body.due_repeat && body.due_done && !state.current.due_done
-      ? `Erledigt – nächste Frist ${fmtDate(state.current.due_date)}` : "Gespeichert");
-  } catch (e) { toast("Fehler: " + e.message); }
-};
-$("#m-ext-accept").onclick = async () => {
+$("#m-ext-accept").onclick = () => {
   const d = state.current; if (!d) return;
-  try {
-    state.current = await api(`/documents/${d.id}/accept`, { method: "POST" });
-    $("#m-ext").classList.add("hidden");
-    toast("Übernommen");
-  } catch (e) { toast("Fehler: " + e.message); }
+  enqueue(["ext"], async () => {
+    try {
+      const fresh = await api(`/documents/${d.id}/accept`, { method: "POST" });
+      saver.changed = true;
+      if (state.current?.id !== d.id) return;
+      state.current = { ...fresh, text: d.text }; fillCard(state.current); loadAssignees(state.current);
+      toast(tr("Übernommen"));
+    } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
+  });
 };
 $("#m-ext-delete").onclick = () => $("#delete-btn").click();
 $("#delete-btn").onclick = async () => {
-  if (!confirm("Dokument in den Papierkorb legen?")) return;
+  if (!confirm(tr("Dokument in den Papierkorb legen?"))) return;
+  await saver.chain;
   await api(`/documents/${state.current.id}`, { method: "DELETE" });
-  toast("Im Papierkorb"); closeDetail();
+  toast(tr("Im Papierkorb")); closeDetail();
 };
 $("#reprocess-btn").onclick = async () => {
+  await saver.chain;
   await api(`/documents/${state.current.id}/reprocess`, { method: "POST" });
-  toast("Wird erneut analysiert"); closeDetail();
+  toast(tr("Wird erneut analysiert")); closeDetail();
 };
 $("#back-btn").onclick = () => history.back();
+// Angefangene Notiz bleibt beim Schließen erhalten (je Dokument, bis die Seite neu lädt)
+$("#m-note-text").addEventListener("input", (e) => {
+  const id = state.current?.id; if (!id) return;
+  if (e.target.value.trim()) noteDrafts.set(id, e.target.value); else noteDrafts.delete(id);
+});
+// Esc: oberste eigene Ansicht schließen – Dokument (wie Browser-Zurück), sonst das Fragen-Panel. Offene Dialoge und
+// das Popover schließen sich selbst; Geld hat für seine Ebenen einen eigenen Lauscher. Ein Feld im Dokument nimmt
+// Esc selbst (Änderung zurück) – erst das nächste Esc schließt.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || document.querySelector("dialog[open]") || !$("#popover").classList.contains("hidden")) return;
+  if (!$("#detail").classList.contains("hidden")) {
+    e.preventDefault();
+    history.back();
+  } else if (!$("#main").classList.contains("hidden") && !$("#ask-panel").classList.contains("hidden")) {
+    e.preventDefault(); closeAsk();
+  }
+});
 window.addEventListener("popstate", (e) => {
   if ($("#detail").classList.contains("hidden")) return;
   if (e.state && state.current && e.state.id === state.current.id) return;   // nur ein Dialog darüber wurde zu
@@ -2658,9 +3478,13 @@ function setPdf(url) {
   if (url) f.src = url;
   old.replaceWith(f);
 }
+// Schließen: ein Feld, das noch den Fokus hat, speichert vorher; die Listen laden erst, wenn alles gespeichert ist
 async function closeDetail(pop = true) {
+  const a = document.activeElement;
+  if (a && $("#detail").contains(a)) a.blur();
   setPdf(null);
   show("#main");
+  await saver.chain;
   await Promise.all([loadDocs(), loadTags(), loadYears()]);
   if (pop && location.hash) { skipFolderPop = true; history.back(); }
 }
@@ -2669,6 +3493,14 @@ async function closeDetail(pop = true) {
 // und Suche schließen wie von Hand
 $("#brand-home").addEventListener("click", async () => {
   if (location.hash.startsWith("#doc-")) await closeDetail(true);
+  closeOverlays();
+  clearAllSearch();
+  setMode("today");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+// Alle offenen Ebenen (Einstellungen, Fragen, Kategorie, Jährliche Kosten …) und den Papierkorb schließen, samt ihren
+// Verlaufseinträgen – wie von Hand. Logo und Tab-Leiste.
+function closeOverlays() {
   const n = layers.length;
   while (layers.length) layers.pop().close();
   // Papierkorb: ein eigener Verlaufseintrag unter den Ebenen – mit zurück, ohne dass popstate ihn neu öffnet
@@ -2676,12 +3508,15 @@ $("#brand-home").addEventListener("click", async () => {
   if (state.trash) openTrash(false, true);
   if (n) { skipLayerPops++; }
   if (n + trashEntry) { if (trashEntry) skipTrashPop = true; history.go(-(n + trashEntry)); }
-  if ($("#search").value || state.q || money.q) {
+}
+// Suchfeld leeren – Dokumente und Buchungen
+function clearAllSearch() {
+  clearTimeout(searchTimer);
+  $("#ask-offer").classList.add("hidden");
+  if ($("#search").value || state.q || state.smart || money.q) {
     $("#search").value = ""; state.q = ""; state.smart = null; money.q = ""; money.search = null; smartSeq++; renderSmartBar();
   }
-  $('#mode-seg button[data-mode="today"]').click();
-  window.scrollTo({ top: 0, behavior: "smooth" });
-});
+}
 
 // ---------- Einstellungen ----------
 $("#settings-btn").onclick = openSettings;
@@ -2689,7 +3524,7 @@ $("#settings-btn").onclick = openSettings;
 function leaveSettings() { show("#main"); enterMain(); }
 $("#settings-back").onclick = () => { closeLayer("settings"); leaveSettings(); };
 $("#logout-btn").onclick = async () => {
-  if (!confirm("Wirklich abmelden? Danach musst du dich auf diesem Gerät neu anmelden.")) return;
+  if (!confirm(tr("Wirklich abmelden? Danach musst du dich auf diesem Gerät neu anmelden."))) return;
   await api("/auth/logout", { method: "POST" }).catch(() => {});
   showLogin();
 };
@@ -2712,7 +3547,7 @@ async function openSettings() {
   $("#s-pass-old-row").classList.toggle("hidden", me.is_admin);
   // Demo: gemeinsames Konto – Name, Passwort, Geräte und Freigaben sperrt der Server (app/demo.py)
   $("#s-demo-account").classList.toggle("hidden", !me.demo);
-  for (const id of ["#s-account-edit", "#s-sessions-revoke", "#s-share-add-row", "#s-cal-sect"]) $(id).classList.toggle("hidden", !!me.demo);
+  for (const id of ["#s-account-edit", "#s-sessions-revoke", "#s-share-add-row", "#s-cal-sect", "#s-digest-sect"]) $(id).classList.toggle("hidden", !!me.demo);
 
   renderLinks();
   $("#s-public-row").classList.toggle("hidden", !me.is_admin);
@@ -2720,10 +3555,10 @@ async function openSettings() {
 
   // Freigaben, die ich erteilt habe
   const box = $("#s-shares"); box.innerHTML = "";
-  if (!me.shared_by_me.length) box.innerHTML = `<p class="muted small">Noch niemand.</p>`;
+  if (!me.shared_by_me.length) box.innerHTML = `<p class="muted small">${esc(tr("Noch niemand."))}</p>`;
   for (const s of me.shared_by_me) {
     const row = document.createElement("div"); row.className = "list-row";
-    row.innerHTML = `<span>${esc(s.display_name)}</span><span class="muted small">${s.can_edit ? "darf bearbeiten" : "nur lesen"}</span><span class="spacer"></span>${me.demo ? "" : `<button class="btn ghost danger">Entfernen</button>`}`;
+    row.innerHTML = `<span>${esc(s.display_name)}</span><span class="muted small">${s.can_edit ? esc(tr("darf bearbeiten")) : esc(tr("nur lesen"))}</span><span class="spacer"></span>${me.demo ? "" : `<button class="btn ghost danger">${esc(tr("Entfernen"))}</button>`}`;
     if (!me.demo) row.querySelector("button").onclick = async () => { await api(`/shares/${s.id}`, { method: "DELETE" }); openSettings(); };
     box.appendChild(row);
   }
@@ -2733,14 +3568,14 @@ async function openSettings() {
   $("#s-share-add").disabled = !candidates.length;
 
   $("#s-shared-with-me").innerHTML = me.shared_with_me.length
-    ? me.shared_with_me.map((s) => `<div class="list-row"><span>${esc(s.display_name)}</span><span class="muted small">${s.can_edit ? "bearbeiten" : "nur lesen"}</span></div>`).join("")
-    : `<p class="muted small">Niemand hat dir seinen Pot freigegeben.</p>`;
+    ? me.shared_with_me.map((s) => `<div class="list-row"><span>${esc(s.display_name)}</span><span class="muted small">${s.can_edit ? esc(tr("bearbeiten")) : esc(tr("nur lesen"))}</span></div>`).join("")
+    : `<p class="muted small">${esc(tr("Niemand hat dir seinen Pot freigegeben."))}</p>`;
 
   // Geräte
   const sessions = await api("/auth/sessions");
-  $("#s-sessions").innerHTML = sessions.map((x) => `<div class="list-row"><span>${esc(x.label || "Gerät")}${x.current ? ' <span class="muted small">· dieses Gerät</span>' : ""}</span><span class="muted small">${esc(x.ip || "")} · zuletzt ${fmtDate(x.last_used)}</span><span class="spacer"></span>${x.current ? "" : `<button class="btn ghost danger" data-sid="${x.id}">Abmelden</button>`}</div>`).join("");
+  $("#s-sessions").innerHTML = sessions.map((x) => `<div class="list-row"><span>${esc(x.label || tr("Gerät"))}${x.current ? ` <span class="muted small">${esc(tr("· dieses Gerät"))}</span>` : ""}</span><span class="muted small">${esc(x.ip || "")} · ${esc(tr("zuletzt {date}", { date: fmtDate(x.last_used) }))}</span><span class="spacer"></span>${x.current ? "" : `<button class="btn ghost danger" data-sid="${x.id}">${esc(tr("Abmelden"))}</button>`}</div>`).join("");
   for (const b of $("#s-sessions").querySelectorAll("button")) b.onclick = async () => { await api(`/auth/sessions/${b.dataset.sid}`, { method: "DELETE" }); openSettings(); };
-  $("#s-sessions-revoke").onclick = async () => { if (confirm("Alle anderen Geräte abmelden?")) { await api("/auth/sessions", { method: "DELETE" }); toast("Abgemeldet"); openSettings(); } };
+  $("#s-sessions-revoke").onclick = async () => { if (confirm(tr("Alle anderen Geräte abmelden?"))) { await api("/auth/sessions", { method: "DELETE" }); toast(tr("Abgemeldet")); openSettings(); } };
 
   // Tags verwalten, KI-Vorschläge zurücksetzen, Regeln
   state.tags = await api("/tags?scope=all");
@@ -2763,6 +3598,7 @@ async function openSettings() {
   if (me.is_admin) renderLlmCloud(cfg);
   $("#s-llm-restricted").checked = cfg.llm_tag_mode === "restricted";
   $("#s-return-window").checked = !!cfg.return_window;
+  $("#s-llm-lang").value = cfg.llm_language === "en" ? "en" : "de";
   $("#s-ocr-langs").value = cfg.ocr_langs || "";
   $("#s-llm-result").classList.add("hidden");
   $("#s-llm-result2").classList.add("hidden");
@@ -2781,31 +3617,34 @@ async function openSettings() {
   $("#s-export-all").classList.toggle("hidden", !me.is_admin);
   $("#s-mail").classList.toggle("hidden", !me.is_admin);
   if (me.is_admin) renderMail();
+  $("#s-smtp").classList.toggle("hidden", !me.is_admin || !!me.demo);
+  if (me.is_admin && !me.demo) api("/settings/smtp").then(renderSmtp).catch(() => {});
   const ib = await api("/settings/inbox");
-  $("#s-inbox").innerHTML = `<div class="list-row"><span>FTP-Dienst</span><span class="muted small">${ib.ftp ? "installiert" : "nicht gefunden"}</span><span class="spacer"></span><span class="muted small">alle ${ib.poll_seconds} s</span></div>` +
-    ib.folders.map((f) => `<div class="list-row"><span>${esc(f.username)}</span><span class="muted small"><code>${esc(f.path)}</code></span><span class="spacer"></span><span class="small ${f.errors ? "error" : "muted"}">${f.waiting} wartend${f.errors ? ` · ${f.errors} Fehler` : ""}</span></div>`).join("");
+  $("#s-inbox").innerHTML = `<div class="list-row"><span>${esc(tr("FTP-Dienst"))}</span><span class="muted small">${ib.ftp ? esc(tr("installiert")) : esc(tr("nicht gefunden"))}</span><span class="spacer"></span><span class="muted small">${esc(tr("alle {n} s", { n: ib.poll_seconds }))}</span></div>` +
+    ib.folders.map((f) => `<div class="list-row"><span>${esc(f.username)}</span><span class="muted small"><code>${esc(f.path)}</code></span><span class="spacer"></span><span class="small ${f.errors ? "error" : "muted"}">${esc(tr("{n} wartend", { n: f.waiting }))}${f.errors ? ` · ${esc(trn(f.errors, "{n} Fehler|one", "{n} Fehler|other"))}` : ""}</span></div>`).join("");
   applyTheme();
 
   $("#s-admin").classList.toggle("hidden", !me.is_admin);
   // Gemeinsamen Tag-Pool, Absender und Regeln verwalten nur Admins
   for (const id of ["#s-sect-tags", "#s-sect-senders", "#s-sect-rules"]) $(id).classList.toggle("hidden", !me.is_admin);
+  $("#s-sect-retention").classList.toggle("hidden", !me.is_admin);
+  $("#s-paperless-sect").classList.toggle("hidden", !me.is_admin || !!me.demo);   // Demo: gesperrt (großer Upload)
   if (me.is_admin) {
-    renderInvites();
     const ul = $("#s-users"); ul.innerHTML = "";
     for (const u of state.users) {
       const row = document.createElement("div"); row.className = "list-row";
       row.innerHTML = `<span>${esc(u.display_name)}</span><span class="muted small">${esc(u.username)}${u.is_admin ? " · Admin" : ""}</span><span class="spacer"></span>` +
-        `<button class="btn ghost" data-act="pw">Passwort setzen</button>` +
-        (u.id !== me.id ? `<button class="btn ghost danger" data-act="del">Löschen</button>` : "");
+        `<button class="btn ghost" data-act="pw">${esc(tr("Passwort setzen"))}</button>` +
+        (u.id !== me.id ? `<button class="btn ghost danger" data-act="del">${esc(tr("Löschen"))}</button>` : "");
       row.querySelector('[data-act="pw"]').onclick = async () => {
-        const pw = prompt(`Neues Passwort für ${u.display_name} (mindestens 8 Zeichen). Alle Geräte dieses Nutzers werden abgemeldet.`);
+        const pw = prompt(tr("Neues Passwort für {name} (mindestens 8 Zeichen). Alle Geräte dieses Nutzers werden abgemeldet.", { name: u.display_name }));
         if (!pw) return;
-        try { await api(`/users/${u.id}`, json("PATCH", { password: pw })); toast("Passwort gesetzt"); }
-        catch (e) { toast("Fehler: " + e.message, 4000); }
+        try { await api(`/users/${u.id}`, json("PATCH", { password: pw })); toast(tr("Passwort gesetzt")); }
+        catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
       };
       const b = row.querySelector('[data-act="del"]');
       if (b) b.onclick = async () => {
-        if (!confirm(`${u.display_name} und alle seine Dokumente löschen?`)) return;
+        if (!confirm(tr("{name} und alle seine Dokumente löschen?", { name: u.display_name }))) return;
         await api(`/users/${u.id}`, { method: "DELETE" }); openSettings();
       };
       ul.appendChild(row);
@@ -2815,12 +3654,12 @@ async function openSettings() {
 $("#s-tag-new-btn").onclick = async () => {
   const name = $("#s-tag-new").value.trim(); if (!name) return;
   const have = state.tags.find((t) => t.name.toLowerCase() === name.toLowerCase());
-  if (have) { toast(`„${have.name}“ gibt es schon – Ordnernamen sind eindeutig`, 4000); return; }
+  if (have) { toast(tr("„{name}“ gibt es schon – Ordnernamen sind eindeutig", { name: have.name }), 4000); return; }
   try {
     await api("/tags", json("POST", { name, parent_id: Number($("#s-tag-new-parent").value) || null }));
     $("#s-tag-new").value = "";
-    state.tags = await api("/tags?scope=all"); renderSettingsTags(); toast(`„${name}“ angelegt`);
-  } catch (e) { toast("Fehler: " + e.message); }
+    state.tags = await api("/tags?scope=all"); renderSettingsTags(); toast(tr("„{name}“ angelegt", { name }));
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 };
 $("#s-tag-new").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#s-tag-new-btn").click(); } });
 const tagSel = new Set();
@@ -2829,13 +3668,13 @@ function renderSettingsTags() {
   const pathName = (t) => tagPath(t.name).map((x) => x.name).join(" › ");
   const sorted = [...state.tags].sort((a, b) => pathName(a).localeCompare(pathName(b), "de"));
   const ps = $("#s-tag-new-parent"), keep = ps.value;
-  ps.innerHTML = ""; ps.append(new Option("oberste Ebene", ""));
-  for (const t of sorted) ps.append(new Option("in " + pathName(t), String(t.id)));
+  ps.innerHTML = ""; ps.append(new Option(tr("oberste Ebene"), ""));
+  for (const t of sorted) ps.append(new Option(tr("in {name}", { name: pathName(t) }), String(t.id)));
   ps.value = [...ps.options].some((o) => o.value === keep) ? keep : "";
   const move = async (ids, parent) => {
     for (const id of ids) {
       const t = state.tags.find((x) => x.id === id);
-      await api(`/tags/${id}`, json("PATCH", { name: t.name, color: t.color, parent_id: parent || 0 })).catch((err) => toast("Fehler: " + err.message));
+      await api(`/tags/${id}`, json("PATCH", { name: t.name, color: t.color, parent_id: parent || 0 })).catch((err) => toast(tr("Fehler: {msg}", { msg: err.message })));
     }
     state.tags = await api("/tags?scope=all"); renderSettingsTags();
   };
@@ -2859,80 +3698,80 @@ function renderSettingsTags() {
     c.oncontextmenu = (e) => { e.preventDefault(); tagSel.has(t.id) ? tagSel.delete(t.id) : tagSel.add(t.id); renderSettingsTags(); };
     box.appendChild(c);
   }
-  const hint = document.createElement("span"); hint.className = "muted small"; hint.textContent = tagSel.size ? "" : "Anklicken zum Bearbeiten";
+  const hint = document.createElement("span"); hint.className = "muted small"; hint.textContent = tagSel.size ? "" : tr("Anklicken zum Bearbeiten");
   box.appendChild(hint);
   $("#s-tag-merge").classList.toggle("hidden", tagSel.size === 0);
   $("#s-tag-merge-count").textContent = tagSel.size;
   $("#s-tag-rename-btn").classList.toggle("hidden", tagSel.size !== 1);
   const sel = $("#s-tag-merge-target"); sel.innerHTML = "";
   for (const t of sorted) sel.innerHTML += `<option value="${t.id}">${esc(pathName(t))}</option>`;
-  const mv = $("#s-tag-move-target"); mv.innerHTML = `<option value="0">— oberste Ebene —</option>`;
+  const mv = $("#s-tag-move-target"); mv.innerHTML = `<option value="0">— ${esc(tr("oberste Ebene"))} —</option>`;
   for (const t of sorted) if (!tagSel.has(t.id)) mv.innerHTML += `<option value="${t.id}">${esc(pathName(t))}</option>`;
-  $("#s-tag-move-btn").onclick = async () => { const ids = [...tagSel]; tagSel.clear(); await move(ids, Number(mv.value)); toast("Verschoben"); };
+  $("#s-tag-move-btn").onclick = async () => { const ids = [...tagSel]; tagSel.clear(); await move(ids, Number(mv.value)); toast(tr("Verschoben")); };
 }
 $("#s-tag-merge-btn").onclick = async () => {
   const target = Number($("#s-tag-merge-target").value);
   const sources = [...tagSel].filter((id) => id !== target);
-  if (!sources.length) return toast("Ziel muss ein anderer Tag sein");
+  if (!sources.length) return toast(tr("Ziel muss ein anderer Tag sein"));
   const tname = state.tags.find((t) => t.id === target)?.name;
-  if (!confirm(`${sources.length} Tag(s) in „${tname}" zusammenführen?`)) return;
+  if (!confirm(trn(sources.length, "{n} Tag in „{name}“ zusammenführen?", "{n} Tags in „{name}“ zusammenführen?", { name: tname }))) return;
   await api("/tags/merge", json("POST", { source_ids: sources, target_id: target }));
-  tagSel.clear(); toast("Zusammengeführt"); openSettings();
+  tagSel.clear(); toast(tr("Zusammengeführt")); openSettings();
 };
 $("#s-tag-delete-btn").onclick = async () => {
-  if (!confirm(`${tagSel.size} Tag(s) löschen? Die Dokumente bleiben, verlieren nur den Tag.`)) return;
+  if (!confirm(trn(tagSel.size, "{n} Tag löschen? Die Dokumente bleiben, verlieren nur den Tag.", "{n} Tags löschen? Die Dokumente bleiben, verlieren nur den Tag."))) return;
   for (const id of tagSel) await api(`/tags/${id}`, { method: "DELETE" }).catch(() => {});
   tagSel.clear(); openSettings();
 };
 $("#s-tag-merge-cancel").onclick = () => { tagSel.clear(); renderSettingsTags(); };
 $("#s-tag-rename-btn").onclick = async () => {
   const t = state.tags.find((x) => tagSel.has(x.id)); if (!t) return;
-  const name = (prompt("Tag umbenennen:", t.name) || "").trim();
+  const name = (prompt(tr("Tag umbenennen:"), t.name) || "").trim();
   if (!name || name === t.name) return;
-  try { await api(`/tags/${t.id}`, json("PATCH", { name, color: t.color })); tagSel.clear(); toast("Umbenannt"); openSettings(); }
-  catch (e) { toast("Fehler: " + e.message, 4000); }
+  try { await api(`/tags/${t.id}`, json("PATCH", { name, color: t.color })); tagSel.clear(); toast(tr("Umbenannt")); openSettings(); }
+  catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
 };
 
 // KI: ähnliche Tags gruppieren, je Gruppe zusammenführen oder ignorieren
 $("#s-tag-suggest").onclick = async () => {
   const st = $("#s-tag-suggest-status"), box = $("#s-tag-suggestions"), btn = $("#s-tag-suggest");
-  st.textContent = "Das LLM schaut die Tags durch …"; btn.disabled = true; box.innerHTML = "";
+  st.textContent = tr("Das LLM schaut die Tags durch …"); btn.disabled = true; box.innerHTML = "";
   try {
     const r = await api("/tags/suggest-merges", { method: "POST" });
-    st.textContent = r.groups.length ? "" : "Keine ähnlichen Tags gefunden.";
+    st.textContent = r.groups.length ? "" : tr("Keine ähnlichen Tags gefunden.");
     for (const g of r.groups) {
       const row = document.createElement("div"); row.className = "list-row";
       row.innerHTML = `<span>${g.sources.map((s) => esc(s.name)).join(", ")} <span class="muted">→</span> <b>${esc(g.target.name)}</b></span>` +
         `<span class="muted small">${esc(g.reason || "")}</span><span class="spacer"></span>` +
-        `<button class="btn">Zusammenführen</button><button class="btn ghost">Ignorieren</button>`;
+        `<button class="btn">${esc(tr("Zusammenführen"))}</button><button class="btn ghost">${esc(tr("Ignorieren"))}</button>`;
       const [merge, ignore] = row.querySelectorAll("button");
       merge.onclick = async () => {
         await api("/tags/merge", json("POST", { source_ids: g.sources.map((s) => s.id), target_id: g.target.id }));
-        row.remove(); toast("Zusammengeführt");
+        row.remove(); toast(tr("Zusammengeführt"));
         state.tags = await api("/tags?scope=all"); renderSettingsTags(); renderRules();
       };
       ignore.onclick = () => row.remove();
       box.appendChild(row);
     }
-  } catch (e) { st.textContent = "Fehler: " + e.message; }
+  } catch (e) { st.textContent = tr("Fehler: {msg}", { msg: e.message }); }
   btn.disabled = false;
 };
 
 // Schlagwort-Regeln: Wort im Text → Tag
 async function renderRules() {
   const rules = await api("/rules");
-  const box = $("#s-rules"); box.innerHTML = rules.length ? "" : `<p class="muted small">Noch keine Regeln.</p>`;
+  const box = $("#s-rules"); box.innerHTML = rules.length ? "" : `<p class="muted small">${esc(tr("Noch keine Regeln."))}</p>`;
   for (const r of rules) {
     const row = document.createElement("div"); row.className = "list-row";
-    row.innerHTML = `<span>„${esc(r.pattern)}“</span><span class="muted">→</span>`;
+    row.innerHTML = `<span>${esc(tr("„{word}“", { word: r.pattern }))}</span><span class="muted">→</span>`;
     row.appendChild(chip(r.tag, false, null, tagColor(r.tag, state.tags.find((t) => t.name === r.tag)?.color)));
     const sp = document.createElement("span"); sp.className = "spacer"; row.appendChild(sp);
     if (r.matches != null) {
       const n = document.createElement("span"); n.className = "muted small";
-      n.textContent = r.matches === 1 ? "in 1 Dokument" : `in ${r.matches} Dokumenten`;
+      n.textContent = trn(r.matches, "in {n} Dokument", "in {n} Dokumenten");
       row.appendChild(n);
     }
-    const b = document.createElement("button"); b.className = "btn ghost danger"; b.textContent = "Löschen";
+    const b = document.createElement("button"); b.className = "btn ghost danger"; b.textContent = tr("Löschen");
     b.onclick = async () => { await api(`/rules/${r.id}`, { method: "DELETE" }); renderRules(); };
     row.appendChild(b); box.appendChild(row);
   }
@@ -2948,25 +3787,25 @@ $("#s-rule-pattern").addEventListener("input", () => {
     try {
       const r = await api(`/rules/preview?pattern=${encodeURIComponent(pattern)}`);
       if ($("#s-rule-pattern").value.trim() !== pattern) return;
-      out.textContent = !r.matches ? "Steht in keinem vorhandenen Dokument – greift nur bei neuen."
-        : `Steht in ${r.matches === 1 ? "1 Dokument" : `${r.matches} Dokumenten`}, z. B. ${r.examples.slice(0, 3).map((t) => `„${t}“`).join(", ")}.`;
+      out.textContent = !r.matches ? tr("Steht in keinem vorhandenen Dokument – greift nur bei neuen.")
+        : trn(r.matches, "Steht in {n} Dokument, z. B. {examples}.", "Steht in {n} Dokumenten, z. B. {examples}.", { examples: r.examples.slice(0, 3).map((t) => tr("„{name}“", { name: t })).join(", ") });
     } catch { out.textContent = ""; }
   }, 300);
 });
 $("#s-rule-add").onclick = async () => {
   const pattern = $("#s-rule-pattern").value.trim(), tag = $("#s-rule-tag").value.trim();
-  if (!pattern || !tag) return toast("Schlagwort und Tag angeben");
+  if (!pattern || !tag) return toast(tr("Schlagwort und Tag angeben"));
   try {
     await api("/rules", json("POST", { pattern, tag }));
     $("#s-rule-pattern").value = ""; $("#s-rule-tag").value = ""; $("#s-rule-preview").textContent = "";
-    state.tags = await api("/tags?scope=all"); renderSettingsTags(); renderRules(); toast("Regel angelegt");
-  } catch (e) { toast("Fehler: " + e.message); }
+    state.tags = await api("/tags?scope=all"); renderSettingsTags(); renderRules(); toast(tr("Regel angelegt"));
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 };
 $("#s-rules-apply").onclick = async () => {
   try {
     const r = await api("/rules/apply", { method: "POST" });
-    toast(r.tagged ? `${r.tagged} Tag(s) vergeben` : "Nichts Neues – passende Dokumente hatten den Tag schon");
-  } catch (e) { toast("Fehler: " + e.message); }
+    toast(r.tagged ? trn(r.tagged, "{n} Tag vergeben", "{n} Tags vergeben") : tr("Nichts Neues – passende Dokumente hatten den Tag schon"));
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 };
 // KI-Anbieter: Vorlagen füllen Adresse (und, wo es ein gutes Standardmodell gibt, das Modell)
 const LLM_PRESETS = {
@@ -2982,17 +3821,17 @@ function renderLlmCloud(cfg) {
     $(`#s-llm-preset${sfx}`).value = presetOf(cfg[`llm_url${sfx}`]);
     const isSet = cfg[`llm_key${sfx}_set`];
     $(`#s-llm-key${sfx}`).value = "";
-    $(`#s-llm-key${sfx}`).placeholder = isSet ? "gespeichert – leer lassen zum Behalten" : "nur für Cloud-Anbieter nötig";
-    $(`#s-llm-key${sfx}-state`).textContent = isSet ? "· gespeichert ✓" : "";
+    $(`#s-llm-key${sfx}`).placeholder = isSet ? tr("gespeichert – leer lassen zum Behalten") : tr("nur für Cloud-Anbieter nötig");
+    $(`#s-llm-key${sfx}-state`).textContent = isSet ? tr("· gespeichert ✓") : "";
     $(`#s-llm-key${sfx}-del`).classList.toggle("hidden", !isSet);
     llmKeyDel[sfx] = false;
     const note = $(`#s-llm-cloudnote${sfx}`);
     note.classList.toggle("hidden", !cfg[`llm_cloud${sfx}`]);
-    note.textContent = cfg[`llm_cloud${sfx}`] ? `☁️ Cloud: ${hostOf(cfg[`llm_url${sfx}`])} liegt außerhalb deines Heimnetzes.` : "";
+    note.textContent = cfg[`llm_cloud${sfx}`] ? tr("☁️ Cloud: {host} liegt außerhalb deines Heimnetzes.", { host: hostOf(cfg[`llm_url${sfx}`]) }) : "";
   }
   const hosts = [...new Set(["", "2"].filter((x) => cfg[`llm_cloud${x}`]).map((x) => hostOf(cfg[`llm_url${x}`])))];
   $("#s-llm-cloud").classList.toggle("hidden", !hosts.length);
-  $("#s-llm-cloud-hosts").textContent = hosts.join(" und ");
+  $("#s-llm-cloud-hosts").textContent = hosts.join(tr(" und "));
   $("#s-llm-cloud-tag").checked = cfg.llm_cloud_tag;
   $("#s-llm-cloud-ask").checked = cfg.llm_cloud_ask;
 }
@@ -3006,7 +3845,7 @@ for (const sfx of ["", "2"]) {
   };
   $(`#s-llm-key${sfx}-del`).onclick = () => {
     llmKeyDel[sfx] = true; $(`#s-llm-key${sfx}`).value = "";
-    $(`#s-llm-key${sfx}-state`).textContent = "· wird beim Speichern entfernt";
+    $(`#s-llm-key${sfx}-state`).textContent = tr("· wird beim Speichern entfernt");
     $(`#s-llm-key${sfx}-del`).classList.add("hidden");
   };
 }
@@ -3019,7 +3858,7 @@ function confirmCloud(hosts) {
 
 // Verbindungstest für Haupt- und Ersatz-Server (suffix "" bzw. "2")
 async function testLlm(suffix) {
-  const out = $(`#s-llm-result${suffix}`); out.className = "small"; out.textContent = "Teste …";
+  const out = $(`#s-llm-result${suffix}`); out.className = "small"; out.textContent = tr("Teste …");
   $(`#s-llm-test${suffix}`).disabled = true;
   try {
     const body = { url: $(`#s-llm-url${suffix}`).value.trim(), model: $(`#s-llm-model${suffix}`).value.trim(), slot: suffix ? 2 : 1 };
@@ -3029,9 +3868,11 @@ async function testLlm(suffix) {
     $(`#s-llm-models${suffix}`).innerHTML = r.models.map((m) => `<option value="${esc(m)}">`).join("");
     if (r.ok) {
       out.classList.add("ok");
-      out.textContent = `Verbunden · ${r.models.length} Modell(e)` + (r.reply !== null ? ` · Antwort „${r.reply}" in ${(r.ms / 1000).toFixed(1)} s` : " · Modell wählen und erneut testen");
-    } else { out.classList.add("err"); out.textContent = r.error || "Fehler"; }
-  } catch (e) { out.classList.add("err"); out.textContent = "Fehler: " + e.message; }
+      out.textContent = trn(r.models.length, "Verbunden · {n} Modell", "Verbunden · {n} Modelle") + (r.reply !== null
+        ? tr(" · Antwort „{reply}“ in {s} s", { reply: r.reply, s: (r.ms / 1000).toLocaleString(LOC, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) })
+        : tr(" · Modell wählen und erneut testen"));
+    } else { out.classList.add("err"); out.textContent = r.error || tr("Fehler"); }
+  } catch (e) { out.classList.add("err"); out.textContent = tr("Fehler: {msg}", { msg: e.message }); }
   $(`#s-llm-test${suffix}`).disabled = false;
 }
 $("#s-llm-test").onclick = () => testLlm("");
@@ -3043,7 +3884,7 @@ $("#s-ai-save").onclick = async () => {
     llm_ask_model: $("#s-llm-askmodel").value.trim(), llm_ask_model2: $("#s-llm-askmodel2").value.trim(),
     llm_tag_mode: $("#s-llm-restricted").checked ? "restricted" : "free", ocr_langs: $("#s-ocr-langs").value.trim(),
     llm_cloud_tag: $("#s-llm-cloud-tag").checked, llm_cloud_ask: $("#s-llm-cloud-ask").checked,
-    return_window: $("#s-return-window").checked,
+    return_window: $("#s-return-window").checked, llm_language: $("#s-llm-lang").value,
   };
   for (const sfx of ["", "2"]) {
     const key = $(`#s-llm-key${sfx}`).value.trim();
@@ -3052,15 +3893,15 @@ $("#s-ai-save").onclick = async () => {
   let cfg;
   try { cfg = await api("/settings", json("PATCH", body)); }
   catch (e) {
-    if (e.status !== 409 || !e.detail || !e.detail.cloud_confirm) { toast("Fehler: " + e.message, 5000); return; }
-    if (!(await confirmCloud(e.detail.cloud_confirm))) { toast("Nicht gespeichert – kein Cloud-Server ohne Zustimmung"); return; }
+    if (e.status !== 409 || !e.detail || !e.detail.cloud_confirm) { toast(tr("Fehler: {msg}", { msg: e.message }), 5000); return; }
+    if (!(await confirmCloud(e.detail.cloud_confirm))) { toast(tr("Nicht gespeichert – kein Cloud-Server ohne Zustimmung")); return; }
     try {
       // Neu freigegebene Cloud-Server: beide Aufgaben an, abschalten geht danach einzeln
       cfg = await api("/settings", json("PATCH", { ...body, llm_cloud_ack: true, llm_cloud_tag: true, llm_cloud_ask: true }));
-    } catch (e2) { toast("Fehler: " + e2.message, 5000); return; }
+    } catch (e2) { toast(tr("Fehler: {msg}", { msg: e2.message }), 5000); return; }
   }
   renderLlmCloud(cfg);
-  toast("KI-Einstellungen gespeichert");
+  toast(tr("KI-Einstellungen gespeichert"));
 };
 $("#s-storage-save").onclick = async () => {
   await api("/settings", json("PATCH", {
@@ -3068,7 +3909,7 @@ $("#s-storage-save").onclick = async () => {
     backup_dir: $("#s-bk-dir").value.trim(), backup_hour: Number($("#s-bk-hour").value),
     backup_keep_days: Number($("#s-bk-days").value), backup_keep_weeks: Number($("#s-bk-weeks").value),
   }));
-  toast("Gespeichert"); renderBackup();
+  toast(tr("Gespeichert")); renderBackup();
 };
 
 // ---------- Absender, Verträge, Steuer-Paket ----------
@@ -3077,7 +3918,7 @@ async function renderSenders() {
   const list = await api("/senders?scope=all").catch(() => []);
   state.senders = list;
   const box = $("#s-senders"); box.innerHTML = "";
-  if (!list.length) box.innerHTML = `<p class="muted small">Noch keine Absender.</p>`;
+  if (!list.length) box.innerHTML = `<p class="muted small">${esc(tr("Noch keine Absender."))}</p>`;
   for (const s of list) {
     const c = chip(s.name, senderSel.has(s.name), () => { senderSel.has(s.name) ? senderSel.delete(s.name) : senderSel.add(s.name); renderSenders(); });
     const cnt = document.createElement("span"); cnt.className = "cnt"; cnt.textContent = s.count; c.appendChild(cnt);
@@ -3090,53 +3931,56 @@ async function renderSenders() {
 }
 $("#s-sender-merge-btn").onclick = async () => {
   const target = $("#s-sender-merge-target").value; const sources = [...senderSel].filter((n) => n !== target);
-  if (!sources.length || !confirm(`${sources.length} Schreibweise(n) zu „${target}“ zusammenführen?`)) return;
+  if (!sources.length || !confirm(trn(sources.length, "{n} Schreibweise zu „{name}“ zusammenführen?", "{n} Schreibweisen zu „{name}“ zusammenführen?", { name: target }))) return;
   const r = await api("/senders/merge", json("POST", { sources, target }));
-  toast(`${r.moved} Dokument(e) umbenannt`); senderSel.clear(); await renderSenders(); loadDocs();
+  toast(trn(r.moved, "{n} Dokument umbenannt", "{n} Dokumente umbenannt")); senderSel.clear(); await renderSenders(); loadDocs();
 };
 $("#s-sender-merge-cancel").onclick = () => { senderSel.clear(); renderSenders(); };
 $("#s-sender-suggest").onclick = async () => {
   const st = $("#s-sender-suggest-status"), box = $("#s-sender-suggestions"), btn = $("#s-sender-suggest");
-  btn.disabled = true; st.textContent = "Das LLM vergleicht die Absender …"; box.innerHTML = "";
+  btn.disabled = true; st.textContent = tr("Das LLM vergleicht die Absender …"); box.innerHTML = "";
   try {
     const r = await api("/senders/suggest-merges?scope=all", { method: "POST" });
-    st.textContent = r.groups.length ? `${r.groups.length} Vorschlag/Vorschläge` : "Keine gleichen Absender gefunden.";
+    st.textContent = r.groups.length ? trn(r.groups.length, "{n} Vorschlag", "{n} Vorschläge") : tr("Keine gleichen Absender gefunden.");
     for (const g of r.groups) {
       const row = document.createElement("div"); row.className = "list-row";
-      row.innerHTML = `<span>${g.sources.map((s) => esc(s.name)).join(", ")} <span class="muted">→</span> <b>${esc(g.target.name)}</b><br><span class="muted small">${esc(g.reason)}</span></span><span class="spacer"></span><button class="btn">Zusammenführen</button><button class="btn ghost">Ignorieren</button>`;
+      row.innerHTML = `<span>${g.sources.map((s) => esc(s.name)).join(", ")} <span class="muted">→</span> <b>${esc(g.target.name)}</b><br><span class="muted small">${esc(g.reason)}</span></span><span class="spacer"></span><button class="btn">${esc(tr("Zusammenführen"))}</button><button class="btn ghost">${esc(tr("Ignorieren"))}</button>`;
       const [merge, ignore] = row.querySelectorAll("button");
       merge.onclick = async () => { await api("/senders/merge", json("POST", { sources: g.sources.map((s) => s.name), target: g.target.name })); row.remove(); renderSenders(); loadDocs(); };
       ignore.onclick = () => row.remove();
       box.appendChild(row);
     }
-  } catch (e) { st.textContent = "Fehler: " + e.message; }
+  } catch (e) { st.textContent = tr("Fehler: {msg}", { msg: e.message }); }
   btn.disabled = false;
 };
 async function renderContracts() {
   const list = await api("/contracts?scope=all").catch(() => []);
   const box = $("#s-contracts"); box.innerHTML = "";
-  if (!list.length) { box.innerHTML = `<p class="muted small">Noch nichts erkannt – ein Vertrag erscheint, sobald ein Vertrag oder Bescheid mit regelmäßiger Zahlung abgelegt ist oder drei Belege desselben Absenders mit ähnlichem Betrag.</p>`; return; }
+  if (!list.length) { box.innerHTML = `<p class="muted small">${esc(tr("Noch nichts erkannt – ein Vertrag erscheint, sobald ein Vertrag oder Bescheid mit regelmäßiger Zahlung abgelegt ist oder drei Belege desselben Absenders mit ähnlichem Betrag."))}</p>`; return; }
   const sum = list.reduce((a, c) => a + c.per_month, 0);
+  const eur = (v) => v.toLocaleString(LOC, { style: "currency", currency: "EUR" });
   for (const c of list) {
     const el = document.createElement("div"); el.className = "contract";
     const nextCls = c.overdue ? "error" : "";
     // Aus einem Vertrag/Bescheid: nächste Zahlung laut Rhythmus; aus Belegen: nächster Beleg erwartet
     const when = c.source === "document"
-      ? `laut Dokument vom ${fmtDate(c.last)} · nächste Zahlung ${fmtDate(c.next_expected)}`
-      : `zuletzt ${fmtDate(c.last)} · <span class="${nextCls}">nächster Beleg erwartet ${fmtDate(c.next_expected)}${c.overdue ? " (ausgeblieben?)" : ""}</span>`;
-    const src = c.source === "document" ? "aus Vertrag/Bescheid" : `${c.count} Belege`;
-    el.innerHTML = `<span><b>${esc(c.sender)}</b> <span class="muted small">· ${c.interval}, ${src}</span></span>
-      <span class="amt">${c.amount.toFixed(2).replace(".", ",")} €</span>
-      <span class="meta">${c.increase ? `<span class="warn">seit ${fmtDate(c.increase.since)} teurer: ${c.increase.from.toFixed(2).replace(".", ",")} → ${c.increase.to.toFixed(2).replace(".", ",")} € (+${c.increase.percent} %)</span> · ` : ""}${c.per_month.toFixed(2).replace(".", ",")} €/Monat · ${when}${c.cancel_by ? ` · <span class="warn">kündbar bis ${fmtDate(c.cancel_by.date)}</span>` : ""}${c.due ? ` · <span class="warn">Frist ${fmtDate(c.due.date)}</span>` : ""}</span>`;
-    el.style.cursor = "pointer"; el.onclick = async () => { state.sender = c.sender; await enterMain(); };
+      ? esc(tr("laut Dokument vom {date} · nächste Zahlung {next}", { date: fmtDate(c.last), next: fmtDate(c.next_expected) }))
+      : `${esc(tr("zuletzt {date}|doc", { date: fmtDate(c.last) }))} · <span class="${nextCls}">${esc(tr("nächster Beleg erwartet {date}", { date: fmtDate(c.next_expected) }))}${c.overdue ? esc(tr(" (ausgeblieben?)")) : ""}</span>`;
+    const src = c.source === "document" ? tr("aus Vertrag/Bescheid") : tr("{n} Belege", { n: c.count });
+    el.innerHTML = `<span><b>${esc(c.sender)}</b> <span class="muted small">· ${esc(tr(c.interval))}, ${esc(src)}</span></span>
+      <span class="amt">${eur(c.amount)}</span>
+      <span class="meta">${c.increase ? `<span class="warn">${esc(tr("seit {date} teurer: {from} → {to} (+{pct} %)", { date: fmtDate(c.increase.since), from: eur(c.increase.from), to: eur(c.increase.to), pct: c.increase.percent }))}</span> · ` : ""}${esc(tr("{amount}/Monat", { amount: eur(c.per_month) }))} · ${when}${c.cancel_by ? ` · <span class="warn">${esc(tr("kündbar bis {date}", { date: fmtDate(c.cancel_by.date) }))}</span>` : ""}${c.due ? ` · <span class="warn">${esc(tr("Frist {date}", { date: fmtDate(c.due.date) }))}</span>` : ""}</span>`;
+    // Klick: Dokumente dieses Absenders – Einstellungen schließen wie mit „Zurück“ (samt Verlaufseintrag)
+    el.style.cursor = "pointer"; el.onclick = () => { state.sender = c.sender; closeLayer("settings"); leaveSettings(); };
     const cx = document.createElement("button");
-    cx.className = "btn ghost small-btn"; cx.type = "button"; cx.textContent = "Kündigen …";
+    cx.className = "btn ghost small-btn"; cx.type = "button"; cx.textContent = tr("Kündigen …");
     cx.onclick = (e) => { e.stopPropagation(); openCancelDialog(c); };
     el.querySelector(".meta").append(" · ", cx);
     box.appendChild(el);
   }
   const total = document.createElement("p"); total.className = "small"; total.style.marginTop = "10px";
-  total.innerHTML = `<b>${sum.toFixed(2).replace(".", ",")} € pro Monat</b> für ${list.length} erkannte Verträge/Abos, ${(sum * 12).toFixed(0)} € im Jahr.`;
+  total.innerHTML = tr("<b>{sum} pro Monat</b> für {n} erkannte Verträge/Abos, {year} im Jahr.", { sum: eur(sum), n: list.length,
+    year: (sum * 12).toLocaleString(LOC, { style: "currency", currency: "EUR", maximumFractionDigits: 0, minimumFractionDigits: 0 }) });
   box.appendChild(total);
 }
 // Kündigungshelfer: Felder vorbelegen (Nummern aus den Vertragsdokumenten, eigene Angaben aus dem Browser)
@@ -3148,7 +3992,7 @@ async function openCancelDialog(c) {
   $("#cx-to").value = c.sender; $("#cx-to-addr").value = ""; $("#cx-about").value = "";
   $("#cx-contract").value = ""; $("#cx-customer").value = ""; $("#cx-by").value = "";
   $("#cx-save").classList.toggle("hidden", !!state.me?.demo);   // Demo: nichts für alle ablegen
-  $("#cancel-dialog").showModal();
+  showDialog($("#cancel-dialog"));
   const p = await api(`/contracts/cancel-prefill?document_ids=${(c.documents || []).join(",")}`).catch(() => null);
   if (p) {
     if (p.contract_number) $("#cx-contract").value = p.contract_number;
@@ -3173,21 +4017,21 @@ $("#cx-pdf").onclick = async () => {
     a.href = url; a.download = (r.headers.get("content-disposition") || "").match(/filename="([^"]+)"/)?.[1] || "Kuendigung.pdf";
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
     $("#cancel-dialog").close();
-  } catch (e) { toast("Fehler: " + e.message, 4000); }
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
 };
 $("#cx-save").onclick = async () => {
   try {
     const r = await api("/contracts/cancel-letter", json("POST", cancelBody(true)));
     $("#cancel-dialog").close();
-    toast(`Abgelegt: ${r.title}`);
-  } catch (e) { toast("Fehler: " + e.message, 4000); }
+    toast(tr("Abgelegt: {title}", { title: r.title }));
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
 };
 
 function renderPackageForm() {
   const years = (state.years || []).map((y) => y.year ?? y);
   const now = new Date().getFullYear();
   const all = [...new Set([now, now - 1, ...years])].sort((a, b) => b - a);
-  $("#s-pkg-year").innerHTML = all.map((y) => `<option value="${y}">${y}</option>`).join("") + `<option value="">alle Jahre</option>`;
+  $("#s-pkg-year").innerHTML = all.map((y) => `<option value="${y}">${y}</option>`).join("") + `<option value="">${esc(tr("alle Jahre"))}</option>`;
   $("#s-pkg-year").value = String(now - 1);
 }
 $("#s-pkg-btn").onclick = () => {
@@ -3214,31 +4058,31 @@ async function renderMail() {
   if (!m) return;
   $("#s-mail-enabled").checked = m.mail_enabled === "1";
   $("#s-mail-host").value = m.mail_host; $("#s-mail-port").value = m.mail_port; $("#s-mail-user").value = m.mail_user;
-  $("#s-mail-password").value = ""; $("#s-mail-password").placeholder = m.mail_password_set ? "gespeichert – nur zum Ändern eintragen" : "";
+  $("#s-mail-password").value = ""; $("#s-mail-password").placeholder = m.mail_password_set ? tr("gespeichert – nur zum Ändern eintragen") : "";
   $("#s-mail-folder").value = m.mail_folder; $("#s-mail-done").value = m.mail_done_folder;
-  $("#s-mail-owner").innerHTML = `<option value="0">erster Admin</option>` + state.users.map((u) => `<option value="${u.id}">${esc(u.display_name)}</option>`).join("");
+  $("#s-mail-owner").innerHTML = `<option value="0">${esc(tr("erster Admin"))}</option>` + state.users.map((u) => `<option value="${u.id}">${esc(u.display_name)}</option>`).join("");
   $("#s-mail-owner").value = m.mail_owner || "0";
   $("#s-mail-poll").value = String(m.mail_poll || 300);
   $("#s-mail-body").checked = m.mail_body_pdf === "1";
   const st = $("#s-mail-status"); st.className = "small";
-  if (!m.mail_host) { st.classList.add("muted"); st.textContent = "Noch nicht eingerichtet."; }
-  else if (m.mail_last_error) { st.classList.add("error"); st.textContent = `Letzter Abruf ${fmtDate(m.mail_last)} fehlgeschlagen: ${m.mail_last_error}`; }
-  else if (m.mail_last) { st.classList.add("ok"); st.textContent = `Letzter Abruf ${fmtDate(m.mail_last)} · ${m.mail_last_imported} neu · insgesamt ${m.mail_total} Dokumente aus Mails`; }
-  else { st.classList.add("muted"); st.textContent = m.mail_enabled === "1" ? "Aktiv, noch kein Abruf." : "Gespeichert, aber nicht aktiv."; }
+  if (!m.mail_host) { st.classList.add("muted"); st.textContent = tr("Noch nicht eingerichtet."); }
+  else if (m.mail_last_error) { st.classList.add("error"); st.textContent = tr("Letzter Abruf {date} fehlgeschlagen: {error}", { date: fmtDate(m.mail_last), error: m.mail_last_error }); }
+  else if (m.mail_last) { st.classList.add("ok"); st.textContent = tr("Letzter Abruf {date} · {n} neu · insgesamt {total} Dokumente aus Mails", { date: fmtDate(m.mail_last), n: m.mail_last_imported, total: m.mail_total }); }
+  else { st.classList.add("muted"); st.textContent = m.mail_enabled === "1" ? tr("Aktiv, noch kein Abruf.") : tr("Gespeichert, aber nicht aktiv."); }
 }
 $("#s-mail-test").onclick = async () => {
-  const st = $("#s-mail-status"); st.className = "small muted"; st.textContent = "Teste …";
+  const st = $("#s-mail-status"); st.className = "small muted"; st.textContent = tr("Teste …");
   try {
     const r = await api("/settings/mail/test", json("POST", mailForm()));
-    if (r.ok) { st.className = "small ok"; st.textContent = `Verbunden · ${r.unseen} ungelesene Mail(s) im Ordner`; $("#s-mail-folders").innerHTML = (r.folders || []).map((f) => `<option value="${esc(f)}">`).join(""); }
+    if (r.ok) { st.className = "small ok"; st.textContent = trn(r.unseen, "Verbunden · {n} ungelesene Mail im Ordner", "Verbunden · {n} ungelesene Mails im Ordner"); $("#s-mail-folders").innerHTML = (r.folders || []).map((f) => `<option value="${esc(f)}">`).join(""); }
     else { st.className = "small error"; st.textContent = r.error; }
-  } catch (e) { st.className = "small error"; st.textContent = "Fehler: " + e.message; }
+  } catch (e) { st.className = "small error"; st.textContent = tr("Fehler: {msg}", { msg: e.message }); }
 };
-$("#s-mail-save").onclick = async () => { await api("/settings/mail", json("PATCH", mailForm())); toast("E-Mail-Eingang gespeichert"); renderMail(); };
+$("#s-mail-save").onclick = async () => { await api("/settings/mail", json("PATCH", mailForm())); toast(tr("E-Mail-Eingang gespeichert")); renderMail(); };
 $("#s-mail-check").onclick = async () => {
-  const st = $("#s-mail-status"); st.className = "small muted"; st.textContent = "Hole ab …";
-  try { const r = await api("/settings/mail/check", { method: "POST" }); toast(`${r.checked} Mail(s) geprüft, ${r.imported} Dokument(e) neu`); await renderMail(); await loadDocs(); }
-  catch (e) { st.className = "small error"; st.textContent = "Fehler: " + e.message; }
+  const st = $("#s-mail-status"); st.className = "small muted"; st.textContent = tr("Hole ab …");
+  try { const r = await api("/settings/mail/check", { method: "POST" }); toast(tr("{checked} Mail(s) geprüft, {imported} Dokument(e) neu", { checked: r.checked, imported: r.imported })); await renderMail(); await loadDocs(); }
+  catch (e) { st.className = "small error"; st.textContent = tr("Fehler: {msg}", { msg: e.message }); }
 };
 
 // ---------- Sicherung ----------
@@ -3249,37 +4093,38 @@ async function renderBackup() {
   const st = await api("/settings/backup").catch(() => null);
   if (!st) return;
   const status = $("#s-bk-status"); status.className = "small";
-  if (!st.dir) { status.classList.add("muted"); status.textContent = "Sicherung aus – Zielordner eintragen und speichern."; }
-  else if (st.running) { status.classList.add("muted"); status.textContent = "Sicherung läuft …"; backupTimer = setTimeout(renderBackup, 3000); }
-  else if (!st.dir_ok) { status.classList.add("error"); status.textContent = `Zielordner ${st.dir} ist nicht beschreibbar oder existiert nicht.`; }
-  else if (!st.last) { status.classList.add("muted"); status.textContent = `Noch keine Sicherung – erste läuft heute um ${String(st.hour).padStart(2, "0")}:00 oder jetzt per Knopf.`; }
-  else if (!st.last_ok) { status.classList.add("error"); status.textContent = `Letzte Sicherung ${fmtDate(st.last)} fehlgeschlagen: ${st.last_error || ""}`; }
-  else { status.classList.add(st.stale ? "error" : "ok"); status.textContent = `Letzte Sicherung ${fmtDate(st.last)} · ${fmtBytes(st.last_bytes)} in ${st.last_seconds < 1 ? "unter 1" : st.last_seconds} s${st.stale ? " · veraltet" : ""}`; }
+  if (!st.dir) { status.classList.add("muted"); status.textContent = tr("Sicherung aus – Zielordner eintragen und speichern."); }
+  else if (st.running) { status.classList.add("muted"); status.textContent = tr("Sicherung läuft …"); backupTimer = setTimeout(renderBackup, 3000); }
+  else if (!st.dir_ok) { status.classList.add("error"); status.textContent = tr("Zielordner {dir} ist nicht beschreibbar oder existiert nicht.", { dir: st.dir }); }
+  else if (!st.last) { status.classList.add("muted"); status.textContent = tr("Noch keine Sicherung – erste läuft heute um {time} oder jetzt per Knopf.", { time: `${String(st.hour).padStart(2, "0")}:00` }); }
+  else if (!st.last_ok) { status.classList.add("error"); status.textContent = tr("Letzte Sicherung {date} fehlgeschlagen: {error}", { date: fmtDate(st.last), error: st.last_error || "" }); }
+  else { status.classList.add(st.stale ? "error" : "ok"); status.textContent = tr("Letzte Sicherung {date} · {size} in {s} s", { date: fmtDate(st.last), size: fmtBytes(st.last_bytes), s: st.last_seconds < 1 ? tr("unter 1") : st.last_seconds }) + (st.stale ? tr(" · veraltet") : ""); }
   $("#s-bk-run").disabled = !st.dir || st.running;
   const box = $("#s-bk-list"); box.innerHTML = "";
   for (const s of st.snapshots.slice(0, 30)) {
     const row = document.createElement("div"); row.className = "list-row";
-    row.innerHTML = `<span><code>${esc(s.name)}</code></span><span class="muted small">${s.documents ?? "?"} Dokumente · ${fmtBytes(s.bytes)}</span><span class="spacer"></span><button class="btn ghost danger">Wiederherstellen</button>`;
+    row.innerHTML = `<span><code>${esc(s.name)}</code></span><span class="muted small">${esc(tr("{n} Dokumente · {size}", { n: s.documents ?? "?", size: fmtBytes(s.bytes) }))}</span><span class="spacer"></span><button class="btn ghost danger">${esc(tr("Wiederherstellen"))}</button>`;
     row.querySelector("button").onclick = async () => {
-      if (!confirm(`Stand ${s.name} wiederherstellen?\n\nDatenbank und Dateien werden mit diesem Snapshot überschrieben; alles, was seitdem dazukam, geht verloren.`)) return;
-      if (prompt("Zur Bestätigung WIEDERHERSTELLEN eingeben:") !== "WIEDERHERSTELLEN") return;
+      if (!confirm(tr("Stand {name} wiederherstellen?", { name: s.name }) + "\n\n" + tr("Datenbank und Dateien werden mit diesem Snapshot überschrieben; alles, was seitdem dazukam, geht verloren."))) return;
+      const word = tr("WIEDERHERSTELLEN");   // Englisch: RESTORE eintippen; an den Server geht immer das deutsche Wort
+      if ((prompt(tr("Zur Bestätigung {word} eingeben:", { word })) || "").trim().toUpperCase() !== word) return;
       try {
         const r = await api("/settings/backup/restore", json("POST", { name: s.name, confirm: "WIEDERHERSTELLEN" }));
-        toast(`Wiederhergestellt: ${r.documents} Dokumente, ${r.files} Dateien`, 6000);
+        toast(tr("Wiederhergestellt: {docs} Dokumente, {files} Dateien", { docs: r.documents, files: r.files }), 6000);
         await Promise.all([loadDocs(), loadTags(), loadYears()]);
-      } catch (e) { toast("Fehler: " + e.message, 5000); }
+      } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 5000); }
     };
     box.appendChild(row);
   }
 }
 $("#s-bk-run").onclick = async () => {
-  try { await api("/settings/backup/run", { method: "POST" }); toast("Sicherung gestartet"); setTimeout(renderBackup, 800); }
-  catch (e) { toast("Fehler: " + e.message, 5000); }
+  try { await api("/settings/backup/run", { method: "POST" }); toast(tr("Sicherung gestartet")); setTimeout(renderBackup, 800); }
+  catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 5000); }
 };
-$("#s-retag-failed").onclick = async () => { const r = await api("/settings/llm/retag?scope=failed", { method: "POST" }); toast(`${r.queued} Dokument(e) eingereiht`); };
+$("#s-retag-failed").onclick = async () => { const r = await api("/settings/llm/retag?scope=failed", { method: "POST" }); toast(trn(r.queued, "{n} Dokument eingereiht", "{n} Dokumente eingereiht")); };
 $("#s-retag-all").onclick = async () => {
-  if (!confirm("Alle Dokumente neu taggen? Vorhandene LLM-Tags bleiben, manuelle Änderungen an Titel/Datum/Absender werden überschrieben. Dauert bei vielen Dokumenten Stunden.")) return;
-  const r = await api("/settings/llm/retag?scope=all", { method: "POST" }); toast(`${r.queued} Dokument(e) eingereiht`);
+  if (!confirm(tr("Alle Dokumente neu taggen? Vorhandene LLM-Tags bleiben, manuelle Änderungen an Titel/Datum/Absender werden überschrieben. Dauert bei vielen Dokumenten Stunden."))) return;
+  const r = await api("/settings/llm/retag?scope=all", { method: "POST" }); toast(trn(r.queued, "{n} Dokument eingereiht", "{n} Dokumente eingereiht"));
 };
 
 // Datumsformat
@@ -3287,7 +4132,8 @@ function applyDateFormat() {
   _dateFmt = null;
   const v = localStorage.getItem("bl.datefmt") || "auto";
   $("#s-date-fmt").value = DATE_FORMATS[v] ? v : "auto";
-  $("#s-date-fmt").options[0].textContent = `Automatisch (${autoDateFormat().placeholder})`;
+  $("#s-date-fmt").options[0].textContent = tr("Automatisch ({fmt})", { fmt: autoDateFormat().placeholder });
+  for (const o of $("#s-date-fmt").options) if (DATE_FORMATS[o.value]) o.textContent = DATE_FORMATS[o.value].placeholder;
   for (const el of document.querySelectorAll(".datefield .dmy")) el.placeholder = dateFmt().placeholder;
 }
 $("#s-date-fmt").onchange = (e) => {
@@ -3297,7 +4143,7 @@ $("#s-date-fmt").onchange = (e) => {
   applyDateFormat();
   for (const [el, iso] of open) if (iso) el.value = isoToDmy(iso);
   if (state.docs) renderGrid();
-  toast("Gespeichert");
+  toast(tr("Gespeichert"));
 };
 applyDateFormat();
 
@@ -3310,7 +4156,7 @@ function canShareFiles() {
   catch { return false; }
 }
 function pdfName(d, used) {
-  let base = (d.title || `Dokument ${d.id}`).replace(/[\\/:*?"<>|]+/g, "_").trim().slice(0, 100) || `Dokument ${d.id}`, name = base, i = 2;
+  let base = (d.title || tr("Dokument {id}", { id: d.id })).replace(/[\\/:*?"<>|]+/g, "_").trim().slice(0, 100) || tr("Dokument {id}", { id: d.id }), name = base, i = 2;
   while (used.has(name.toLowerCase())) name = `${base} (${i++})`;
   used.add(name.toLowerCase()); return name + ".pdf";
 }
@@ -3318,13 +4164,13 @@ async function prepareShareFiles(docs, token) {
   const used = new Set(), files = [];
   for (const d of docs) {
     const r = await fetch(`/documents/${d.id}/file`, { credentials: "same-origin" });
-    if (!r.ok) throw new Error(`„${d.title}“ ließ sich nicht laden`);
+    if (!r.ok) throw new Error(tr("„{title}“ ließ sich nicht laden", { title: d.title }));
     files.push(new File([await r.blob()], pdfName(d, used), { type: "application/pdf" }));
   }
   if (token === shareTarget) shareFiles = files;
 }
-const SH_NOTE_VIEW = "Wer den Link hat, kann die Dokumente ansehen und herunterladen – sonst nichts. Du kannst ihn jederzeit unter Einstellungen → Freigabe-Links zurückziehen.";
-const SH_NOTE_UPLOAD = "Wer den Link hat, kann dir Dokumente einwerfen (PDF, JPEG, PNG) – sehen kann er nichts, auch nicht, was schon drin liegt. Eingeworfenes landet bei dir unter „Prüfen“.";
+const SH_NOTE_VIEW = tr("Wer den Link hat, kann die Dokumente ansehen und herunterladen – sonst nichts. Du kannst ihn jederzeit unter Einstellungen → Freigabe-Links zurückziehen.");
+const SH_NOTE_UPLOAD = tr("Wer den Link hat, kann dir Dokumente einwerfen (PDF, JPEG, PNG) – sehen kann er nichts, auch nicht, was schon drin liegt. Eingeworfenes landet bei dir unter „Prüfen“.");
 function openShareDialog(t) {
   shareTarget = t; shareFiles = null;
   $("#sh-what").textContent = t.label;
@@ -3336,28 +4182,28 @@ function openShareDialog(t) {
   if (upload) {
     $("#sh-name").value = "";
     const sel = $("#sh-folder"); sel.innerHTML = "";
-    sel.append(new Option("– kein Ordner –", ""));
-    for (const tg of [...(state.tags || [])].sort((a, b) => a.name.localeCompare(b.name, "de"))) sel.append(new Option(tg.name, String(tg.id)));
+    sel.append(new Option(tr("– kein Ordner –"), ""));
+    for (const tg of [...(state.tags || [])].sort((a, b) => a.name.localeCompare(b.name, LOC))) sel.append(new Option(tg.name, String(tg.id)));
   }
   const files = t.files && t.files.length && canShareFiles();
-  $("#sh-title").textContent = upload ? "Briefkasten-Link" : t.files ? "Teilen" : "Freigabe-Link";
+  $("#sh-title").textContent = upload ? tr("Briefkasten-Link") : t.files ? tr("Teilen") : tr("Freigabe-Link");
   $("#sh-files").classList.toggle("hidden", !files);
   if (files) {
     const btn = $("#sh-files-btn"), note = $("#sh-files-note");
     if (t.files.length > SHARE_FILES_MAX) {
-      btn.disabled = true; note.textContent = `Direkt teilen geht mit höchstens ${SHARE_FILES_MAX} Dateien – nimm „Herunterladen“ (ZIP) oder einen Link.`;
+      btn.disabled = true; note.textContent = tr("Direkt teilen geht mit höchstens {n} Dateien – nimm „Herunterladen“ (ZIP) oder einen Link.", { n: SHARE_FILES_MAX });
     } else {
-      btn.disabled = true; btn.textContent = "PDFs werden geladen …";
-      note.textContent = "Öffnet das Teilen-Menü des Geräts (Nachrichten, Mail, AirDrop …). Die Dateien gehen direkt an den Empfänger, ohne Link.";
+      btn.disabled = true; btn.textContent = tr("PDFs werden geladen …");
+      note.textContent = tr("Öffnet das Teilen-Menü des Geräts (Nachrichten, Mail, AirDrop …). Die Dateien gehen direkt an den Empfänger, ohne Link.");
       prepareShareFiles(t.files, t)
-        .then(() => { if (shareTarget === t) { btn.disabled = false; btn.textContent = t.files.length === 1 ? "Als PDF teilen …" : `${t.files.length} PDFs teilen …`; } })
-        .catch((e) => { if (shareTarget === t) { btn.textContent = "Als PDFs teilen …"; note.textContent = "Fehler: " + e.message; } });
+        .then(() => { if (shareTarget === t) { btn.disabled = false; btn.textContent = t.files.length === 1 ? tr("Als PDF teilen …") : tr("{n} PDFs teilen …", { n: t.files.length }); } })
+        .catch((e) => { if (shareTarget === t) { btn.textContent = tr("Als PDFs teilen …"); note.textContent = tr("Fehler: {msg}", { msg: e.message }); } });
     }
   }
   // Links gibt es nur für eigene Dokumente
   const linkOk = t.own !== false;
   $("#sh-setup").classList.toggle("hidden", !linkOk); $("#sh-create").classList.toggle("hidden", !linkOk);
-  if (!linkOk) $("#sh-what").textContent = t.label + " – ein Link geht nur mit eigenen Dokumenten; in der Auswahl sind auch fremde.";
+  if (!linkOk) $("#sh-what").textContent = tr("{label} – ein Link geht nur mit eigenen Dokumenten; in der Auswahl sind auch fremde.", { label: t.label });
   showDialog($("#share-dialog"));
 }
 $("#sh-files-btn").onclick = async () => {
@@ -3365,7 +4211,7 @@ $("#sh-files-btn").onclick = async () => {
   try {
     await navigator.share({ files: shareFiles, title: shareTarget.label });
     $("#share-dialog").close();
-  } catch (e) { if (e.name !== "AbortError") toast("Teilen ging nicht: " + e.message, 4000); }
+  } catch (e) { if (e.name !== "AbortError") toast(tr("Teilen ging nicht: {msg}", { msg: e.message }), 4000); }
 };
 $("#share-dialog").addEventListener("close", () => { shareFiles = null; });
 function isPrivateUrl(u) {
@@ -3385,17 +4231,17 @@ $("#sh-create").onclick = async () => {
     $("#sh-url").value = link.url;
     $("#sh-setup").classList.add("hidden"); $("#sh-create").classList.add("hidden"); $("#sh-result").classList.remove("hidden");
     const warn = $("#sh-warn");
-    warn.textContent = isPrivateUrl(link.url) ? "Diese Adresse funktioniert nur in deinem Heimnetz. Für Leute draußen unter Einstellungen → Freigabe-Links die öffentliche Adresse eintragen." : "";
+    warn.textContent = isPrivateUrl(link.url) ? tr("Diese Adresse funktioniert nur in deinem Heimnetz. Für Leute draußen unter Einstellungen → Freigabe-Links die öffentliche Adresse eintragen.") : "";
     warn.classList.toggle("hidden", !warn.textContent);
     $("#sh-url").select();
-  } catch (e) { toast("Fehler: " + e.message); }
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 };
 // Kopieren: Clipboard-API nur in sicherem Kontext (HTTPS/localhost); sonst über ein markiertes Textfeld.
 // Das Feld muss im offenen Dialog liegen – außerhalb ist bei showModal() alles gesperrt (inert).
 function copyText(text, btn) {
   const done = (ok) => {
-    if (btn) { clearTimeout(btn._t); btn._label ??= btn.textContent; btn.textContent = ok ? "Kopiert ✓" : "⌘C drücken"; btn._t = setTimeout(() => btn.textContent = btn._label, 2000); }
-    toast(ok ? "Link kopiert" : "Kopieren ging nicht – der Link ist markiert, mit ⌘C bzw. Strg+C kopieren", ok ? 2500 : 5000);
+    if (btn) { clearTimeout(btn._t); btn._label ??= btn.textContent; btn.textContent = ok ? tr("Kopiert ✓") : tr("⌘C drücken"); btn._t = setTimeout(() => btn.textContent = btn._label, 2000); }
+    toast(ok ? tr("Link kopiert") : tr("Kopieren ging nicht – der Link ist markiert, mit ⌘C bzw. Strg+C kopieren"), ok ? 2500 : 5000);
   };
   const fallback = () => {
     const host = document.querySelector("dialog[open]") || document.body;
@@ -3414,63 +4260,63 @@ function copyText(text, btn) {
 $("#sh-copy").onclick = (e) => copyText($("#sh-url").value, e.currentTarget);
 $("#share-btn").onclick = () => {
   const d = state.current; if (!d) return;
-  openShareDialog({ kind: "doc", target: d.id, label: `Dokument „${d.title}“`, files: [d], own: d.is_own !== false });
+  openShareDialog({ kind: "doc", target: d.id, label: tr("Dokument „{title}“", { title: d.title }), files: [d], own: d.is_own !== false });
 };
-$("#s-upload-new").onclick = () => openShareDialog({ kind: "upload", label: "Leute ohne Konto können dir hierüber Dokumente schicken." });
+$("#s-upload-new").onclick = () => openShareDialog({ kind: "upload", label: tr("Leute ohne Konto können dir hierüber Dokumente schicken.") });
 async function renderLinks() {
   const box = $("#s-links");
   const links = await api("/links").catch(() => []);
-  if (!links.length) { box.innerHTML = `<p class="muted small">Noch keine Links.</p>`; return; }
-  const kind = { doc: "Dokument", docs: "Auswahl", tag: "Ordner", view: "Suche", upload: "Briefkasten" };
+  if (!links.length) { box.innerHTML = `<p class="muted small">${esc(tr("Noch keine Links."))}</p>`; return; }
+  const kind = { doc: tr("Dokument"), docs: tr("Auswahl"), tag: tr("Ordner|sg"), view: tr("Suche"), upload: tr("Briefkasten") };
   box.innerHTML = "";
   for (const l of links) {
     const row = document.createElement("div"); row.className = "link-row";
-    const until = l.expires_at ? (l.expired ? `<span class="expired">abgelaufen</span>` : `bis ${fmtDate(l.expires_at.slice(0, 10))}`) : "unbefristet";
+    const until = l.expires_at ? (l.expired ? `<span class="expired">${esc(tr("abgelaufen"))}</span>` : esc(tr("bis {date}", { date: fmtDate(l.expires_at.slice(0, 10)) }))) : esc(tr("unbefristet"));
     row.innerHTML = `<div style="flex:1;min-width:0"><div class="nm">${esc(l.name)}</div>` +
-      `<div class="lmeta">${kind[l.kind] || esc(l.kind)} · ${l.kind === "upload" ? `${l.documents} eingegangen` : `${l.documents} Dok.`} · ${until}${l.has_password ? " · mit Passwort" : ""} · ${l.access_count}× geöffnet</div></div>` +
-      `<button class="btn ghost">Kopieren</button><button class="btn ghost danger">Zurückziehen</button>`;
+      `<div class="lmeta">${esc(kind[l.kind] || l.kind)} · ${esc(l.kind === "upload" ? tr("{n} eingegangen", { n: l.documents }) : tr("{n} Dok.", { n: l.documents }))} · ${until}${l.has_password ? esc(tr(" · mit Passwort")) : ""} · ${esc(tr("{n}× geöffnet", { n: l.access_count }))}</div></div>` +
+      `<button class="btn ghost">${esc(tr("Kopieren"))}</button><button class="btn ghost danger">${esc(tr("Zurückziehen"))}</button>`;
     const [copy, revoke] = row.querySelectorAll("button");
     copy.onclick = () => copyText(l.url, copy);
-    revoke.onclick = async () => { if (!confirm(`Link „${l.name}“ zurückziehen? Er funktioniert danach nicht mehr.`)) return; await api(`/links/${l.id}`, { method: "DELETE" }).then(renderLinks, (e) => toast("Fehler: " + e.message)); };
+    revoke.onclick = async () => { if (!confirm(tr("Link „{name}“ zurückziehen? Er funktioniert danach nicht mehr.", { name: l.name }))) return; await api(`/links/${l.id}`, { method: "DELETE" }).then(renderLinks, (e) => toast(tr("Fehler: {msg}", { msg: e.message }))); };
     box.appendChild(row);
   }
 }
 // ---------- Doppelte Dokumente ----------
 $("#s-dups-run").onclick = async () => {
   const btn = $("#s-dups-run"), st = $("#s-dups-state"), box = $("#s-dups-list");
-  btn.disabled = true; st.textContent = "Suche läuft …"; box.innerHTML = "";
+  btn.disabled = true; st.textContent = tr("Suche läuft …"); box.innerHTML = "";
   try {
     const pairs = await api("/duplicates");
-    st.textContent = pairs.length ? `${pairs.length} ${pairs.length === 1 ? "mögliches Paar" : "mögliche Paare"}` : "Keine doppelten Dokumente gefunden.";
+    st.textContent = pairs.length ? trn(pairs.length, "{n} mögliches Paar", "{n} mögliche Paare") : tr("Keine doppelten Dokumente gefunden.");
     for (const p of pairs) box.appendChild(dupPair(p));
-  } catch (e) { st.textContent = "Fehler: " + e.message; }
+  } catch (e) { st.textContent = tr("Fehler: {msg}", { msg: e.message }); }
   finally { btn.disabled = false; }
 };
 function dupMeta(d) {
-  const amount = d.amount != null ? `${Number(d.amount).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${d.currency || ""}`.trim() : "";
-  return [d.document_date ? fmtDate(d.document_date) : "Ohne Datum", d.sender, amount, d.page_count ? `${d.page_count} S.` : "",
-          d.created_at ? `hinzugefügt ${fmtDate(d.created_at)}` : "", d.is_own ? "" : `von ${d.owner_name}`]
+  const amount = fmtMoney(d.amount, d.currency);
+  return [d.document_date ? fmtDate(d.document_date) : tr("Ohne Datum"), d.sender, amount, d.page_count ? tr("{n} S.", { n: d.page_count }) : "",
+          d.created_at ? tr("hinzugefügt {date}", { date: fmtDate(d.created_at) }) : "", d.is_own ? "" : tr("von {name}", { name: d.owner_name })]
     .filter(Boolean).join(" · ");
 }
 function dupPair(p) {
   const el = document.createElement("div"); el.className = "dup-pair"; el.dataset.ids = `${p.a.id},${p.b.id}`;
-  const side = (d) => `<div class="dup-doc"><a href="${d.file_url}" target="_blank" rel="noopener" title="PDF öffnen"><img loading="lazy" src="${d.thumbnail_url}" alt=""></a>` +
+  const side = (d) => `<div class="dup-doc"><a href="${d.file_url}" target="_blank" rel="noopener" title="${esc(tr("PDF öffnen"))}"><img loading="lazy" src="${d.thumbnail_url}" alt=""></a>` +
     `<div class="t">${esc(d.title)}</div><div class="m">${esc(dupMeta(d))}</div>` +
-    `<button class="btn" data-keep="${d.id}">Dieses behalten</button></div>`;
+    `<button class="btn" data-keep="${d.id}">${esc(tr("Dieses behalten"))}</button></div>`;
   el.innerHTML = `<div class="dup-why">${p.reasons.map(esc).join(" · ")}</div><div class="dup-sides">${side(p.a)}${side(p.b)}</div>` +
-    `<div class="row" style="justify-content:flex-end"><button class="btn ghost" data-ignore>Beide behalten</button></div>`;
+    `<div class="row" style="justify-content:flex-end"><button class="btn ghost" data-ignore>${esc(tr("Beide behalten"))}</button></div>`;
   for (const b of el.querySelectorAll("[data-keep]")) b.onclick = async () => {
     const keep = Number(b.dataset.keep), drop = keep === p.a.id ? p.b.id : p.a.id;
     try {
       await api("/duplicates/resolve", json("POST", { keep, drop }));
       // Paare mit dem weggelegten Dokument sind damit erledigt
       for (const x of [...$("#s-dups-list").children]) if (x.dataset.ids.split(",").map(Number).includes(drop)) x.remove();
-      toast("Behalten – das andere liegt im Papierkorb");
-    } catch (e) { toast("Fehler: " + e.message); }
+      toast(tr("Behalten – das andere liegt im Papierkorb"));
+    } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
   };
   el.querySelector("[data-ignore]").onclick = async () => {
     try { await api("/duplicates/ignore", json("POST", { a: p.a.id, b: p.b.id })); el.remove(); }
-    catch (e) { toast("Fehler: " + e.message); }
+    catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
   };
   return el;
 }
@@ -3480,27 +4326,27 @@ function dupPair(p) {
 async function renderPersons() {
   const box = $("#s-persons");
   const list = await api("/persons").catch(() => []);
-  box.innerHTML = list.length ? "" : `<p class="muted small">Noch keine Personen – zum Beispiel deine Kinder.</p>`;
+  box.innerHTML = list.length ? "" : `<p class="muted small">${esc(tr("Noch keine Personen – zum Beispiel deine Kinder."))}</p>`;
   for (const p of list) {
     const row = document.createElement("div"); row.className = "list-row";
     const img = avatarUrl("p", p.id, p.avatar);
-    row.innerHTML = (p.can_remove ? `<button class="avatar-btn" title="${img ? "Bild ändern" : "Bild wählen"}" aria-label="Bild für ${esc(p.name)}">${avatarHtml(img, p.name, tagColor(p.name, p.color), "t-av small")}</button>`
+    row.innerHTML = (p.can_remove ? `<button class="avatar-btn" title="${esc(img ? tr("Bild ändern") : tr("Bild wählen"))}" aria-label="${esc(tr("Bild für {name}", { name: p.name }))}">${avatarHtml(img, p.name, tagColor(p.name, p.color), "t-av small")}</button>`
       : avatarHtml(img, p.name, tagColor(p.name, p.color), "t-av small")) +
       `<span class="person-pill" style="--tag:${tagColor(p.name, p.color)}">${esc(p.name)}</span>` +
-      `<span class="muted small">${p.count} Dok.${p.auto ? "" : " · Name zu kurz zum automatischen Zuordnen – Dokumente von Hand taggen"}</span><span class="spacer"></span>` +
-      (p.can_remove && img ? `<button class="btn ghost" data-noimg>Bild weg</button>` : "") +
-      (p.can_remove ? `<button class="btn ghost danger" data-remove>Entfernen</button>` : "");
+      `<span class="muted small">${esc(tr("{n} Dok.", { n: p.count }))}${p.auto ? "" : esc(tr(" · Name zu kurz zum automatischen Zuordnen – Dokumente von Hand taggen"))}</span><span class="spacer"></span>` +
+      (p.can_remove && img ? `<button class="btn ghost" data-noimg>${esc(tr("Bild weg"))}</button>` : "") +
+      (p.can_remove ? `<button class="btn ghost danger" data-remove>${esc(tr("Entfernen"))}</button>` : "");
     const after = () => { renderPersons(); today.familyAt = 0; };
     const pick = row.querySelector(".avatar-btn");
     if (pick) pick.onclick = () => pickAvatar(`/persons/${p.id}/avatar`, after);
     const noimg = row.querySelector("[data-noimg]");
     if (noimg) noimg.onclick = async () => {
-      try { await api(`/persons/${p.id}/avatar`, { method: "DELETE" }); after(); } catch (e) { toast("Fehler: " + e.message); }
+      try { await api(`/persons/${p.id}/avatar`, { method: "DELETE" }); after(); } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
     };
     const b = row.querySelector("[data-remove]");
     if (b) b.onclick = async () => {
-      if (!confirm(`„${p.name}“ als Person entfernen?\n\nOrdner und Dokumente bleiben – neue Dokumente werden nur nicht mehr automatisch zugeordnet.`)) return;
-      try { await api(`/persons/${p.id}`, { method: "DELETE" }); renderPersons(); } catch (e) { toast("Fehler: " + e.message); }
+      if (!confirm(tr("„{name}“ als Person entfernen?", { name: p.name }) + "\n\n" + tr("Ordner und Dokumente bleiben – neue Dokumente werden nur nicht mehr automatisch zugeordnet."))) return;
+      try { await api(`/persons/${p.id}`, { method: "DELETE" }); renderPersons(); } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
     };
     box.appendChild(row);
   }
@@ -3512,38 +4358,60 @@ $("#s-person-add").onclick = async () => {
   try {
     const p = await api("/persons", json("POST", { name }));
     $("#s-person-name").value = "";
-    toast(p.tagged ? `${p.name} ist dabei – ${p.tagged} Dokument${p.tagged === 1 ? "" : "e"} zugeordnet` : `${p.name} ist dabei`);
+    toast(p.tagged ? trn(p.tagged, "{name} ist dabei – {n} Dokument zugeordnet", "{name} ist dabei – {n} Dokumente zugeordnet", { name: p.name }) : tr("{name} ist dabei", { name: p.name }));
     renderPersons(); loadTags();
-  } catch (e) { toast("Fehler: " + e.message, 4000); }
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
 };
 $("#s-person-name").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#s-person-add").click(); } });
 
 let emergency = null;
 function docLine(d, extra = []) {
-  return [fmtDate(d.document_date), d.sender, d.is_own === false && d.owner_name ? `von ${d.owner_name}` : "", ...extra].filter(Boolean).join(" · ");
+  return [fmtDate(d.document_date), d.sender, d.is_own === false && d.owner_name ? tr("von {name}", { name: d.owner_name }) : "", ...extra].filter(Boolean).join(" · ");
 }
 async function renderEmergency() {
   const box = $("#s-emergency");
   try { emergency = await api("/emergency"); }
-  catch (e) { box.innerHTML = `<p class="muted small">Fehler: ${esc(e.message)}</p>`; return; }
-  box.innerHTML = emergency.documents.length ? "" : `<p class="muted small">Noch leer. Such unten nach Vollmacht, Patientenverfügung oder Versicherung und leg die Dokumente hinein.</p>`;
+  catch (e) { box.innerHTML = `<p class="muted small">${esc(tr("Fehler: {msg}", { msg: e.message }))}</p>`; return; }
+  box.innerHTML = emergency.documents.length ? "" : `<p class="muted small">${esc(tr("Noch leer. Such unten nach Vollmacht, Patientenverfügung oder Versicherung und leg die Dokumente hinein."))}</p>`;
   for (const d of emergency.documents) {
     const row = document.createElement("div"); row.className = "list-row";
     row.innerHTML = `<a class="cl-title" href="${d.file_url}" target="_blank" rel="noopener">${esc(d.title)}</a>` +
       `<span class="muted small">${esc(docLine(d))}</span><span class="spacer"></span>` +
-      (d.can_edit ? `<button class="btn ghost">Herausnehmen</button>` : "");
+      (d.can_edit ? `<button class="btn ghost">${esc(tr("Herausnehmen"))}</button>` : "");
     const b = row.querySelector("button");
     if (b) b.onclick = async () => {
-      try { await api(`/emergency/documents/${d.id}`, { method: "DELETE" }); renderEmergency(); } catch (e) { toast("Fehler: " + e.message); }
+      try { await api(`/emergency/documents/${d.id}`, { method: "DELETE" }); renderEmergency(); } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
     };
     box.appendChild(row);
   }
   const own = emergency.own_count, all = emergency.documents.length;
   const active = (emergency.links || []).filter((l) => !l.expired).length;
   $("#s-emergency-share").disabled = !own;
-  $("#s-emergency-note").textContent = !own ? "Teilen geht, sobald eigene Dokumente in der Mappe liegen."
-    : `In einen Link kommen deine ${own} eigenen Dokument${own === 1 ? "" : "e"}` + (all > own ? " – Dokumente anderer teilen diese selbst." : ".") +
-      (active ? ` Schon ${active} aktive${active === 1 ? "r" : ""} Link${active === 1 ? "" : "s"} – zu finden unter Freigabe-Links.` : "");
+  renderEmergencyChecklist();
+  $("#s-emergency-note").textContent = !own ? tr("Teilen geht, sobald eigene Dokumente in der Mappe liegen.")
+    : trn(own, "In einen Link kommt dein eigenes Dokument", "In einen Link kommen deine {n} eigenen Dokumente") + (all > own ? tr(" – Dokumente anderer teilen diese selbst.") : ".") +
+      (active ? " " + trn(active, "Schon {n} aktiver Link – zu finden unter Freigabe-Links.", "Schon {n} aktive Links – zu finden unter Freigabe-Links.") : "");
+}
+// Checkliste (Server: app/checklist.py): was hineingehört, was schon drin ist, Vorschläge aus der eigenen Ablage
+async function renderEmergencyChecklist() {
+  const box = $("#s-emergency-check");
+  const c = await api(`/emergency/checklist?lang=${LANG}`).catch(() => null);
+  if (!c) { box.innerHTML = ""; return; }   // ältere Server ohne Checkliste
+  box.innerHTML = `<div class="em-head"><b>${esc(tr("Checkliste"))}</b><span class="muted small">${esc(tr("{n} von {total} in der Mappe", { n: c.present, total: c.total }))}</span></div>
+    <div class="em-bar"><i style="width:${c.total ? Math.round(100 * c.present / c.total) : 0}%"></i></div>
+    ${c.groups.map((g) => `<div class="em-group"><h4>${esc(g.label)}</h4>${g.items.map((it) => `
+      <div class="em-item${it.present.length ? " done" : ""}"><span class="em-tick" aria-hidden="true">${it.present.length ? "✓" : ""}</span>
+        <div><div>${esc(it.label)}</div>
+        ${it.present.length ? `<div class="muted small">${esc(it.present.map((d) => d.title).join(", "))}</div>` : ""}
+        ${it.suggestions.length ? `<div class="em-sugg"><span class="muted small">${esc(tr("Passt vielleicht:"))}</span>${it.suggestions.map((d) =>
+          `<button class="chip" data-add="${d.id}" title="${esc(tr("In die Mappe legen"))}">+ ${esc(d.title)}</button>`).join("")}</div>` : ""}
+        </div></div>`).join("")}</div>`).join("")}
+    <p class="muted small">${esc(c.note)}</p>`;
+  box.querySelectorAll("[data-add]").forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { await api("/emergency/documents", json("POST", { document_id: +b.dataset.add })); renderEmergency(); }
+    catch (e) { b.disabled = false; toast(tr("Fehler: {msg}", { msg: e.message })); }
+  });
 }
 $("#s-emergency-sect").addEventListener("toggle", (e) => { if (e.target.open) renderEmergency(); });
 $("#s-emergency-search").onclick = async () => {
@@ -3553,13 +4421,13 @@ $("#s-emergency-search").onclick = async () => {
   const docs = await api(`/documents?scope=all&limit=20&q=${encodeURIComponent(q)}`).catch(() => []);
   const inside = new Set((emergency?.documents || []).map((d) => d.id));
   const hits = docs.filter((d) => d.can_edit && !inside.has(d.id));
-  if (!hits.length) { box.innerHTML = `<p class="muted small">Nichts gefunden.</p>`; return; }
+  if (!hits.length) { box.innerHTML = `<p class="muted small">${esc(tr("Nichts gefunden."))}</p>`; return; }
   for (const d of hits) {
     const row = document.createElement("div"); row.className = "list-row";
-    row.innerHTML = `<span class="cl-title">${esc(d.title)}</span><span class="muted small">${esc(docLine(d))}</span><span class="spacer"></span><button class="btn">Hinzufügen</button>`;
+    row.innerHTML = `<span class="cl-title">${esc(d.title)}</span><span class="muted small">${esc(docLine(d))}</span><span class="spacer"></span><button class="btn">${esc(tr("Hinzufügen"))}</button>`;
     row.querySelector("button").onclick = async () => {
       try { await api("/emergency/documents", json("POST", { document_id: d.id })); row.remove(); renderEmergency(); }
-      catch (e) { toast("Fehler: " + e.message); }
+      catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
     };
     box.appendChild(row);
   }
@@ -3568,41 +4436,44 @@ $("#s-emergency-q").addEventListener("keydown", (e) => { if (e.key === "Enter") 
 $("#s-emergency-share").onclick = () => {
   if (!emergency || !emergency.tag_id) return;
   openShareDialog({ kind: "tag", target: emergency.tag_id,
-    label: "Notfallmappe für deine Angehörigen – der Link zeigt deine eigenen Dokumente darin, später hinzugefügte kommen von selbst dazu." });
+    label: tr("Notfallmappe für deine Angehörigen – der Link zeigt deine eigenen Dokumente darin, später hinzugefügte kommen von selbst dazu.") });
   $("#sh-expiry").value = "365";
 };
 
 async function renderCleanup() {
   const st = $("#s-cleanup-state"), box = $("#s-cleanup-list"), btn = $("#s-cleanup-run");
-  btn.disabled = true; st.textContent = "Wird geprüft …"; box.innerHTML = "";
+  btn.disabled = true; st.textContent = tr("Wird geprüft …"); box.innerHTML = "";
   try {
     const r = await api("/cleanup");
-    st.textContent = r.count ? `${r.count} Vorschl${r.count === 1 ? "ag" : "äge"}` : "Nichts zum Aufräumen – alles liegt noch in seiner Frist.";
+    st.textContent = r.count ? trn(r.count, "{n} Vorschlag", "{n} Vorschläge") : tr("Nichts zum Aufräumen – alles liegt noch in seiner Frist.");
     for (const g of r.groups) box.appendChild(cleanupGroup(g));
-  } catch (e) { st.textContent = "Fehler: " + e.message; }
+  } catch (e) { st.textContent = tr("Fehler: {msg}", { msg: e.message }); }
   finally { btn.disabled = false; }
 }
 function cleanupGroup(g) {
   const el = document.createElement("div"); el.className = "cleanup-group";
-  el.innerHTML = `<div class="cleanup-head"><div><b>${esc(g.label)}</b> <span class="muted small">· ${g.years} Jahr${g.years === 1 ? "" : "e"} nach Jahresende</span>` +
-    `<div class="muted small">${esc(g.basis)}</div></div><button class="btn danger" data-all>Alle in den Papierkorb</button></div>`;
+  // Vorgaben (cleanup.DEFAULTS) und ihre Begründungen kommen deutsch vom Server – übersetzen; eigene Einstellungen
+  // tragen den Ordnernamen, der bleibt, wie er ist
+  const label = g.custom ? g.label : tr(g.label);
+  el.innerHTML = `<div class="cleanup-head"><div><b>${esc(label)}</b> <span class="muted small">${esc(trn(g.years, "· {n} Jahr nach Jahresende", "· {n} Jahre nach Jahresende"))}</span>` +
+    `<div class="muted small">${esc(tr(g.basis))}</div></div><button class="btn danger" data-all>${esc(tr("Alle in den Papierkorb"))}</button></div>`;
   const gone = () => { if (!el.querySelector(".list-row")) el.remove(); };
   for (const d of g.documents) {
     const row = document.createElement("div"); row.className = "list-row"; row.dataset.id = d.id;
     row.innerHTML = `<a class="cl-title" href="${d.file_url}" target="_blank" rel="noopener">${esc(d.title)}</a>` +
-      `<span class="muted small">${esc(docLine(d, [`aufzubewahren bis ${fmtDate(d.keep_until)}`]))}</span><span class="spacer"></span><button class="btn ghost">In den Papierkorb</button>`;
+      `<span class="muted small">${esc(docLine(d, [tr("aufzubewahren bis {date}", { date: fmtDate(d.keep_until) })]))}</span><span class="spacer"></span><button class="btn ghost">${esc(tr("In den Papierkorb"))}</button>`;
     row.querySelector("button").onclick = async () => {
-      try { await api(`/documents/${d.id}`, { method: "DELETE" }); row.remove(); gone(); } catch (e) { toast("Fehler: " + e.message); }
+      try { await api(`/documents/${d.id}`, { method: "DELETE" }); row.remove(); gone(); } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
     };
     el.appendChild(row);
   }
   el.querySelector("[data-all]").onclick = async () => {
     const rows = [...el.querySelectorAll(".list-row")];
-    if (!confirm(`${rows.length} Dokument${rows.length === 1 ? "" : "e"} aus „${g.label}“ in den Papierkorb legen? Von dort kannst du sie zurückholen.`)) return;
+    if (!confirm(trn(rows.length, "{n} Dokument aus „{name}“ in den Papierkorb legen? Von dort kannst du es zurückholen.", "{n} Dokumente aus „{name}“ in den Papierkorb legen? Von dort kannst du sie zurückholen.", { name: label }))) return;
     for (const row of rows) {
-      try { await api(`/documents/${row.dataset.id}`, { method: "DELETE" }); row.remove(); } catch (e) { toast("Fehler: " + e.message); break; }
+      try { await api(`/documents/${row.dataset.id}`, { method: "DELETE" }); row.remove(); } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); break; }
     }
-    gone(); toast("In den Papierkorb gelegt");
+    gone(); toast(tr("In den Papierkorb gelegt"));
   };
   return el;
 }
@@ -3614,28 +4485,29 @@ async function renderRetention() {
   const r = await api("/cleanup/rules").catch(() => null);
   if (!r) return;
   const box = $("#s-cleanup-rules");
-  box.innerHTML = r.defaults.map((d) => `<div class="muted small">Vorgabe: <b>${esc(d.label)}</b> – ${d.years == null ? "nie" : `${d.years} Jahre`}</div>`).join("");
+  box.innerHTML = r.defaults.map((d) => `<div class="muted small">${esc(tr("Vorgabe:"))} <b>${esc(tr(d.label))}</b> – ${esc(d.years == null ? tr("nie") : trn(d.years, "{n} Jahr", "{n} Jahre"))}</div>`).join("");
   for (const c of r.custom) {
     const row = document.createElement("div"); row.className = "list-row";
-    row.innerHTML = `<span>${esc(c.tag)}</span><span class="muted small">${c.years == null ? "nie vorschlagen" : `${c.years} Jahr${c.years === 1 ? "" : "e"}`}</span><span class="spacer"></span><button class="btn ghost">Zurück zur Vorgabe</button>`;
-    row.querySelector("button").onclick = async () => { await api(`/cleanup/rules/${c.tag_id}`, { method: "DELETE" }).catch((e) => toast("Fehler: " + e.message)); renderRetention(); };
+    row.innerHTML = `<span>${esc(c.tag)}</span><span class="muted small">${esc(c.years == null ? tr("nie vorschlagen") : trn(c.years, "{n} Jahr", "{n} Jahre"))}</span><span class="spacer"></span><button class="btn ghost">${esc(tr("Zurück zur Vorgabe"))}</button>`;
+    row.querySelector("button").onclick = async () => { await api(`/cleanup/rules/${c.tag_id}`, { method: "DELETE" }).catch((e) => toast(tr("Fehler: {msg}", { msg: e.message }))); renderRetention(); };
     box.appendChild(row);
   }
   $("#s-ret-tags").innerHTML = (state.tags || []).map((t) => `<option value="${esc(t.name)}"></option>`).join("");
 }
-$("#s-cleanup-sect").addEventListener("toggle", (e) => { if (e.target.open) renderRetention(); });
+$("#s-sect-retention").addEventListener("toggle", (e) => { if (e.target.open) renderRetention(); });
 $("#s-ret-save").onclick = async () => {
   const tag = $("#s-ret-tag").value.trim(), v = $("#s-ret-years").value;
   if (!tag) return;
   try {
     await api("/cleanup/rules", json("PUT", { tag, years: v === "never" ? null : Number(v) }));
-    $("#s-ret-tag").value = ""; toast("Gespeichert"); renderRetention();
-  } catch (e) { toast("Fehler: " + e.message); }
+    $("#s-ret-tag").value = ""; toast(tr("Gespeichert")); renderRetention();
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 };
 
+$("#s-public-save").addEventListener("click", () => { connectBase = null; });
 $("#s-public-save").onclick = async () => {
-  try { await api("/settings", json("PATCH", { public_url: $("#s-public-url").value.trim() })); toast("Gespeichert"); renderLinks(); }
-  catch (e) { toast("Fehler: " + e.message); }
+  try { await api("/settings", json("PATCH", { public_url: $("#s-public-url").value.trim() })); toast(tr("Gespeichert")); renderLinks(); }
+  catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 };
 
 // Export: wahlweise als Ordnerstruktur
@@ -3678,90 +4550,112 @@ function applyStartSeg() {
   for (const b of document.querySelectorAll("#start-seg button")) b.classList.toggle("active", b.dataset.start === s);
 }
 for (const b of document.querySelectorAll("#start-seg button"))
-  b.onclick = () => { localStorage.setItem("bl.start", b.dataset.start); applyStartSeg(); toast("Gespeichert"); };
+  b.onclick = () => { localStorage.setItem("bl.start", b.dataset.start); applyStartSeg(); toast(tr("Gespeichert")); };
 applyStartSeg();
+// Oberflächensprache (i18n.js liest bl.lang beim Laden) – Wechsel lädt die Seite neu, damit alles umgestellt ist
+function applyLangSeg() {
+  let v = null;
+  try { v = localStorage.getItem("bl.lang"); } catch {}
+  if (v !== "de" && v !== "en") v = "auto";
+  for (const b of document.querySelectorAll("#lang-seg button")) b.classList.toggle("active", b.dataset.lang === v);
+}
+for (const b of document.querySelectorAll("#lang-seg button"))
+  b.onclick = () => {
+    try { if (b.dataset.lang === "auto") localStorage.removeItem("bl.lang"); else localStorage.setItem("bl.lang", b.dataset.lang); } catch {}
+    // Erst die Einträge der offenen Ebenen (Einstellungen …) zurücknehmen, dann neu laden – sonst bliebe nach dem
+    // Neuladen ein toter Schritt „Zurück“, der nichts mehr schließt
+    const reload = () => location.reload();
+    const n = layers.length && history.state && history.state.lid === layers[layers.length - 1].lid ? layers.length : 0;
+    if (!n) { reload(); return; }
+    layers.length = 0;
+    window.addEventListener("popstate", reload, { once: true });
+    setTimeout(reload, 1500);   // falls der Browser kein popstate schickt
+    history.go(-n);
+  };
+applyLangSeg();
 
 $("#s-show-partner").onchange = async (e) => {
   await api("/auth/me", json("PATCH", { show_partner_in_overview: e.target.checked }));
-  toast("Gespeichert");
+  toast(tr("Gespeichert"));
 };
 $("#s-share-add").onclick = async () => {
   const id = Number($("#s-share-user").value); if (!id) return;
   await api("/shares", json("PUT", { user_id: id, can_edit: $("#s-share-edit").checked }));
-  toast("Freigegeben"); openSettings();
+  toast(tr("Freigegeben")); openSettings();
 };
 function renderMyAvatar() {
   const me = state.me, url = avatarUrl("u", me.id, me.avatar);
   $("#s-avatar").outerHTML = avatarHtml(url, me.display_name || me.username, AV_COLORS[0]).replace('class="t-av', 'id="s-avatar" class="t-av');
   $("#s-avatar-del").classList.toggle("hidden", !url);
-  $("#s-avatar-pick").textContent = url ? "Anderes Bild" : "Profilbild wählen";
+  $("#s-avatar-pick").textContent = url ? tr("Anderes Bild") : tr("Profilbild wählen");
 }
 async function refreshMe() { state.me = await api("/auth/me"); renderMyAvatar(); today.familyAt = 0; }
 $("#s-avatar-pick").onclick = () => pickAvatar("/auth/me/avatar", refreshMe);
 $("#s-avatar-del").onclick = async () => {
-  try { await api("/auth/me/avatar", { method: "DELETE" }); toast("Profilbild entfernt"); refreshMe(); } catch (e) { toast("Fehler: " + e.message); }
+  try { await api("/auth/me/avatar", { method: "DELETE" }); toast(tr("Profilbild entfernt")); refreshMe(); } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message })); }
 };
 $("#s-save").onclick = async () => {
   const body = { display_name: $("#s-name").value.trim() || undefined };
   if ($("#s-pass").value) { body.password = $("#s-pass").value; body.current_password = $("#s-pass-old").value; }
   try {
     await api("/auth/me", json("PATCH", body));
-    toast(body.password ? "Gespeichert – andere Geräte sind abgemeldet" : "Gespeichert"); openSettings();
-  } catch (e) { toast("Fehler: " + e.message, 4000); }
+    toast(body.password ? tr("Gespeichert – andere Geräte sind abgemeldet") : tr("Gespeichert")); openSettings();
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
 };
 $("#s-delete-me").onclick = async () => {
   const password = $("#s-delete-pass").value;
-  if (!password) { toast("Bitte dein Passwort eingeben"); return; }
-  if (!confirm("Dein Konto und alle deine Dokumente endgültig löschen? Das lässt sich nicht rückgängig machen.")) return;
+  if (!password) { toast(tr("Bitte dein Passwort eingeben")); return; }
+  if (!confirm(tr("Dein Konto und alle deine Dokumente endgültig löschen? Das lässt sich nicht rückgängig machen."))) return;
   try {
     await api("/auth/me", json("DELETE", { password }));
-    toast("Dein Konto ist gelöscht", 4000);
+    toast(tr("Dein Konto ist gelöscht"), 4000);
     showLogin();
-  } catch (e) { toast("Fehler: " + e.message, 4000); }
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
 };
 $("#s-new-add").onclick = async () => {
   try {
     await api("/users", json("POST", { username: $("#s-new-user").value, display_name: $("#s-new-name").value, password: $("#s-new-pass").value }));
     $("#s-new-user").value = $("#s-new-name").value = $("#s-new-pass").value = "";
-    toast("Nutzer angelegt"); openSettings();
-  } catch (e) { toast("Fehler: " + e.message, 4000); }
+    toast(tr("Nutzer angelegt")); openSettings();
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
 };
 
 // ---------- Einladungen (Admin) ----------
-const INVITE_SHARE = { none: "ohne Freigabe", read: "sieht deine Dokumente", edit: "darf deine Dokumente bearbeiten" };
+const INVITE_SHARE = { none: tr("ohne Freigabe"), read: tr("sieht deine Dokumente"), edit: tr("darf deine Dokumente bearbeiten") };
 async function renderInvites() {
   const box = $("#s-invites");
   const list = await api("/invites").catch(() => []);
-  box.innerHTML = list.length ? `<div class="k" style="margin-top:4px">Offene Einladungen</div>` : "";
+  box.innerHTML = list.length ? `<div class="k" style="margin-top:4px">${esc(tr("Offene Einladungen"))}</div>` : "";
   for (const i of list) {
     const row = document.createElement("div"); row.className = "list-row";
-    const until = i.expired ? `<span class="expired">abgelaufen</span>` : `bis ${fmtDate(i.expires_at.slice(0, 10))}`;
-    row.innerHTML = `<span>${esc(i.display_name)}</span><span class="muted small">${INVITE_SHARE[i.share_with_me] || ""}${i.is_admin ? " · Admin" : ""} · ${until} · von ${esc(i.invited_by || "")}</span>` +
-      `<span class="spacer"></span><button class="btn ghost danger">Zurückziehen</button>`;
+    const until = i.expired ? `<span class="expired">${esc(tr("abgelaufen"))}</span>` : esc(tr("bis {date}", { date: fmtDate(i.expires_at.slice(0, 10)) }));
+    row.innerHTML = `<span>${esc(i.display_name)}</span><span class="muted small">${esc(INVITE_SHARE[i.share_with_me] || "")}${i.is_admin ? " · Admin" : ""} · ${until} · ${esc(tr("von {name}|invite", { name: i.invited_by || "" }))}</span>` +
+      `<span class="spacer"></span><button class="btn ghost danger">${esc(tr("Zurückziehen"))}</button>`;
     row.querySelector("button").onclick = async () => {
-      if (!confirm(`Einladung für ${i.display_name} zurückziehen? Der Link funktioniert danach nicht mehr.`)) return;
+      if (!confirm(tr("Einladung für {name} zurückziehen? Der Link funktioniert danach nicht mehr.", { name: i.display_name }))) return;
       await api(`/invites/${i.id}`, { method: "DELETE" }); renderInvites();
     };
     box.appendChild(row);
   }
 }
+$("#s-invite-sect").addEventListener("toggle", (e) => { if (e.target.open) renderInvites(); });
 $("#s-inv-add").onclick = async () => {
   const name = $("#s-inv-name").value.trim();
-  if (!name) { $("#s-inv-name").focus(); toast("Name fehlt"); return; }
+  if (!name) { $("#s-inv-name").focus(); toast(tr("Name fehlt")); return; }
   try {
     const inv = await api("/invites", json("POST", { display_name: name, share_with_me: $("#s-inv-share").value, is_admin: $("#s-inv-admin").checked }));
     $("#s-inv-name").value = ""; $("#s-inv-admin").checked = false; $("#s-inv-share").value = "none";
     showInviteDialog(inv);
     renderInvites();
-  } catch (e) { toast("Fehler: " + e.message, 4000); }
+  } catch (e) { toast(tr("Fehler: {msg}", { msg: e.message }), 4000); }
 };
 $("#s-inv-name").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#s-inv-add").click(); } });
 function showInviteDialog(inv) {
-  $("#iv-title").textContent = `Einladung für ${inv.display_name}`;
+  $("#iv-title").textContent = tr("Einladung für {name}", { name: inv.display_name });
   $("#iv-url").value = inv.url;
   try { $("#iv-qr").innerHTML = QR.svg(inv.url); } catch { $("#iv-qr").innerHTML = ""; }
   const warn = $("#iv-warn");
-  warn.textContent = isPrivateUrl(inv.url) ? "Diese Adresse funktioniert nur in deinem Heimnetz (oder per VPN)." : "";
+  warn.textContent = isPrivateUrl(inv.url) ? tr("Diese Adresse funktioniert nur in deinem Heimnetz (oder per VPN).") : "";
   warn.classList.toggle("hidden", !warn.textContent);
   showDialog($("#invite-dialog"));
 }
@@ -3780,8 +4674,17 @@ function pill(t) { return `<span class="pill" style="--tag:${esc(tagColor(t.name
 // ---------- Helpers ----------
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function enc(s) { return encodeURIComponent(s || ""); }
+/** Betrag im Format der Sprache; die Währung ist ein freies Feld – ein ungültiger Code darf nichts sprengen */
+function fmtMoney(v, cur) {
+  if (v == null || v === "" || !isFinite(Number(v))) return "";
+  const n = Number(v), c = String(cur || "EUR").trim().toUpperCase() || "EUR";
+  try { return n.toLocaleString(LOC, { style: "currency", currency: c }); }
+  catch { return `${n.toLocaleString(LOC, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${c}`; }
+}
 function fmtDate(s) {
   if (!s) return "";
+  // Reines Datum (JJJJ-MM-TT) ohne Date-Umweg: new Date("2026-11-14") ist UTC-Mitternacht – westlich von UTC der Vortag
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return isoToDmy(s);
   const d = new Date(s.includes("T") || s.length === 10 ? s : s.replace(" ", "T") + "Z");
   if (isNaN(d)) return s;
   return isoToDmy(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);

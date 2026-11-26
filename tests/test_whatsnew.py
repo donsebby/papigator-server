@@ -24,7 +24,8 @@ def test_existing_accounts_get_news_and_app_only_cards(admin):
     web = admin.get("/whatsnew?client=web").json()
     ios = admin.get("/whatsnew?client=ios&lang=en").json()
     assert web["mode"] == ios["mode"] == "news"
-    assert "appicon" not in {c["anim"] for c in web["cards"]} and "appicon" in {c["anim"] for c in ios["cards"]}
+    assert "ai" not in {c["anim"] for c in web["cards"]} and "ai" in {c["anim"] for c in ios["cards"]}
+    assert len(web["cards"]) <= 8 and len(ios["cards"]) <= 8                # neueste zuerst, höchstens 8
     assert ios["cards"][0]["title"] != web["cards"][0]["title"]   # englisch
     admin.post("/whatsnew/seen")
     assert admin.get("/whatsnew?client=ios").json()["mode"] is None
