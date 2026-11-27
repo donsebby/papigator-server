@@ -2,7 +2,10 @@
 # Prüft das Home-Assistant-Add-on (homeassistant/): baut es auf dem lokal gebauten Image auf, startet es so, wie der
 # Supervisor es tut (/data mit options.json, /share eingebunden), dann:
 #   ohne Token bricht es mit Hinweis ab → mit Token gesund → /ping fragt nach Einrichtung → erster Admin →
-#   Datenbank in /data/papigator → ein Scan aus /share/papigator/inbox (von root abgelegt, wie per Samba) wird übernommen.
+#   Datenbank in /data/papigator → ein Scan aus /share/papigator/inbox (von root abgelegt, wie per Samba) wird übernommen
+#   → Sicherung nach /share/papigator/backup.
+# Wo AppArmor läuft (GitHub-Runner, Linux mit sudo), laufen alle Starts unter homeassistant/apparmor.txt – wie beim
+# Supervisor – und jede Verweigerung im Kernel-Log lässt die Prüfung scheitern. In CI ist AppArmor Pflicht.
 #
 #   PAPIGATOR_IMAGE=papigator-server:local ci/ha-addon-check.sh
 set -euo pipefail
@@ -43,6 +46,24 @@ for a in aarch64 amd64; do
 done
 grep -q "^backup: cold" homeassistant/config.yaml || fail "config.yaml ohne backup: cold"
 [ -f repository.yaml ] || fail "repository.yaml fehlt im Repo-Wurzelordner"
+grep -q "^## $VER\$" homeassistant/CHANGELOG.md || fail "CHANGELOG.md ohne Abschnitt „## $VER“ (HA zeigt ihn beim Update)"
+# Der Supervisor liest genau ein „profile <name>“ am Zeilenanfang und setzt dort den Slug ein
+[ "$(grep -c '^profile ' homeassistant/apparmor.txt)" = 1 ] || fail "apparmor.txt: genau ein Profil am Zeilenanfang nötig"
+
+AA=()
+PROFILE=papigator-addon-check
+if [ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" = Y ] && command -v apparmor_parser >/dev/null \
+   && sudo -n true 2>/dev/null; then
+  step "AppArmor-Profil laden (als $PROFILE)"
+  sed "s/^profile [^ ]*/profile $PROFILE/" homeassistant/apparmor.txt > "$WORK/apparmor.txt"
+  sudo apparmor_parser -r -W "$WORK/apparmor.txt" || fail "apparmor.txt lässt sich nicht laden"
+  AA=(--security-opt "apparmor=$PROFILE")
+  KLOG0=$(sudo dmesg | wc -l)
+elif [ -n "${CI:-}" ]; then
+  fail "kein AppArmor auf dem Runner – das Profil bliebe ungeprüft"
+else
+  echo "    (kein AppArmor hier – Profil ungeprüft)"
+fi
 
 step "Add-on bauen (auf $BASE)"
 docker build -q --build-arg BUILD_FROM="$BASE" -t "$ADDON" homeassistant >/dev/null
@@ -50,18 +71,22 @@ docker build -q --build-arg BUILD_FROM="$BASE" -t "$ADDON" homeassistant >/dev/n
 mkdir -p "$WORK/data" "$WORK/share"
 step "ohne Token: Abbruch mit Hinweis"
 echo '{"setup_token": "", "secret_key": "", "inbox_dir": "/share/papigator/inbox", "backup_dir": "/share/papigator/backup", "llm_url": "", "llm_model": "gemma4:e4b"}' > "$WORK/data/options.json"
-if docker run --rm -v "$WORK/data:/data" -v "$WORK/share:/share" "$ADDON" > "$WORK/out.txt" 2>&1; then fail "startet ohne Token"; fi
+if docker run --rm ${AA[@]+"${AA[@]}"} -v "$WORK/data:/data" -v "$WORK/share:/share" "$ADDON" > "$WORK/out.txt" 2>&1; then fail "startet ohne Token"; fi
 grep -q "setup_token" "$WORK/out.txt" || fail "kein Hinweis auf setup_token: $(cat "$WORK/out.txt")"
 
 step "mit Token starten"
 printf '{"setup_token": "%s", "secret_key": "", "inbox_dir": "/share/papigator/inbox", "backup_dir": "/share/papigator/backup", "llm_url": "", "llm_model": "gemma4:e4b", "language": "en"}' "$TOKEN" > "$WORK/data/options.json"
-docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8000" -v "$WORK/data:/data" -v "$WORK/share:/share" "$ADDON" >/dev/null
+docker run -d ${AA[@]+"${AA[@]}"} --name "$NAME" -p "127.0.0.1:$PORT:8000" -v "$WORK/data:/data" -v "$WORK/share:/share" "$ADDON" >/dev/null
 for i in $(seq 1 90); do
   h=$(docker inspect -f '{{.State.Health.Status}}' "$NAME" 2>/dev/null || echo starting)
   [ "$h" = healthy ] && break
   [ "$i" = 90 ] && fail "nicht gesund nach 180 s ($h)"
   sleep 2
 done
+
+if [ ${#AA[@]} -gt 0 ]; then
+  docker exec "$NAME" cat /proc/1/attr/current | grep -q "^$PROFILE (enforce)" || fail "läuft nicht unter $PROFILE"
+fi
 
 step "Einrichtung"
 curl -fsS "$B/ping" | jq -e '.needs_setup == true' >/dev/null || fail "/ping fragt nicht nach Einrichtung"
@@ -76,7 +101,7 @@ curl -fsS "$B/settings" -H "$AUTH" | jq -e '.llm_language == "en"' >/dev/null ||
 step "zu allgemeiner Ordner (/share) wird abgelehnt"
 printf '{"setup_token": "x", "secret_key": "", "inbox_dir": "/share/papigator/inbox", "backup_dir": "/share", "llm_url": "", "llm_model": ""}' > "$WORK/opt2.json"
 mkdir -p "$WORK/data2" && cp "$WORK/opt2.json" "$WORK/data2/options.json"
-if docker run --rm -v "$WORK/data2:/data" -v "$WORK/share:/share" "$ADDON" > "$WORK/out2.txt" 2>&1; then fail "startet mit backup_dir=/share"; fi
+if docker run --rm ${AA[@]+"${AA[@]}"} -v "$WORK/data2:/data" -v "$WORK/share:/share" "$ADDON" > "$WORK/out2.txt" 2>&1; then fail "startet mit backup_dir=/share"; fi
 grep -q "zu allgemein" "$WORK/out2.txt" || fail "kein Hinweis bei /share: $(cat "$WORK/out2.txt")"
 
 step "Scan über /share/papigator/inbox (als root abgelegt, wie per Samba)"
@@ -99,4 +124,26 @@ for i in $(seq 1 120); do
 done
 docker exec "$NAME" test ! -e /share/papigator/inbox/scan.pdf || fail "Scan nicht aus dem Eingang entfernt"
 
-echo "OK: das Add-on startet wie unter Home Assistant, richtet sich ein und übernimmt Scans aus /share"
+step "Sicherung nach /share/papigator/backup"
+curl -fsS -X POST "$B/settings/backup/run" -H "$AUTH" >/dev/null || fail "Sicherung startet nicht"
+for i in $(seq 1 60); do
+  curl -fsS "$B/settings/backup" -H "$AUTH" | jq -e '(.running | not) and (.snapshots | length) > 0' >/dev/null && break
+  [ "$i" = 60 ] && fail "keine Sicherung in /share/papigator/backup"
+  sleep 2
+done
+
+step "Anhalten wie beim HA-Backup (backup: cold): TERM kommt an, sauberes Ende"
+T0=$(date +%s)
+docker stop -t 30 "$NAME" >/dev/null || fail "docker stop"
+EXIT=$(docker inspect -f '{{.State.ExitCode}}' "$NAME")
+[ $(( $(date +%s) - T0 )) -lt 25 ] || fail "Anhalten dauerte bis zum Abschuss"
+case "$EXIT" in 0|143) ;; *) fail "Ende mit Code $EXIT (137 = abgeschossen, TERM kam nicht an)";; esac
+
+if [ ${#AA[@]} -gt 0 ]; then
+  step "AppArmor: keine Verweigerungen"
+  DENIED=$(sudo dmesg | tail -n +"$((KLOG0 + 1))" | grep 'apparmor="DENIED"' | grep "profile=\"$PROFILE" || true)
+  [ -z "$DENIED" ] || fail "AppArmor hat verweigert:
+$DENIED"
+fi
+
+echo "OK: das Add-on startet wie unter Home Assistant (auch unter AppArmor), richtet sich ein, übernimmt Scans aus /share und sichert dorthin"

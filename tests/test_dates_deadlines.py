@@ -152,8 +152,12 @@ def test_confirmed_no_date_leaves_review(admin):
     assert r["no_date"] == 0 and r["document_date"] == "2026-02-03"
     r = admin.patch(f"/documents/{d}", json={"document_date": ""}).json()
     assert r["review_reasons"] == ["no_date"]
-    # KI findet doch ein Datum → Markierung weg
+    # Nach „Neu erkennen“ findet die KI doch ein Datum → Markierung weg (ohne Neu erkennen bleibt die Handeingabe,
+    # seit 27.11.2026 überschreibt die KI von Hand Geändertes nicht mehr)
     admin.patch(f"/documents/{d}", json={"no_date": True})
     with connect() as con:
         con.execute("UPDATE documents SET text='Brief vom 05.03.2018' WHERE id=?", (d,))
+    assert _apply(d, {"document_date": "2018-03-05"})["no_date"] == 1
+    with connect() as con:
+        con.execute("UPDATE documents SET hand_fields=NULL WHERE id=?", (d,))   # wie „Neu erkennen“
     assert _apply(d, {"document_date": "2018-03-05"})["no_date"] == 0

@@ -145,11 +145,18 @@ def test_misses_are_rate_limited(admin, client):
 
 
 def test_access_log_hides_token():
-    from app.invites import _RedactInviteTokens
+    from app.logredact import RedactFilter
     rec = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, '%s - "%s %s HTTP/%s" %d',
                             ("1.2.3.4:5", "POST", "/invites/AbC-def_123456789012345/redeem", "1.1", 200), None)
-    _RedactInviteTokens().filter(rec)
+    RedactFilter().filter(rec)
     assert "AbC" not in rec.getMessage() and "/invites/…/redeem" in rec.getMessage()
     rec = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, '%s %s', ("DELETE", "/invites/12"), None)
-    _RedactInviteTokens().filter(rec)
+    RedactFilter().filter(rec)
     assert rec.getMessage() == "DELETE /invites/12"
+    # Freigabe-Links, Kalender-Abo und Suchanfragen (27.11.2026)
+    for path, hidden, shown in [("/s/Tok3nXYZ/file", "Tok3nXYZ", "/s/…/file"), ("/calendar/Abc123Def.ics", "Abc123Def", "/calendar/…"),
+                                ("/calendar/Abc123Def/summary.json", "Abc123Def", "/calendar/…/summary.json"),
+                                ("/search?q=Psychotherapie", "Psychotherapie", "/search?…")]:
+        rec = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, '%s %s', ("GET", path), None)
+        RedactFilter().filter(rec)
+        assert hidden not in rec.getMessage() and shown in rec.getMessage()

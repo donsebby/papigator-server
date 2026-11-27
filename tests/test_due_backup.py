@@ -134,3 +134,24 @@ def test_restore_of_older_snapshot_upgrades_schema_and_keeps_ids(admin, tmp_path
     assert admin.post("/senders/merge", json={"sources": ["A"], "target": "B"}).status_code == 200
     new = admin.upload("ganz neu", "Neu").json()
     assert new["id"] > later["id"]
+
+
+def test_restore_does_not_revive_revoked_access(admin, sam, client, tmp_path):
+    """Nach dem Zurückspielen gelten nur die Anmeldungen und Links von jetzt (27.11.2026): eine seit der Sicherung
+    abgemeldete Sitzung und ein zurückgezogener Freigabe-Link bleiben tot."""
+    from urllib.parse import urlparse
+    target = tmp_path / "backup"
+    target.mkdir()
+    admin.patch("/settings", json={"backup_dir": str(target)})
+    doc = admin.upload("x", "Geteilt").json()
+    link = admin.post("/links", json={"kind": "doc", "target": doc["id"]}).json()
+    assert admin.post("/settings/backup/run").status_code == 200
+    name = _wait_backup(admin)["snapshots"][0]["name"]
+    assert sam.post("/auth/logout").status_code in (200, 204)
+    assert admin.delete(f"/links/{link['id']}").status_code == 204
+    r = admin.post("/settings/backup/restore", json={"name": name, "confirm": "WIEDERHERSTELLEN"})
+    assert r.status_code == 200, r.text
+    assert sam.get("/auth/me").status_code == 401
+    client.cookies.clear()
+    assert client.get(urlparse(link["url"]).path).status_code in (404, 410) or "abgelaufen" in client.get(urlparse(link["url"]).path).text.lower()
+    assert admin.get("/auth/me").status_code == 200

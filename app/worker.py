@@ -104,6 +104,16 @@ def ocr_loop() -> None:
 
 # ---------- Stufe 2: LLM ----------
 
+def tag_names_for(con, doc_id: int) -> list[str]:
+    """Vorhandene Tags für die KI – nur die, die der Besitzer des Dokuments kennen darf (27.11.2026). Vorher standen alle
+    Namen des Servers im Prompt (auch verborgene Ordner und Kinder anderer) und konnten am eigenen Dokument landen;
+    bei einer Cloud-KI gingen sie zudem nach außen."""
+    from . import auth, folders
+    r = con.execute("SELECT owner_id FROM documents WHERE id=?", (doc_id,)).fetchone()
+    hidden = folders.hidden_tag_ids(con, auth.visible_owner_ids(con, auth.User(r[0], "", "", False, False), "all")) if r else set()
+    return [t["name"] for t in con.execute("SELECT id, name FROM tags ORDER BY name") if t["id"] not in hidden]
+
+
 def llm_one(doc_id: int) -> bool:
     """True = LLM erreichbar (Ergebnis oder leer), False = Verbindung fehlgeschlagen."""
     with connect() as con:
@@ -115,7 +125,7 @@ def llm_one(doc_id: int) -> bool:
     # refill_p: aus Paperless-ngx übernommen – alles außer Titel, Datum, Absender, Art und Tags (26.11.2026)
     refill = row["llm_status"] if row and row["llm_status"] in REFILL else None
     with connect() as con:
-        existing = [r["name"] for r in con.execute("SELECT name FROM tags ORDER BY name")]
+        existing = tag_names_for(con, doc_id)
         restricted = get_setting(con, "llm_tag_mode", "free") == "restricted"
     # Einstellungen aus der DB (Web/App), nicht nur der Env-Startwert – sonst bleibt eine nur im
     # Web eingetragene KI wirkungslos. Ausgeschaltet heißt „übersprungen“, nicht „fehlgeschlagen“.
@@ -131,6 +141,9 @@ def llm_one(doc_id: int) -> bool:
                 con.execute("UPDATE documents SET status='done' WHERE id=?", (doc_id,))
             else:
                 con.execute("UPDATE documents SET status='done', llm_status='skipped', updated_at=datetime('now') WHERE id=?", (doc_id,))
+                # ohne KI wenigstens ein eindeutiges Datum aus dem Text – sonst stünde alles unter „Zu prüfen“
+                processing.date_without_ai(con, doc_id)
+                processing.sender_title_without_ai(con, doc_id)   # nach dem Datum: Titel „Absender · Datum“
         return True
     data, reachable = processing.llm_extract(row["text"], existing, restricted)
     with connect() as con:

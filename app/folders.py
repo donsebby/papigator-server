@@ -19,14 +19,32 @@ def hidden_tag_ids(con, visible_owners: list[int]) -> set[int]:
         "OR EXISTS (SELECT 1 FROM persons p WHERE p.tag_id=t.id)) "
         f"AND (t.created_by IS NULL OR t.created_by NOT IN ({marks})) "
         f"AND NOT EXISTS (SELECT 1 FROM persons p WHERE p.tag_id=t.id AND p.user_id IN ({marks})) "
+        # nur selbst gesetzte Tags zählen als „sichtbar“ – ein automatisch mitgehängter Oberordner (source='parent') nicht,
+        # sonst reichte es, einen fremden Unterordner-Namen zu erraten und anzuhängen (27.11.2026)
         "AND NOT EXISTS (SELECT 1 FROM document_tags dt JOIN documents d ON d.id=dt.document_id "
-        f"WHERE dt.tag_id=t.id AND d.owner_id IN ({marks}))", visible_owners * 3)}
+        f"WHERE dt.tag_id=t.id AND dt.source != 'parent' AND d.owner_id IN ({marks}))", visible_owners * 3)}
+    # Leere Tags anderer Nutzer (letztes Dokument endgültig gelöscht) bleiben verborgen (27.11.2026) – vorher waren sie
+    # dann für alle sichtbar. Leere Ordner von Admins (Ablage-Struktur für alle) und ohne Ersteller (alt) bleiben sichtbar.
+    foreign |= {r[0] for r in con.execute(
+        "SELECT t.id FROM tags t JOIN users u ON u.id=t.created_by WHERE u.is_admin=0 "
+        f"AND t.created_by NOT IN ({marks}) AND COALESCE(t.kind, '') != 'emergency' "
+        "AND NOT EXISTS (SELECT 1 FROM document_tags dt WHERE dt.tag_id=t.id) "
+        "AND NOT EXISTS (SELECT 1 FROM persons p WHERE p.tag_id=t.id)", visible_owners)}
     if not foreign:
         return set()
     tree = tag_tree(con)
+    # Nur Tags an sichtbaren Dokumenten lassen ihre Oberordner sichtbar (27.11.2026): ein leerer, selbst angelegter
+    # Unterordner unter einem fremden verborgenen Ordner verriet sonst dessen Namen
+    # … und nur, wenn der Unterordner selbst „unverdächtig“ ist: ohne Ersteller (alt), von einem Admin, von mir oder
+    # einem Partner. Ein fremder, nur angehängter Unterordner („Anwalt“ aus Sams „Scheidung“) verrät seinen Oberordner nicht.
+    on_visible = {r[0] for r in con.execute(
+        "SELECT DISTINCT dt.tag_id FROM document_tags dt JOIN documents d ON d.id=dt.document_id "
+        "JOIN tags c ON c.id=dt.tag_id LEFT JOIN users u ON u.id=c.created_by "
+        f"WHERE d.owner_id IN ({marks}) AND (c.created_by IS NULL OR u.is_admin=1 OR c.created_by IN ({marks}))",
+        visible_owners * 2)}
     keep: set[int] = set()
     for tid in tree:
-        if tid in foreign:
+        if tid in foreign or tid not in on_visible:
             continue
         p, seen = tree[tid][1], 0
         while p and p in tree and seen < 50:

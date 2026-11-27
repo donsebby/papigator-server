@@ -36,6 +36,10 @@ _DUE = re.compile(r"\b(fällig\w*|faellig\w*|frist(?:en)?|deadlines?|zahlen|beza
                   r"|due|overdue|payable|outstanding|(?:to|must|should)\s+(?:i\s+|we\s+)?pay)\b", re.I)
 _YEAR = re.compile(r"\b(?:aus|von|vom|in|im|im jahr|jahr|jahrgang|from|of|during|year)\s+(?:the\s+year\s+)?"
                    r"((?:19|20)\d{2})\b", re.I)
+_MINUS = re.compile(r"(?:^|\s)-([A-Za-zÄÖÜäöüß0-9][A-Za-zÄÖÜäöüß0-9&.\-]*)")
+_MONTH_WORDS = {"januar", "jänner", "februar", "märz", "maerz", "april", "mai", "juni", "juli", "august", "september",
+                "oktober", "november", "dezember", "january", "february", "march", "may", "june", "july", "october",
+                "december"}
 _WORD = re.compile(r"[A-Za-zÄÖÜäöüß0-9][A-Za-zÄÖÜäöüß0-9&.\-]*")
 
 
@@ -167,6 +171,8 @@ def interpret(con, user: auth.User, question: str, today: dt.date | None = None,
         m = _YEAR.search(q)
         if m:
             used.add(m.group(1))
+        # „seit 2023“, „since March 2025“: Jahre und Monatsnamen gehören zum Zeitraum, nicht in die Wortsuche (27.11.2026)
+        used.update(w.lower() for w in _WORD.findall(q) if re.fullmatch(r"(?:19|20)\d{2}", w) or w.lower() in _MONTH_WORDS)
 
     if _DUE.search(q):
         chips.append({"kind": "due", "label": "Open deadlines" if en else "Offene Fristen"})
@@ -174,6 +180,9 @@ def interpret(con, user: auth.User, question: str, today: dt.date | None = None,
         for m in _DUE.finditer(q):   # „to pay“: auch „pay“ ist kein Suchwort
             used.update(m.group(0).lower().split())
 
+    # „-mobilfunk“: ausschließen statt suchen (27.11.2026) – bisher wurde das Minus verschluckt und es zum Suchwort
+    minus = [m.group(1) for m in _MINUS.finditer(q)]
+    used.update(w.lower() for w in minus)
     # Personen: nur sichtbare Nutzer, Name als ganzes Wort („Sam“, „Sams“)
     words = _WORD.findall(q)
     if visible:
@@ -226,9 +235,10 @@ def interpret(con, user: auth.User, question: str, today: dt.date | None = None,
             continue
         kind = "person" if tag and tag.lower() in persons else "word"
         keywords.append({"kind": kind, "label": tag or w, "value": value, "tag": bool(tag)})
-    chips = keywords + kinds + chips
-    if keywords:
-        params["q"] = " ".join(k["value"] for k in keywords)
+    excluded = [{"kind": "word", "label": ("without " if en else "ohne ") + w, "value": "-" + w, "tag": False} for w in minus]
+    chips = keywords + excluded + kinds + chips
+    if keywords or excluded:
+        params["q"] = " ".join(k["value"] for k in keywords + excluded)
     if kinds:
         params["kind"] = ",".join(k["code"] for k in kinds)
     return {"query": q, "chips": chips, "params": params}

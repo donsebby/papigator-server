@@ -355,7 +355,7 @@ def run(src: _Source, username: str, dry_run: bool = False) -> dict:
             else:
                 problem(title, str(e.detail))
         except Exception as e:   # ein kaputtes Dokument hält den Rest nicht auf
-            log.warning("Paperless-Import: %s nicht übernommen: %s", title, e)
+            log.warning("Paperless-Import: ein Dokument nicht übernommen: %s", type(e).__name__)
             problem(title, "Datei nicht lesbar")
         finally:
             tmp.unlink(missing_ok=True)

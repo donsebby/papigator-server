@@ -122,8 +122,12 @@ def rule_allowed(con, created_by, owner_id) -> bool:
     fremder Bestand den Namen einer Person, die der andere gar nicht kennen soll."""
     if created_by is None or owner_id == created_by:
         return True
-    return con.execute("SELECT 1 FROM partner_shares WHERE from_user=? AND to_user=? AND can_edit=1",
-                       (owner_id, created_by)).fetchone() is not None
+    # Dazu muss der Besitzer den Bestand des Erstellers sehen (27.11.2026): sonst reichte es, jemandem ungefragt
+    # Schreibrecht zu geben, und dessen Kindernamen landeten an den eigenen Dokumenten
+    return (con.execute("SELECT 1 FROM partner_shares WHERE from_user=? AND to_user=? AND can_edit=1",
+                        (owner_id, created_by)).fetchone() is not None
+            and con.execute("SELECT 1 FROM partner_shares WHERE from_user=? AND to_user=?",
+                            (created_by, owner_id)).fetchone() is not None)
 
 
 def apply_rules(con, doc_id: int, text: str) -> list[str]:
@@ -497,6 +501,264 @@ def date_in_text(iso: str, text: str, allow_month: bool = True) -> bool:
                           rf"jahresbescheinigung)\s*:?\s*{y}(?!\d)", t))
 
 
+# ---------- Datum ohne KI (27.11.2026) ----------
+# Ohne KI-Server bekäme kein Dokument ein Datum und alles stünde unter „Zu prüfen“. Hier nur, was eindeutig ist:
+# ein beschriftetes Ausstellungsdatum („Datum: …“, „Rechnungsdatum …“), der Briefkopf („Musterstadt, den 14. Mai 2015“)
+# oder – wenn sonst nichts dasteht – das einzige Datum im ganzen Text, ohne Fristen-/Geburts-/Gültigkeitswort davor.
+# Mehrere verschiedene Kandidaten → keins (lieber „Zu prüfen“ als ein falsches Datum).
+
+_MON_RE = "|".join(sorted(set(_MONTH_NAMES) | {m.replace("ä", "ae") for m in _MONTH_NAMES}
+                          | {"mrz", "jan", "feb", "febr", "apr", "jun", "jul", "aug", "sep", "sept", "okt", "nov", "dez"},
+                          key=len, reverse=True))
+_DATE_ANY = re.compile(rf"(?<![\d.])(\d{{1,2}})\.(\d{{1,2}})\.(\d{{4}}|\d{{2}})(?![\d.]\d)"
+                       rf"|(?<!\d)(\d{{1,2}})\.\s*({_MON_RE})\.?\s+(\d{{4}})(?!\d)"
+                       rf"|(?<!\d)(\d{{4}})-(\d{{2}})-(\d{{2}})(?!\d)", re.I)
+# Beschriftung direkt davor (gleiche Zeile oder Zeile darüber): nur Ausstellungsdaten, nicht Geburts-/Liefer-/Buchungsdatum
+_DATE_LABEL = re.compile(r"(?:(?<![a-zäöüß])(?:rechnungs|beleg|bescheid|ausstellungs|ausfertigungs|brief)?datum|"
+                         r"(?<![a-zäöüß])(?:aus|fest|er)gestellt am|invoice date|issue date|date of issue|issued on)"
+                         r"[ \t]*[:.]?[ \t]*\n?[ \t]*$", re.I)
+# Datum allein in der Zeile direkt unter der Anschrift („76137 Karlsruhe“) – Briefkopf nach DIN
+_DATE_AFTER_ADDRESS = re.compile(r"^[ \t]*\d{5}[ \t]+[A-ZÄÖÜ][^\d\n]{1,40}$")
+# Briefkopf: Zeile beginnt mit dem Ort, Komma, (den) Datum – und hört dort auf
+# „Fällig am Dienstag, 25.11.“ oder „Bezahlt am Montag, 03.11.“ sehen aus wie „Karlsruhe, 03.11.“ – ein Ort hat kein „am“ und
+# keinen Wochentag (27.11.2026)
+_TOWN_NOT = re.compile(r"(?i)\b(am|an|um|bis|vom|ab|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b")
+_DATE_TOWN = re.compile(r"^[ \t]*[A-ZÄÖÜ][A-Za-zÄÖÜäöüß. /-]{1,40},[ \t]*(?:den[ \t]+)?$")
+# Steht so ein Wort kurz davor, ist es kein Ausstellungsdatum
+_DATE_NOT = re.compile(r"geb\.|geboren|geburt|gültig|gueltig|\bbis\b|\bab\b|fällig|faellig|zahlbar|zeitraum|stand|"
+                       r"liefer|leistung|beginn|ende|ablauf|frist|termin|vom\b|seit|buchung|valuta|druck|eingang|"
+                       r"kündig|kuendig|vertrag|zahlung|abbuch|einzug|rate\b|raten|\d\s*-\s*$|–\s*$", re.I)
+
+
+def _ocr_digits(text: str) -> str:
+    """Wie _norm, aber Zeilen bleiben erhalten (Briefkopf und Beschriftung hängen an der Zeile)."""
+    t = re.sub(r"(?<=\d)[Oo](?=\d)|(?<=\d)[Oo]\b|\b[Oo](?=\d)", "0", text)
+    t = re.sub(r"(?<=\d)[lI](?=\d)|\b[lI](?=\d)", "1", t)
+    return re.sub(r"(?<=\d)[ \t]*\.[ \t]*(?=\d)", ".", t)
+
+
+def _date_iso(m: re.Match) -> str | None:
+    g = m.groups()
+    try:
+        if g[0]:
+            d, mo, y = int(g[0]), int(g[1]), g[2]
+            y = int(y) if len(y) == 4 else (2000 + int(y) if int(y) <= datetime.date.today().year % 100 else 1900 + int(y))
+        elif g[3]:
+            name = g[4].lower().replace("ae", "ä")
+            mo = next(i + 1 for i, n in enumerate(_MONTH_NAMES) if n.startswith(name[:3]) or (name == "mrz" and i == 2))
+            d, y = int(g[3]), int(g[5])
+        else:
+            y, mo, d = int(g[6]), int(g[7]), int(g[8])
+        v = datetime.date(y, mo, d)
+    except (ValueError, StopIteration):
+        return None
+    return v.isoformat()
+
+
+def _date_plausible(iso: str) -> bool:
+    v = datetime.date.fromisoformat(iso)
+    return v.year >= 1950 and v <= datetime.date.today() + datetime.timedelta(days=7)
+
+
+def date_from_text(text: str | None) -> str | None:
+    """Ausstellungsdatum ohne KI – nur wenn eindeutig, sonst None."""
+    if not text:
+        return None
+    t = _ocr_digits(text)
+    labeled, plain = set(), []
+    for m in _DATE_ANY.finditer(t):
+        iso = _date_iso(m)
+        if not iso:
+            continue
+        start = t.rfind("\n", 0, m.start()) + 1
+        line_before = t[start:m.start()]
+        prev_line = t[t.rfind("\n", 0, max(start - 1, 0)) + 1:start] if start else ""
+        rest = t[m.end():(t.find("\n", m.end()) + 1 or len(t) + 1) - 1].strip()
+        alone = not line_before.strip()
+        if _DATE_LABEL.search(line_before) or (alone and _DATE_LABEL.search(prev_line)):
+            labeled.add(iso)
+        elif (_DATE_TOWN.match(line_before) and not _DATE_NOT.search(line_before) and not _TOWN_NOT.search(line_before)
+              and (not rest or rest.lower().startswith("unterschrift"))):
+            labeled.add(iso)
+        elif alone and not rest and _DATE_AFTER_ADDRESS.match(prev_line.rstrip("\n")):
+            labeled.add(iso)
+        else:
+            # Kontext: die Zeile bis zum Datum – steht das Datum allein, die Zeile darüber („Gültig bis:\n…“)
+            plain.append((iso, (line_before if line_before.strip() else prev_line)[-40:]))
+    # Auch Daten in der Zukunft zählen als Kandidaten („letzte Rate 2028“) – gewählt wird aber nur ein plausibles
+    if labeled:
+        iso = labeled.pop() if len(labeled) == 1 else None
+    elif len({iso for iso, _ in plain}) == 1 and not any(_DATE_NOT.search(before) for _, before in plain):
+        iso = plain[0][0]
+    else:
+        iso = None
+    return iso if iso and _date_plausible(iso) else None
+
+
+def date_without_ai(con, doc_id: int) -> bool:
+    """Ohne KI (llm_status 'skipped'): Datum aus dem Text, wenn noch keins da ist und niemand „kein Datum“ gesagt hat."""
+    row = con.execute("SELECT document_date, no_date, text FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if not row or row[0] or row[1] or not row[2]:
+        return False
+    iso = date_from_text(row[2])
+    if not iso:
+        return False
+    con.execute("UPDATE documents SET document_date=?, date_check=? WHERE id=? AND document_date IS NULL",
+                (iso, 1 if vat_date_doubtful(iso, row[2]) else 0, doc_id))
+    return True
+
+
+# ---------- Absender und Titel ohne KI (27.11.2026) ----------
+# Sprachunabhängig: keine Wortlisten, nur Namen, die im eigenen Pot schon als Absender stehen. Gesucht wird im
+# Briefkopf und in der Fußzeile (erste/letzte Zeilen), nie im Fließtext und nie in Bankzeilen – „Bankverbindung:
+# Sparkasse“ steht auf fast jeder Rechnung. Im Zweifel (zwei verschiedene) keiner. Wer einen Absender von Hand
+# einträgt, bringt ihn damit auch den übrigen Dokumenten ohne KI bei (learn_sender).
+_EDGE_LINES = 15
+_BANK_LINE = re.compile(r"iban|\bbic\b|swift|bank|konto|account|sort code|routing|\bblz\b", re.I)
+_PLAIN_TITLE = re.compile(r"scan(ned|ner)?|scansnap|img|image|dsc|pxl|photo|foto|bild|doc(ument)?|dokument|datei|file|"
+                          r"untitled|unbenannt|brother|epson|canon|mfc|ricoh|xerox|kyocera|whatsapp|\b[ap]m\b", re.I)
+
+
+def plain_title(title: str | None, original_name: str | None) -> bool:
+    """Titel ist nur ein Dateiname ohne Aussage („Scan 27.11.2026, 08:12“, „IMG_1234“, „scan_0001“)."""
+    t = (title or "").strip()
+    if not t:
+        return True
+    if t != Path(original_name or "Dokument").stem.strip():
+        return False                       # von Hand oder beim Hochladen vergeben
+    return len(re.findall(r"[^\W\d_]", _PLAIN_TITLE.sub(" ", t))) < 3
+
+
+def _name_pattern(name: str) -> re.Pattern:
+    parts = [re.escape(p) for p in name.lower().split()]
+    return re.compile(r"(?<![^\W_])" + r"\s+".join(parts) + r"(?![^\W_])")
+
+
+class KnownSenders:
+    """Absender, die im Pot schon stehen – einmal geladen, für viele Dokumente (Bestand, learn_sender). Haushaltsnamen
+    (Empfänger, Konten) sind keine Absender – sie stehen in jeder Anschrift."""
+    def __init__(self, con, owner_id: int):
+        own = {r[0].strip().lower() for r in con.execute(
+            "SELECT recipient FROM documents WHERE owner_id=? AND recipient IS NOT NULL", (owner_id,)) if r[0]}
+        own |= {r[0].strip().lower() for r in con.execute("SELECT display_name FROM users") if r[0]}
+        self.own = own
+        self.spell: dict[str, dict[str, int]] = {}
+        self.keys: dict[str, tuple[list[str], re.Pattern]] = {}
+        for (s,) in con.execute("SELECT trim(sender) FROM documents WHERE owner_id=? AND deleted_at IS NULL "
+                                "AND ext_pending=0 AND sender IS NOT NULL AND trim(sender) != ''", (owner_id,)):
+            self.add(s)
+
+    def add(self, s: str):
+        k = s.lower()
+        d = self.spell.setdefault(k, {})
+        d[s] = d.get(s, 0) + 1
+        if k not in self.keys and k not in self.own and len(re.findall(r"[^\W\d_]", k)) >= 3:
+            self.keys[k] = (k.split(), _name_pattern(k))
+
+    def find(self, text: str | None) -> str | None:
+        if not text:
+            return None
+        lines = [l for l in text.splitlines() if l.strip()]
+        edge = lines if len(lines) <= 2 * _EDGE_LINES else lines[:_EDGE_LINES] + lines[-_EDGE_LINES:]
+        hay_lines = [l.lower() for l in edge if not _BANK_LINE.search(l)]
+        if not hay_lines:
+            return None
+        hay = "\n".join(hay_lines)
+        def named(parts, pat) -> bool:
+            if not all(p in hay for p in parts):      # schneller Vorfilter, die Regel entscheidet
+                return False
+            # Hinter einer Beschriftung („Krankenkasse: AOK …“, „Behörde: Stadt …“) steht jemand anderes
+            return any(":" not in line[:m.start()] for line in hay_lines for m in pat.finditer(line))
+        found = [k for k, (parts, pat) in self.keys.items() if named(parts, pat)]
+        # „Telekom“ steckt in „Deutsche Telekom“: dann zählt nur der längere Name
+        found = [k for k in found if not any(k != o and self.keys[k][1].search(o) for o in found)]
+        if len(found) != 1:
+            return None
+        return sorted(self.spell[found[0]].items(), key=lambda x: (-x[1], x[0] == x[0].upper(), x[0]))[0][0]
+
+
+def sender_from_known(con, owner_id: int, text: str | None) -> str | None:
+    return KnownSenders(con, owner_id).find(text)
+
+
+def _title_date(iso: str, lang: str) -> str:
+    return iso if lang == "en" else f"{iso[8:10]}.{iso[5:7]}.{iso[:4]}"
+
+
+def sender_title_without_ai(con, doc_id: int, known: dict | None = None) -> bool:
+    """Ohne KI: Absender aus dem eigenen Bestand; ist der Titel nur ein Dateiname, wird er „Absender · Datum“.
+    known: Zwischenspeicher owner_id → KnownSenders, wenn viele Dokumente nacheinander dran sind."""
+    row = con.execute("SELECT owner_id, sender, text, title, original_name, document_date FROM documents WHERE id=?",
+                      (doc_id,)).fetchone()
+    if not row or not row[2]:
+        return False
+    sender = row[1]
+    changed = False
+    if not (sender or "").strip():
+        ks = known.get(row[0]) if known is not None else None
+        if ks is None:
+            ks = KnownSenders(con, row[0])
+            if known is not None:
+                known[row[0]] = ks
+        sender = ks.find(row[2])
+        if sender:
+            con.execute("UPDATE documents SET sender=? WHERE id=? AND (sender IS NULL OR trim(sender)='')", (sender, doc_id))
+            ks.add(sender)
+            tags_from_sender(con, doc_id)
+            changed = True
+    if sender and plain_title(row[3], row[4]):
+        r = con.execute("SELECT value FROM settings WHERE key='llm_language'").fetchone()   # init_db: ohne Row
+        lang = config._language(r[0] if r else config.LANGUAGE)
+        title = sender + (" · " + _title_date(row[5], lang) if row[5] else "")
+        con.execute("UPDATE documents SET title=? WHERE id=?", (title[:200], doc_id))
+        changed = True
+    return changed
+
+
+def tags_from_sender(con, doc_id: int) -> int:
+    """Ohne KI: Tags, die die letzten Briefe desselben Absenders im Pot alle tragen (mindestens 2, höchstens die
+    letzten 5) – sprachunabhängig, nur aus dem eigenen Bestand. Keine Personen und keine Notfallmappe: das hängt am
+    Empfänger bzw. an einer bewussten Entscheidung, nicht am Absender."""
+    row = con.execute("SELECT owner_id, sender FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if not row or not (row[1] or "").strip():
+        return 0
+    if con.execute("SELECT 1 FROM document_tags WHERE document_id=? AND source='user'", (doc_id,)).fetchone():
+        return 0   # schon von Hand getaggt: die Auswahl der Person gilt
+    prev = [r[0] for r in con.execute(
+        "SELECT id FROM documents WHERE owner_id=? AND id!=? AND deleted_at IS NULL AND ext_pending=0 "
+        "AND trim(sender) = ? COLLATE NOCASE ORDER BY COALESCE(document_date, created_at) DESC, id DESC LIMIT 5",
+        (row[0], doc_id, row[1].strip()))]
+    if len(prev) < 2:
+        return 0
+    common: set | None = None
+    for p in prev:
+        tags = {r[0] for r in con.execute("SELECT dt.tag_id FROM document_tags dt JOIN tags t ON t.id=dt.tag_id "
+                                          "WHERE dt.document_id=? AND dt.source != 'parent' AND t.kind IS NULL", (p,))}
+        common = tags if common is None else common & tags
+        if not common:
+            return 0
+    return sum(con.execute("INSERT OR IGNORE INTO document_tags(document_id, tag_id, source) VALUES (?,?,'rule')",
+                           (doc_id, t)).rowcount for t in sorted(common))
+
+
+def learn_sender(con, owner_id: int, name: str) -> int:
+    """Nach einem Absender von Hand: die übrigen Dokumente ohne KI und ohne Absender im selben Pot nochmal prüfen.
+    Ändern kann sich nur etwas, wo der neue Name im Text steht – die übrigen hatten vorher keinen oder zwei, und ein
+    weiterer Name macht daraus nie genau einen."""
+    parts = name.strip().lower().split()
+    if not parts:
+        return 0
+    known: dict = {}
+    n = 0
+    for i, text in con.execute("SELECT id, text FROM documents WHERE owner_id=? AND llm_status='skipped' "
+                               "AND deleted_at IS NULL AND (sender IS NULL OR trim(sender)='') AND text IS NOT NULL",
+                               (owner_id,)).fetchall():
+        low = text.lower()
+        if all(p in low for p in parts):
+            n += sender_title_without_ai(con, i, known)
+    return n
+
+
 # ---------- Gewährleistung / Garantie (17.11.2026) ----------
 # Kaufbelege über Waren: gesetzliche Gewährleistung 2 Jahre (§ 438 BGB) ab Übergabe – wir rechnen ab Belegdatum, das ist
 # eine Näherung. Eine längere Garantie zählt nur, wenn sie so im Text steht (wie Datum und Betrag).
@@ -622,6 +884,23 @@ def apply_expiry(con, doc_id: int, data: dict) -> None:
     con.execute("UPDATE documents SET expires_on=?, expires_what=? WHERE id=?", (exp, what, doc_id))
 
 
+# Werkstattrechnungen drucken den nächsten HU-Termin mit („HU: 11.2026“) – ohne HU-Bericht stand er nirgends im Blick
+_HU_NEXT = re.compile(r"(?<![a-zäöü])(?:nächste\s+)?(?:hu|hauptuntersuchung)\s*(?:fällig|bis)?\s*[:.]?\s*"
+                      r"(0?[1-9]|1[0-2])\s*[./]\s*(20\d\d|\d\d)(?![\d./])", re.I)
+
+
+def hu_from_text(text: str | None, doc_date: str | None) -> str | None:
+    """Nächster HU-Termin (Monatsende) aus dem Text, nur wenn er nach dem Belegdatum liegt."""
+    m = _HU_NEXT.search(text or "")
+    if not m:
+        return None
+    year = int(m.group(2)) + (2000 if len(m.group(2)) == 2 else 0)
+    nxt = _month_end(f"{year:04d}-{int(m.group(1)):02d}-01")
+    if doc_date and nxt <= str(doc_date)[:10]:
+        return None
+    return nxt
+
+
 def apply_service(con, doc_id: int, data: dict) -> None:
     """Prüfung/Wartung belegt (HU-Bericht, Heizungswartung …): nächster Termin aus dem Text, sonst Belegdatum + übliche
     Frist. Welche davon offen ist, entscheidet /upcoming: nur der jüngste Beleg je Art und Besitzer."""
@@ -629,10 +908,13 @@ def apply_service(con, doc_id: int, data: dict) -> None:
     if not row or row["service_what"]:
         return
     what = _closed(data.get("service_what"), SERVICES)
+    text = row["text"] or ""
     if not what:
+        nxt = hu_from_text(text, row["document_date"])
+        if nxt:
+            con.execute("UPDATE documents SET service_what='Hauptuntersuchung', service_next=? WHERE id=?", (nxt, doc_id))
         return
     nxt = _iso_date(data.get("service_next"))
-    text = row["text"] or ""
     if nxt and not date_in_text(nxt, text, allow_month=False) and _exact_in_month(nxt, text):
         nxt = _exact_in_month(nxt, text)
     elif nxt and month_in_text(nxt, text):
@@ -666,6 +948,23 @@ def apply_refund(con, doc_id: int) -> None:
                 con.execute("UPDATE documents SET refund_state='done', refund_doc=? WHERE id=?", (doc_id, r["id"]))
 
 
+_SWEEP = re.compile(r"schornsteinfeger|kaminkehrer|kaminfeger", re.I)
+
+
+def apply_sweep_35a(con, doc_id: int) -> bool:
+    """Schornsteinfeger-Rechnungen sind Arbeit (Kehr-, Mess- und Überprüfungsgebühren) – als Handwerkerleistung nach
+    § 35a absetzbar. Die KI ließ das Feld leer, weil kein „Lohnanteil“ ausgewiesen ist (27.11.2026). Nur Rechnungen,
+    nur wenn das Feld noch leer ist; die Feuerstättenschau (hoheitlich) nicht."""
+    row = con.execute("SELECT doc_kind, direction, amount, tax_35a, text FROM documents WHERE id=?", (doc_id,)).fetchone()
+    if not row or row["tax_35a"] is not None or row["doc_kind"] != "rechnung" or row["direction"] not in (None, "out"):
+        return False
+    text = row["text"] or ""
+    if row["amount"] and row["amount"] > 0 and _SWEEP.search(text) and not re.search(r"feuerstättenschau", text, re.I):
+        con.execute("UPDATE documents SET tax_35a=? WHERE id=?", (row["amount"], doc_id))
+        return True
+    return False
+
+
 def apply_return_window(con, doc_id: int, data: dict) -> None:
     """Einstellung „Rücksendefrist merken“: Online-Kauf einer Ware → Frist 14 Tage ab Belegdatum (Widerruf), wenn das
     Dokument noch keine Frist hat. Aus = nichts (Standard)."""
@@ -687,6 +986,7 @@ def apply_extras(con, doc_id: int, data: dict) -> None:
     apply_expiry(con, doc_id, data)
     apply_service(con, doc_id, data)
     apply_refund(con, doc_id)
+    apply_sweep_35a(con, doc_id)
 
 
 def apply_warranty(con, doc_id: int, data: dict) -> None:
@@ -742,6 +1042,68 @@ def _relative_due_ok(due: str, doc_date: str | None, text: str) -> bool:
     return False
 
 
+# 16 % Mehrwertsteuer galt seit 2007 nur von Juli bis Dezember 2020 (Corona-Senkung). Eine Rechnung mit 16 % und einem
+# anderen Jahr hat sehr wahrscheinlich ein falsch gelesenes Datum: die Texterkennung machte aus „2020“ zweimal „2025“
+# (27.11.2026) – das Datum stand also „im Text“, und keine Prüfung schlug an.
+_VAT16 = re.compile(r"(?:mwst|ust|umsatzsteuer|mehrwertsteuer)\.?[^\n\d]{0,20}16(?:[,.]0+)?\s?%"
+                    r"|16(?:[,.]0+)?\s?%\s*(?:mwst|ust|umsatzsteuer|mehrwertsteuer)", re.I)
+
+
+def vat_date_doubtful(date: str | None, text: str | None) -> bool:
+    if not date or not text or not _VAT16.search(text):
+        return False
+    d = str(date)[:7]
+    return d >= "2007-01" and not "2020-07" <= d <= "2021-03"   # bis März 2021: Rechnungen über Leistungen aus 2020
+
+
+def flag_vat_dates(con) -> int:
+    """Einmalig für den Bestand (date_check_v2): Rechnungen mit 16 % MwSt außerhalb von 2020 unter „Zu prüfen“."""
+    n = 0
+    for i, d, t in con.execute("SELECT id, document_date, text FROM documents WHERE document_date IS NOT NULL "
+                               "AND deleted_at IS NULL AND date_check=0").fetchall():
+        if vat_date_doubtful(d, t):
+            con.execute("UPDATE documents SET date_check=1 WHERE id=?", (i,))
+            n += 1
+    log.info("Datum prüfen (16 %% MwSt): %s Dokument(e) markiert", n)
+    return n
+
+
+def recheck_v2(con) -> dict:
+    """Einmalig für den Bestand (27.11.2026, Stichprobe): Empfänger, die der Absender sind, löschen und neu erkennen
+    lassen; Nummern des Absenders entfernen; § 35a beim Schornsteinfeger; HU-Termin aus Werkstattrechnungen;
+    16-%-Rechnungen außerhalb 2020 unter „Zu prüfen“. Von Hand Gesetztes bleibt: nur leere Felder werden gefüllt."""
+    rows = con.execute("SELECT id, status, llm_status, sender, recipient, refs, doc_kind, document_date, text "
+                       "FROM documents WHERE deleted_at IS NULL").fetchall()
+    n = {"recipient": 0, "refs": 0, "tax_35a": 0, "hu": 0}
+    for r in rows:
+        i, status, llm_status, sender, recipient, refs, kind, date, text = r
+        if recipient and same_party(recipient, sender):
+            again = status == "done" and llm_status == "done" and bool(text)
+            con.execute("UPDATE documents SET recipient=NULL, llm_status=? WHERE id=?",
+                        ("refill_k" if again else llm_status, i))
+            n["recipient"] += 1
+        if refs:
+            try:
+                d = json.loads(refs)
+            except ValueError:
+                d = None
+            if isinstance(d, dict):
+                keep = {k: v for k, v in d.items() if not sender_id(str(v), text or "", kind)}
+                if keep != d:
+                    con.execute("UPDATE documents SET refs=? WHERE id=?",
+                                (json.dumps(keep, ensure_ascii=False) if keep else None, i))
+                    n["refs"] += 1
+        n["tax_35a"] += apply_sweep_35a(con, i)
+        if not con.execute("SELECT service_what FROM documents WHERE id=?", (i,)).fetchone()[0]:
+            nxt = hu_from_text(text, date)
+            if nxt:
+                con.execute("UPDATE documents SET service_what='Hauptuntersuchung', service_next=? WHERE id=?", (nxt, i))
+                n["hu"] += 1
+    n["date_check"] = flag_vat_dates(con)
+    log.info("Nachprüfung Bestand: %s", n)
+    return n
+
+
 def flag_doubtful_dates(con) -> int:
     """Einmalig für den Bestand: Dokumente markieren, deren Datum so nicht im Text steht (date_check=1). Das Datum
     bleibt stehen – vielleicht hat es jemand von Hand richtig eingetragen –, es erscheint aber unter „Zu prüfen“.
@@ -760,7 +1122,7 @@ def recheck_flagged_dates(con) -> int:
     """Bei jedem Start: markierte Dokumente erneut prüfen – kennt der Abgleich inzwischen mehr Schreibweisen,
     verschwindet eine falsche Markierung von selbst."""
     rows = con.execute("SELECT id, document_date, text FROM documents WHERE date_check=1").fetchall()
-    ok = [r[0] for r in rows if r[1] and r[2] and date_in_text(str(r[1])[:10], r[2])]
+    ok = [r[0] for r in rows if r[1] and r[2] and date_in_text(str(r[1])[:10], r[2]) and not vat_date_doubtful(r[1], r[2])]
     for i in ok:
         con.execute("UPDATE documents SET date_check=0 WHERE id=?", (i,))
     if ok:
@@ -827,6 +1189,8 @@ def apply_money(con, doc_id: int, data: dict) -> None:
     elif row and row["amount"] is not None and new_amount is not None and abs(new_amount - row["amount"]) > 0.01 * max(row["amount"], 1):
         fields.pop("direction", None)
         fields.pop("recurring", None)
+    hand = hand_fields(con, doc_id)
+    fields = {k: v for k, v in fields.items() if k not in hand}   # von Hand Geändertes bleibt
     if not fields:
         return
     sets = ", ".join(f"{k}=?" for k in fields)
@@ -844,33 +1208,107 @@ def _alnum(s) -> str:
     return re.sub(r"[^0-9a-zäöüß]", "", str(s or "").lower())
 
 
-def recipient_from(data: dict, text: str) -> str | None:
-    """Empfänger – nur, wenn jedes längere Wort davon so im Text steht (keine erfundenen Namen)."""
+# Wörter, die in Absender und Empfänger vorkommen dürfen, ohne dass es derselbe ist
+_NAME_STOP = {"gmbh", "mbh", "ohg", "und", "deutschland", "germany", "online", "familie", "herrn", "frau", "herr",
+              "service", "group", "gruppe", "verein"}
+
+
+def _name_words(s) -> set[str]:
+    return {w for w in re.findall(r"[a-zäöüß]{4,}", str(s or "").lower()) if w not in _NAME_STOP}
+
+
+def same_party(recipient, sender) -> bool:
+    """Empfänger ist in Wahrheit der Absender (27.11.2026): Briefköpfe kleiner Betriebe nennen oben den Inhaber
+    („Auto-Brechtl · Roland Brechtl“), die KI nahm ihn als Empfänger. Ähnlich statt gleich – die Texterkennung macht
+    aus „Brechtl“ auch „Brechil“ oder „Brechtli“."""
+    from difflib import SequenceMatcher
+    rw, sw = _name_words(recipient), _name_words(sender)
+    return any(a == b or (a[:3] == b[:3] and SequenceMatcher(None, a, b).ratio() >= 0.8) for a in rw for b in sw)
+
+
+def household_names(con, owner_id: int) -> list[str]:
+    """Namen des Haushalts (Konten, Personen, von Hand eingetragene Empfänger) – die sind Empfänger, auch wenn der
+    Absender zufällig gleich heißt („Sam Beispiel“ und „Beispiel Elektro GmbH“, 27.11.2026)."""
+    # Kontonamen nur mit Vor- und Nachnamen – ein bloßes „Sam“ machte sonst den Kaminkehrer „Sam Ruß“ zum Haushalt
+    names = [r[0] for r in con.execute("SELECT display_name FROM users") if r[0] and len(r[0].split()) >= 2]
+    names += [r[0] for r in con.execute(
+        "SELECT DISTINCT recipient FROM documents WHERE owner_id=? AND recipient IS NOT NULL "
+        "AND ',' || COALESCE(hand_fields, '') || ',' LIKE '%,recipient,%'", (owner_id,))]
+    # … oder Empfänger, die bei mindestens zwei verschiedenen Absendern vorkommen (das ist man selbst)
+    names += [r[0] for r in con.execute(
+        "SELECT recipient FROM documents WHERE owner_id=? AND recipient IS NOT NULL AND sender IS NOT NULL "
+        "AND deleted_at IS NULL GROUP BY lower(recipient) HAVING COUNT(DISTINCT lower(sender)) >= 2", (owner_id,))]
+    return names
+
+
+def is_household(recipient: str, household: list[str]) -> bool:
+    rw = _name_words(recipient) | {w for w in re.findall(r"[a-zäöüß]{3,}", recipient.lower())}
+    for h in household:
+        hw = {w for w in re.findall(r"[a-zäöüß]{3,}", (h or "").lower()) if w not in _NAME_STOP}
+        if hw and hw <= rw:
+            return True
+    return False
+
+
+def recipient_from(data: dict, text: str, sender: str | None = None, household: list[str] | None = None) -> str | None:
+    """Empfänger – nur, wenn jedes längere Wort davon so im Text steht (keine erfundenen Namen) und es nicht der
+    Absender ist."""
     name = re.sub(r"\s+", " ", str(data.get("recipient") or "")).strip(" ,;:")[:120]
     words = [w for w in re.findall(r"[\wäöüßÄÖÜ-]{3,}", name) if w.lower() not in ("und", "herrn", "frau", "herr")]
     if not name or not words:
+        return None
+    if same_party(name, sender if sender is not None else data.get("sender")) and not is_household(name, household or []):
         return None
     low = (text or "").lower()
     # ganze Wörter: „Ben“ darf nicht in „Benachrichtigung“ stecken
     return name if all(re.search(r"(?<![\wäöüß])" + re.escape(w.lower()) + r"(?![\wäöüß])", low) for w in words) else None
 
 
-def refs_from(data: dict, text: str) -> dict | None:
-    """Nummern (Vertrag, Kunde, Aktenzeichen, Rechnung, sonstige) – nur, was so im Text steht."""
+# Kennungen des Absenders selbst, keine Nummer „meines“ Vorgangs (27.11.2026: die Steuernummer des Schornsteinfegers
+# stand als sonstige Nummer da). Die Steuernummer bleibt bei Bescheiden & Co. – dort ist es meine.
+_SENDER_ID_LABEL = re.compile(r"(?:ust|umsatzsteuer|mwst)[\s.-]*(?:id|ident)|weee|\bhr[ab]\b|gläubiger|glaeubiger|"
+                              r"registergericht|handelsregister", re.I)   # nicht „Amtsgericht“: Aktenzeichen dort sind meine
+_TAX_NO_LABEL = re.compile(r"\bst[\s.-]*nr|steuer[\s.-]*nr|steuernummer", re.I)
+_OWN_TAX_NO_KINDS = {"bescheid", "antrag", "bescheinigung", "lohnabrechnung", "gehalt"}
+
+
+def _ref_pattern(a: str) -> str:
+    # Zeichen in Folge, dazwischen nur Trenner (Leerzeichen . / -), an Wortgrenzen – „2026 1“ darf nicht aus
+    # „… 2026, 1 …“ zusammengesetzt werden
+    return r"(?<![0-9a-zäöüß])" + r"[\s./-]?".join(re.escape(ch) for ch in a) + r"(?![0-9a-zäöüß])"
+
+
+def sender_id(value: str, text: str, kind: str | None) -> bool:
+    """Steht die Nummer überall nur hinter „USt-IdNr.“, „HRB“, „Gläubiger-ID“ … (bzw. „St.Nr.“ außerhalb von
+    Bescheiden)? Dann gehört sie dem Absender."""
+    if _SENDER_ID_LABEL.search(value):
+        return True                     # „HRB 5919“, „USt-IdNr. DE …“ als Wert selbst
+    low = (text or "").lower()
+    hits = list(re.finditer(_ref_pattern(_alnum(value)), low))
+    if not hits:
+        return False
+    def labelled(m):
+        before = low[max(0, m.start() - 30):m.start()]
+        before = before.splitlines()[-1] if before.splitlines() else before
+        return bool(_SENDER_ID_LABEL.search(before)) or (kind not in _OWN_TAX_NO_KINDS and bool(_TAX_NO_LABEL.search(before)))
+    return all(labelled(m) for m in hits)
+
+
+def refs_from(data: dict, text: str, kind: str | None = None) -> dict | None:
+    """Nummern (Vertrag, Kunde, Aktenzeichen, Rechnung, sonstige) – nur, was so im Text steht und nicht dem Absender
+    gehört (Umsatzsteuer-ID, Handelsregister …)."""
     raw = data.get("references")
     if not isinstance(raw, dict):
         return None
     low = (text or "").lower()
+    kind = kind if kind is not None else kind_code(data.get("kind"))
     out = {}
     for k in REF_KEYS:
         v = re.sub(r"\s+", " ", str(raw.get(k) or "")).strip()[:60]
         a = _alnum(v)
         if len(a) < 3 or not any(ch.isdigit() for ch in a):
             continue
-        # Zeichen in Folge, dazwischen nur Trenner (Leerzeichen . / -), an Wortgrenzen – „2026 1“ darf nicht aus
-        # „… 2026, 1 …“ zusammengesetzt werden
-        pat = r"(?<![0-9a-zäöüß])" + r"[\s./-]?".join(re.escape(ch) for ch in a) + r"(?![0-9a-zäöüß])"
-        if re.search(pat, low):
+        if re.search(_ref_pattern(a), low) and not sender_id(v, text, kind):
             out[k] = v
     return out or None
 
@@ -878,7 +1316,7 @@ def refs_from(data: dict, text: str) -> dict | None:
 def kind_fields(con, doc_id: int, data: dict, refill: bool = False) -> dict:
     """Dokumentart, Empfänger und Nummern. refill (Bestand nachtragen): Art nur, wo bisher keine oder „Mitteilung“
     stand (die Geld-Arten sind erprobt), Empfänger und Nummern nur, wo noch nichts steht."""
-    row = con.execute("SELECT text, doc_kind, recipient, refs FROM documents WHERE id=?", (doc_id,)).fetchone()
+    row = con.execute("SELECT text, doc_kind, recipient, refs, sender FROM documents WHERE id=?", (doc_id,)).fetchone()
     if not row:
         return {}
     text = row["text"] or ""
@@ -886,10 +1324,11 @@ def kind_fields(con, doc_id: int, data: dict, refill: bool = False) -> dict:
     kind = kind_code(data.get("kind"))
     if kind and (not refill or row["doc_kind"] in (None, "info")):
         out["doc_kind"] = kind
-    rec = recipient_from(data, text)
+    owner = con.execute("SELECT owner_id FROM documents WHERE id=?", (doc_id,)).fetchone()
+    rec = recipient_from(data, text, data.get("sender") or row["sender"], household_names(con, owner[0]) if owner else [])
     if rec and (not refill or not row["recipient"]):
         out["recipient"] = rec
-    refs = refs_from(data, text)
+    refs = refs_from(data, text, out.get("doc_kind") or kind or row["doc_kind"])
     if refs and (not refill or not row["refs"]):
         out["refs"] = json.dumps(refs, ensure_ascii=False)
     return out
@@ -900,8 +1339,21 @@ def apply_kind(con, doc_id: int, data: dict) -> None:
     fields = kind_fields(con, doc_id, data, refill=True)
     if fields.get("doc_kind") in NON_MONEY_KINDS:
         fields.update(direction="none", recurring=None)   # z. B. „Mitteilung“ → „Angebot“: Summe zählt nicht als Ausgabe
+    hand = hand_fields(con, doc_id)
+    fields = {k: v for k, v in fields.items() if k not in hand}   # von Hand Geändertes bleibt
     if fields:
         con.execute(f"UPDATE documents SET {', '.join(f'{k}=?' for k in fields)} WHERE id=?", (*fields.values(), doc_id))
+
+
+def hand_fields(con, doc_id: int) -> set[str]:
+    r = con.execute("SELECT hand_fields FROM documents WHERE id=?", (doc_id,)).fetchone()
+    return {f for f in ((r[0] if r else None) or "").split(",") if f}
+
+
+def mark_hand_fields(con, doc_id: int, names) -> None:
+    """Felder als „von Hand“ merken – die KI lässt sie danach in Ruhe."""
+    names = set(names) | hand_fields(con, doc_id)
+    con.execute("UPDATE documents SET hand_fields=? WHERE id=?", (",".join(sorted(names)) or None, doc_id))
 
 
 def apply_llm(con, doc_id: int, data: dict, allowed: set[str] | None = None) -> None:
@@ -919,17 +1371,17 @@ def apply_llm(con, doc_id: int, data: dict, allowed: set[str] | None = None) -> 
     text = (trow["text"] if trow else "") or ""
     date = _iso_date(data.get("document_date"))
     if date and text and not date_in_text(date, text):
-        log.info("Dokument %s: Datum %s steht nicht im Text – verworfen", doc_id, date)
+        log.info("Dokument %s: Datum der KI steht nicht im Text – verworfen", doc_id)
         date = None
     if date:
         fields["document_date"] = date
-        fields["date_check"] = 0   # steht im Text – geprüft
+        fields["date_check"] = 1 if vat_date_doubtful(date, text) else 0   # steht im Text – geprüft (außer 16 % MwSt)
         fields["no_date"] = 0
     # Betrag: wie das Datum nur, wenn er so im Text steht – ein zusammengerechneter oder geratener Betrag
     # würde Summen, Steuer-Paket und Verträge verfälschen
     amount = _amount(data.get("amount"))
     if amount is not None and text and not amount_in_text(amount, text):
-        log.info("Dokument %s: Betrag %s steht nicht im Text – verworfen", doc_id, amount)
+        log.info("Dokument %s: Betrag der KI steht nicht im Text – verworfen", doc_id)
         amount = None
     elif amount is not None:
         fields["amount"] = amount
@@ -950,7 +1402,7 @@ def apply_llm(con, doc_id: int, data: dict, allowed: set[str] | None = None) -> 
     if due and date and due < date:
         due = None   # Frist vor dem Dokument: verwechselt (z. B. Leistungszeitraum)
     if due and text and not (date_in_text(due, text, allow_month=False) or _relative_due_ok(due, date, text)):
-        log.info("Dokument %s: Frist %s steht nicht im Text – verworfen", doc_id, due)
+        log.info("Dokument %s: Frist der KI steht nicht im Text – verworfen", doc_id)
         due = None
     if due:
         row = con.execute("SELECT due_date, date(created_at, ?) AS cutoff FROM documents WHERE id=?",
@@ -960,6 +1412,10 @@ def apply_llm(con, doc_id: int, data: dict, allowed: set[str] | None = None) -> 
             fields["due_note"] = note
             # Schon beim Ablegen lange vorbei (alter Brief, spät gescannt): nicht als „überfällig“ melden
             fields["due_done"] = 1 if row["cutoff"] and due < row["cutoff"] else 0
+    # Von Hand Geändertes bleibt (hand_fields, 27.11.2026)
+    hand = hand_fields(con, doc_id)
+    fields = {k: v for k, v in fields.items() if k not in hand and not (k in ("date_check", "no_date") and "document_date" in hand)
+              and not (k in ("due_note", "due_done") and "due_date" in hand)}
     if fields:
         sets = ", ".join(f"{k}=?" for k in fields)
         con.execute(f"UPDATE documents SET {sets} WHERE id=?", (*fields.values(), doc_id))

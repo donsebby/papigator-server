@@ -1,0 +1,94 @@
+#include <tunables/global>
+
+# AppArmor-Profil des Home-Assistant-Add-ons (der Supervisor lädt es und ersetzt den Namen durch den Slug).
+# Lesen darf der Container sein eigenes Dateisystem, schreiben nur in /data (Add-on-Daten), /share (Eingang,
+# Sicherung), /tmp und die Benutzerdateien in /etc (das Start-Skript stellt den Dienst-Nutzer auf PUID/PGID 0 um).
+# Ausführen nur Programme aus dem Image (Python, OCR-Werkzeuge, Start-Skripte). Kein mount, kein ptrace fremder
+# Prozesse, kein Schreiben in /proc/sys oder /sys.
+# ci/ha-addon-check.sh startet das Add-on unter genau diesem Profil und bricht bei jeder Verweigerung ab –
+# braucht Papigator ein neues Programm oder einen neuen Schreibort, hier ergänzen.
+# Achtung: Der Supervisor ersetzt den Profilnamen „papigator“ durch den Slug – in Regeln (z. B. /share/papigator/**)
+# den Namen deshalb nicht verwenden, sonst stimmen sie unter HA nicht mehr.
+profile papigator flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Start als root: Besitz in /data und /share richten (chown), Benutzer umstellen (usermod), Rechte abgeben (setpriv)
+  capability chown,
+  capability dac_override,
+  capability dac_read_search,
+  capability fowner,
+  capability fsetid,
+  capability setuid,
+  capability setgid,
+  capability kill,
+  capability audit_write,
+
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  network netlink raw,
+  network unix,
+
+  signal (send, receive) peer=@{profile_name},
+  # Anhalten (HA-Backup mit backup: cold, Update, Neustart): Docker/runc schicken TERM von außen
+  signal (receive) peer=unconfined,
+  signal (receive) peer=runc,
+  signal (receive) peer=crun,
+  ptrace (read) peer=@{profile_name},
+
+  deny mount,
+  deny umount,
+  deny pivot_root,
+  deny @{PROC}/sys/** w,
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/kcore rwklx,
+  deny /sys/** w,
+
+  # Lesen: das eigene Dateisystem des Containers (Image, /data, /share, /proc des eigenen Namensraums)
+  /** r,
+  @{PROC}/** r,
+
+  # Bibliotheken laden (Python-Erweiterungen, Tesseract, Ghostscript, Poppler)
+  /usr/lib/** mr,
+  /usr/lib64/** mr,
+  /lib/** mr,
+  /lib64/** mr,
+  /usr/local/lib/** mr,
+  /venv/** mr,
+
+  # Ausführen: Start-Skripte, Python, OCR-Werkzeuge, Shell, Benutzerverwaltung
+  /usr/local/bin/** rix,
+  /venv/bin/** rix,
+  /usr/bin/** rix,
+  /usr/sbin/** rix,
+  /bin/** rix,
+  /sbin/** rix,
+  /usr/lib/ghostscript/** rix,
+  /usr/libexec/** rix,
+
+  # Schreiben
+  /data/ rw,
+  /data/** rwlk,
+  /share/ r,
+  /share/** rwlk,
+  /tmp/ rw,
+  /tmp/** rwlk,
+  /var/tmp/** rwlk,
+  /dev/shm/** rwlk,
+  /dev/null rw,
+  /dev/zero rw,
+  /dev/full rw,
+  /dev/random r,
+  /dev/urandom r,
+  /dev/tty rw,
+  /dev/pts/* rw,
+  /var/cache/fontconfig/** rwk,
+
+  # usermod/groupmod im Start-Skript (Dienst-Nutzer auf PUID/PGID)
+  /etc/ r,
+  /etc/{passwd,shadow,group,gshadow,subuid,subgid}* rwl,
+  /etc/.pwd.lock rwk,
+  /var/log/{lastlog,faillog} rw,
+  /var/mail/** rw,
+}

@@ -8,7 +8,13 @@
 <!-- Erscheinungsbild (bl.theme) und Farbthema (bl.color) vor dem ersten Bild setzen, damit nichts aufblitzt -->
 <script>(function(){var h=document.documentElement,t="system",c="wiese";try{t=localStorage.getItem("bl.theme")||t;var s=localStorage.getItem("bl.color");if(/^(wiese|sonne|ozean|lavendel|bonbon|schlicht)$/.test(s))c=s}catch(e){}h.dataset.theme=t;h.dataset.color=c})();</script>
 <link rel="icon" type="image/png" href="icon.png">
-<link rel="apple-touch-icon" href="icon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<!-- Installierbar (PWA): Android/Chrome „App installieren“, iOS „Zum Home-Bildschirm“ – bewusst ohne Service Worker,
+     damit nie ein altes app.js aus einem Cache kommt -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#f3f3f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d12" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-title" content="Papigator">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -65,7 +71,7 @@
       <input id="search" type="search" placeholder="Suchen oder fragen …" autocomplete="off" aria-label="Suchen oder fragen" title="Minus vor einem Wort schließt es aus, z. B. „sam -alex“">
     </div>
     <div id="scopebar" class="hidden"><div class="segmented" id="scope-seg"></div></div>
-    <label class="btn primary" for="file-input"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>Hochladen</label>
+    <label class="btn primary" for="file-input" tabindex="0" role="button"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>Hochladen</label>
     <!-- PDFs und Fotos (Server macht aus Bildern eine PDF, mehrere Bilder = eine mehrseitige); am Handy bietet die
          Auswahl auch die Kamera an – ohne capture, sonst gäbe es nur die Kamera -->
     <input id="file-input" type="file" accept="application/pdf,image/jpeg,image/png,image/tiff" multiple hidden>
@@ -233,7 +239,7 @@
     <div class="gator-glow" aria-hidden="true"><span class="dot1"></span><span class="dot2"></span><img src="mascot.png" alt=""></div>
     <h2 id="empty-title">Keine Dokumente</h2>
     <p id="empty-text"></p>
-    <label id="empty-upload" class="btn primary hidden" for="file-input"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>Dokument hochladen</label>
+    <label id="empty-upload" class="btn primary hidden" for="file-input" tabindex="0" role="button"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>Dokument hochladen</label>
   </div>
   <!-- Seiten (app.js → renderPager): 25/50/100 pro Seite, im Browser gemerkt -->
   <nav id="pager" class="pager hidden" aria-label="Seiten">
@@ -470,6 +476,8 @@
               <button id="s-cal-new" class="btn ghost" type="button">Neuer Link</button>
               <button id="s-cal-del" class="btn ghost danger" type="button">Abschalten</button>
             </div>
+            <p class="muted small" style="margin-top:12px">Für Home Assistant (REST-Sensor): offene und überfällige Fristen und die nächste, als JSON.</p>
+            <div class="row"><input id="s-cal-ha" readonly aria-label="Adresse für Home Assistant"><button id="s-cal-ha-copy" class="btn" type="button">Kopieren</button></div>
           </div>
         </div>
       </details>
@@ -950,7 +958,7 @@
   </div>
 </section>
 
-<div id="toast" class="toast hidden"></div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 <dialog id="bank-dialog" class="share-dialog bank-dialog">
   <form method="dialog" class="share-form">
     <h3>Kontoumsätze importieren</h3>
@@ -964,7 +972,7 @@
     </div>
     <p id="bk-error" class="warn small hidden"></p>
     <div class="row" style="justify-content:flex-end">
-      <button value="cancel" class="btn ghost">Abbrechen</button>
+      <button type="button" value="cancel" data-close class="btn ghost">Abbrechen</button>
       <button type="button" id="bk-go" class="btn primary" disabled>Importieren</button>
     </div>
   </form>
@@ -1001,7 +1009,7 @@
       <label style="flex:1"><span class="k">Kundennummer</span><input id="cx-customer"></label></div>
     <label><span class="k">Spätestens zum (optional)</span><input id="cx-by" type="date"></label>
     <div class="row" style="justify-content:flex-end;flex-wrap:wrap">
-      <button value="cancel" class="btn ghost">Abbrechen</button>
+      <button type="button" value="cancel" data-close class="btn ghost">Abbrechen</button>
       <button type="button" id="cx-save" class="btn">In Papigator ablegen</button>
       <button type="button" id="cx-pdf" class="btn primary">PDF herunterladen</button>
     </div>
@@ -1036,7 +1044,7 @@
       <p id="sh-warn" class="warn small hidden"></p>
     </div>
     <div class="row" style="justify-content:flex-end">
-      <button value="cancel" class="btn ghost" id="sh-close">Schließen</button>
+      <button type="button" value="cancel" data-close class="btn ghost" id="sh-close">Schließen</button>
       <button type="button" class="btn primary" id="sh-create">Link erstellen</button>
     </div>
   </form>
@@ -1049,7 +1057,7 @@
     <div class="row"><input id="iv-url" readonly><button type="button" id="iv-copy" class="btn primary">Kopieren</button></div>
     <p id="iv-warn" class="warn small hidden"></p>
     <div class="row" style="justify-content:flex-end">
-      <button value="cancel" class="btn ghost" id="iv-close">Schließen</button>
+      <button type="button" value="cancel" data-close class="btn ghost" id="iv-close">Schließen</button>
     </div>
   </form>
 </dialog>
@@ -1060,7 +1068,7 @@
     <p class="small">Dann geht der erkannte Text deiner Dokumente – auch Kontoauszüge, Steuerbescheide oder Arztbriefe – zu diesem Anbieter. Was er damit macht, regeln seine Bedingungen: Wie lange er Daten aufbewahrt und ob er damit trainiert, ist je nach Anbieter verschieden.</p>
     <p class="muted small">Du kannst es jederzeit wieder auf einen Server im Heimnetz umstellen oder für einzelne Aufgaben abschalten.</p>
     <div class="row" style="justify-content:flex-end">
-      <button value="cancel" class="btn ghost">Abbrechen</button>
+      <button type="button" value="cancel" data-close class="btn ghost">Abbrechen</button>
       <button value="ok" class="btn primary" id="cd-ok">Ja, Cloud nutzen</button>
     </div>
   </form>

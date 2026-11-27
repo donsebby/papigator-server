@@ -1,6 +1,7 @@
 """Web-App auf Englisch (i18n.js): Sprache nach dem Browser, umschaltbar in Einstellungen → Darstellung,
 jeder statische Text hat eine englische Fassung. Die übrigen Browser-Tests laufen mit de-DE (conftest.py)."""
 import re
+from datetime import date, timedelta
 
 from playwright.sync_api import expect
 
@@ -249,5 +250,60 @@ def test_server_error_texts_in_english(browser, server):
     assert pg.evaluate("trErr('Tag „Haus“ gibt es schon – zum Zusammenführen beide auswählen')") == \
         "Tag “Haus” already exists – select both to merge them"
     assert pg.evaluate("trErr('Etwas ganz Unbekanntes')") == "Etwas ganz Unbekanntes"
+    ctx.close()
+    assert not errors, "JavaScript-Fehler: " + " | ".join(errors)
+
+
+def test_english_lang_param_plurals_and_money_caption(browser, server):
+    """Englisch (27.11.2026): <html lang="en">; Familie, Aufräumen und Dubletten fragen mit lang=en; Plurale mit 1
+    stehen im Singular („1 transaction“); Kopf in Geld „Transactions on file: … – …“."""
+    ctx, pg, errors = _login(browser, server, "en-US")
+    expect(pg.locator("html")).to_have_attribute("lang", "en")
+    # Familie lädt die Aufräum-Vorschläge gleich mit
+    with pg.expect_request(lambda r: "/cleanup?" in r.url and "lang=en" in r.url) as req:
+        pg.click('#mode-seg button[data-mode="family"]')
+    assert req.value.response().ok
+    pg.locator('#familyview [data-act="fam-sect"][data-sect="s-cleanup-sect"]').click()
+    expect(pg.locator("#s-cleanup-sect")).to_have_attribute("open", "")
+    with pg.expect_request(lambda r: "/cleanup?" in r.url and "lang=en" in r.url) as req:
+        pg.click("#s-cleanup-run")
+    assert req.value.response().ok
+    expect(pg.locator("#s-cleanup-state")).not_to_contain_text("Vorschl")
+    # Dubletten in den Einstellungen
+    pg.click('#mode-seg button[data-mode="tiles"]')
+    pg.click("#settings-btn")
+    pg.evaluate("document.querySelector('#s-dups').open = true")
+    with pg.expect_request(lambda r: "/duplicates?" in r.url and "lang=en" in r.url) as req:
+        pg.click("#s-dups-run")
+    assert req.value.response().ok
+    expect(pg.locator("#s-dups-state")).not_to_have_text("")
+    expect(pg.locator("#s-dups-state")).not_to_contain_text("Doppel")
+    pg.go_back()
+    expect(pg.locator("#main")).to_be_visible()
+    # Geld: eine Buchung → Singular in der Vorschau und am Konto, Kopf mit „Transactions on file“
+    day = (date.today() - timedelta(days=3)).strftime("%d.%m.%Y")
+    csv_ = f"Buchungsdatum;Zahlungsempfänger;Verwendungszweck;Betrag\n{day};Bakery Single;Bread;-3,40\n"
+    pg.click('#mode-seg button[data-mode="money"]')
+    mv = pg.locator("#moneyview")
+    expect(mv).to_be_visible()
+    pg.locator('#moneyview [data-mact="import"]').first.click()
+    pg.set_input_files("#bk-file", files=[{"name": "one.csv", "mimeType": "text/csv", "buffer": csv_.encode()}])
+    pg.select_option("#bk-account", "")             # neues Konto – andere Tests lassen Konten stehen (vorausgewählt)
+    expect(pg.locator("#bk-name")).to_be_visible()
+    expect(pg.locator("#bk-preview b").first).to_have_text(re.compile(r"(^|\D)1 transaction(?!s)"))
+    pg.fill("#bk-name", "Single EN")
+    pg.click("#bk-go")
+    expect(pg.locator("#bank-dialog")).not_to_be_visible()
+    try:
+        row = mv.locator(".m-tx", has_text="Single EN")
+        expect(row).to_contain_text(re.compile(r"(^|\D)1 transaction(?!s)"))
+        expect(mv.locator(".m-sub")).to_contain_text(
+            re.compile(r"Transactions on file: \d\d/\d\d/\d{4} – \d\d/\d\d/\d{4}"))
+        assert "Umsätze" not in mv.inner_text()
+    finally:
+        undo = mv.locator('[data-mact="undo"]')
+        if undo.count():
+            undo.first.click()
+            expect(undo).to_have_count(0)
     ctx.close()
     assert not errors, "JavaScript-Fehler: " + " | ".join(errors)

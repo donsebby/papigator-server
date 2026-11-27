@@ -7,6 +7,7 @@ nur im Mailtext stehen). Duplikate (gleiche PDF) überspringt der Import still.
 """
 import email
 import imaplib
+import ssl
 import logging
 import tempfile
 import textwrap
@@ -63,11 +64,16 @@ def _owner_id(con, s: dict) -> int | None:
 
 def _connect(s: dict) -> imaplib.IMAP4_SSL:
     port = int(s["mail_port"] or 993)
-    if port == 143:
-        box = imaplib.IMAP4(s["mail_host"], port, timeout=30)
-        box.starttls()
-    else:
-        box = imaplib.IMAP4_SSL(s["mail_host"], port, timeout=30)
+    # Zertifikat prüfen (27.11.2026): ohne Kontext prüft imaplib es nicht – Passwort und Mails wären abhörbar
+    ctx = ssl.create_default_context()
+    try:
+        if port == 143:
+            box = imaplib.IMAP4(s["mail_host"], port, timeout=30)
+            box.starttls(ssl_context=ctx)
+        else:
+            box = imaplib.IMAP4_SSL(s["mail_host"], port, timeout=30, ssl_context=ctx)
+    except ssl.SSLCertVerificationError as e:
+        raise RuntimeError(f"Zertifikat des Mail-Servers nicht vertrauenswürdig ({e.verify_message})") from e
     box.login(s["mail_user"], s["mail_password"])
     typ, _ = box.select(f'"{s["mail_folder"] or "INBOX"}"')
     if typ != "OK":
@@ -166,6 +172,12 @@ def _body_text(msg: Message) -> str:
     return "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
 
+# Mail ohne Anhang als PDF: Text und Zeilen begrenzen – sonst machte ein Mail mit einem Zeichen pro Zeile tausende
+# Seitenbilder (je 2 MB) und den Speicher voll (27.11.2026)
+MAX_BODY_CHARS = 100_000
+MAX_BODY_LINES = 1200
+
+
 def text_to_pdf(title: str, meta: list[str], body: str) -> Path:
     """Einfaches Text-PDF (A4, mehrseitig) für Mails ohne Anhang."""
     from PIL import Image, ImageDraw, ImageFont
@@ -177,8 +189,11 @@ def text_to_pdf(title: str, meta: list[str], body: str) -> Path:
         font = ImageFont.load_default(size=26)
         bold = ImageFont.load_default(size=34)
     lines: list[tuple[str, bool]] = [(title[:90], True)] + [(m, False) for m in meta] + [("", False)]
-    for para in body.splitlines():
+    for para in body[:MAX_BODY_CHARS].splitlines():
         lines += [(l, False) for l in (textwrap.wrap(para, 95) or [""])]
+        if len(lines) > MAX_BODY_LINES:   # jede Seite ist ein Bild im Speicher: höchstens ~30 Seiten
+            lines = lines[:MAX_BODY_LINES] + [("… (gekürzt)", False)]
+            break
     pages, y, img, draw = [], None, None, None
     for text, is_title in lines:
         if img is None or y > H - M - 40:
@@ -203,7 +218,7 @@ def _import_bytes(data: bytes, name: str, owner_id: int, title: str | None, text
         return import_pdf(pdf, owner_id, name, title=title, text=text)
     except HTTPException as e:
         if e.status_code == 409:
-            log.info("Mail: %s ist schon vorhanden", name)
+            log.info("Mail: Anhang schon vorhanden")
             return None
         raise
     finally:
@@ -246,7 +261,7 @@ def check(reason: str = "Zeitplan") -> dict:
                         got += 1
                 except Exception as e:
                     failed.append(f"{name}: {getattr(e, 'detail', None) or e.__class__.__name__}")
-                    log.warning("Mail „%s“: Anhang %s nicht importiert: %s", subject[:60], name, failed[-1])
+                    log.warning("Mail: ein Anhang nicht importiert")
             if not atts and s["mail_body_pdf"] == "1":
                 body = _body_text(msg).strip()
                 if body:
@@ -264,7 +279,7 @@ def check(reason: str = "Zeitplan") -> dict:
             elif s["mail_done_folder"]:   # mit Fehlern bleibt die Mail im Postfach liegen
                 if box.copy(uid, f'"{s["mail_done_folder"]}"')[0] == "OK":
                     box.store(uid, "+FLAGS", "\\Deleted")
-            log.info("Mail „%s“ von %s: %d Dokument(e)", subject[:60], sender[:40], got)
+            log.info("Mail: %d Dokument(e) übernommen", got)
         if s["mail_done_folder"]:
             box.expunge()
         box.logout()

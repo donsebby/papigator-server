@@ -389,7 +389,7 @@ function openStartLink() {
   startLink = null;
   if (!link) return;
   history.replaceState(history.state, "", location.pathname + location.search);
-  if (link.startsWith("#doc-")) openDetail(Number(link.slice(5))).catch(() => toast(tr("Dokument nicht gefunden")));
+  if (link.startsWith("#doc-")) openDetail(Number(link.slice(5)));   // Hinweis zeigt openDetail selbst
   else if (link === "#review") { state.review = true; renderTagBar(); loadDocs(); }
   else openSettingsSection("s-digest-sect");
 }
@@ -758,6 +758,7 @@ function chip(label, active, onClick, color) {
   c.className = "chip" + (active ? " active" : "");
   if (color) { c.style.setProperty("--tag", color); c.innerHTML = `<span class="dot"></span>`; }
   c.appendChild(document.createTextNode(label)); c.onclick = onClick;
+  c.tabIndex = 0; c.setAttribute("role", "button");   // per Tastatur erreichbar (Enter/Leertaste: siehe unten)
   return c;
 }
 
@@ -790,9 +791,14 @@ async function loadDocs() {
   const key = p.toString();
   if (key !== state.filterKey) { state.filterKey = key; state.page = 0; }
   p.set("limit", state.limit); p.set("offset", state.page * state.limit); p.set("with_total", "true");
-  const r = await fetch("/documents?" + p, { credentials: "same-origin" });
+  let r;
+  try { r = await fetch("/documents?" + p, { credentials: "same-origin" }); }
+  catch { if (seq === docsSeq) toastOnce(tr("Server nicht erreichbar – Liste nicht aktualisiert")); return; }   // Hinweis reicht, kein unbehandelter Fehler
   if (r.status === 401) { showLogin(); return; }
-  if (!r.ok) throw new Error(r.statusText);
+  if (!r.ok) {   // bisher still: die Kacheln blieben alt oder leer, ohne Hinweis (27.11.2026)
+    if (seq === docsSeq) toastOnce(tr("Liste ließ sich nicht laden: {msg}", { msg: r.statusText || r.status }));
+    return;   // nicht weiterwerfen: Chip-/Karten-Klicks fangen nicht ab (Playwright test_load_errors_…)
+  }
   const docs = await r.json();
   if (seq !== docsSeq) return;
   state.docs = docs;
@@ -1197,6 +1203,7 @@ function renderGrid() {
       </div>`;
     c.querySelector(".check").onclick = (e) => { e.stopPropagation(); if (d.can_edit) toggleSelect(d.id); };
     c.onclick = () => { if (state.selected.size || state.trash) { if (d.can_edit) toggleSelect(d.id); } else openDetail(d.id); };
+    c.tabIndex = 0; c.setAttribute("role", "button"); c.setAttribute("aria-label", d.title || "");
     g.appendChild(c);
   }
 }
@@ -1455,7 +1462,9 @@ async function renderToday() {
   $("#main").classList.toggle("today-on", on);
   box.classList.toggle("hidden", !on);
   if (!on) return;
-  if (today.data) drawToday();   // sofort das Bekannte zeigen, dann auffrischen
+  // sofort das Bekannte zeigen, dann auffrischen – aber nur, wenn noch nichts dasteht: das Nachladen alle paar Sekunden
+  // (Verarbeitung läuft) klappte sonst offene Auswahlen zu und nahm den Fokus weg (27.11.2026)
+  if (today.data && !box.childElementCount) drawToday();
   const seq = ++today.seq;
   const familyOld = Date.now() - today.familyAt > 60000;   // Familie höchstens einmal pro Minute nachzählen
   const [due, recent, rc, fam, up, onb] = await Promise.all([
@@ -1473,8 +1482,12 @@ async function renderToday() {
   today.onboarding = onb && onb.show && !today.onboardingOff ? onb : null;
   if (fam) { today.family = { persons: fam[0] || [], counts: fam[1], emergency: fam[2] }; today.familyAt = Date.now(); }
   today.data = { due, recent, review: rc ? rc.count : 0, upcoming: (up && up.items) || [] };
-  today.checked.clear();
-  drawToday();
+  const key = JSON.stringify([today.data, today.onboarding, today.family]);
+  if (key !== today.lastKey || !box.childElementCount) {
+    today.lastKey = key;
+    today.checked.clear();
+    drawToday();
+  }
   loadTodayMoney(seq);
 }
 
@@ -1571,7 +1584,8 @@ function todayDueRow(d) {
   const n = dueDays(d), u = n < 0 ? "over" : n <= 7 ? "soon" : "later";
   const [y, mo, day] = d.due_date.slice(0, 10).split("-").map(Number);
   const label = n < 0 ? tr("überfällig") : n === 0 ? tr("heute") : n === 1 ? tr("morgen") : n <= 7 ? tr("in {n} Tagen", { n })
-    : new Date(y, mo - 1, day).toLocaleDateString(LOC, { day: "numeric", month: "short" });
+    : new Date(y, mo - 1, day).toLocaleDateString(LOC, y === new Date().getFullYear()
+      ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" });   // „12. Juni 2028“, nicht „12. Juni“
   const sub = d.due_note || d.sender || "";
   const who = d.due_assignee != null && d.due_assignee === state.me.id ? tr("Ich") : d.due_assignee_name;
   const done = today.checked.has(d.id);
@@ -1784,19 +1798,20 @@ async function renderFamily(force = false) {
   if (!on) return;
   // Einladen legt nur ein Admin an (Server: require_admin), in der Demo nicht
   $("#s-invite-sect").classList.toggle("hidden", !state.me?.is_admin || !!state.me?.demo);
-  if (family.dues) drawFamily();
+  if (family.dues && !box.childElementCount) drawFamily();   // schon gezeichnet: nicht bei jedem Polling neu (27.11.2026)
   if (!force && Date.now() - family.at < 15000) return;     // nicht bei jedem Tastendruck/Polling neu laden
   const seq = ++family.seq;
   const [persons, counts, em, dues, cl] = await Promise.all([
     api("/persons").catch(() => []), api("/documents/owner_counts").catch(() => null), api("/emergency").catch(() => null),
-    api("/documents?scope=all&due=true&limit=500").catch(() => null), api("/cleanup").catch(() => null),
+    api("/documents?scope=all&due=true&limit=500").catch(() => null), api(`/cleanup?lang=${LANG}`).catch(() => null),
   ]);
   if (seq !== family.seq || !familyBrowsing()) return;
   today.family = { persons: persons || [], counts, emergency: em }; today.familyAt = Date.now();
   family.dues = (dues || []).filter((d) => d.due_date && !d.due_done);
   family.cleanup = cl ? cl.count : null;
   family.at = Date.now();
-  drawFamily();
+  const key = JSON.stringify([today.family, family.dues, family.cleanup]);
+  if (key !== family.lastKey || !box.childElementCount || force) { family.lastKey = key; drawFamily(); }
 }
 function drawFamily() {
   const me = state.me, members = todayMembers();
@@ -1912,7 +1927,7 @@ async function renderMoney() {
     money.sorting ? api("/bank/to_sort").catch(() => null) : null,
     api("/bank/insights").catch(() => null),
     api("/bank/rules").catch(() => []),
-    money.q ? api("/bank/search?" + new URLSearchParams({ q: money.q })).catch(() => null) : null,
+    money.q ? api("/bank/search?" + new URLSearchParams({ q: money.q })).catch(() => ({ failed: true })) : null,
     api("/bank/yearly").catch(() => null),   // ältere Server ohne /bank/yearly: einfach keine Karte
   ]);
   if (seq !== money.seq || !moneyBrowsing()) return;
@@ -1958,7 +1973,7 @@ function drawMoneyView() {
     `<option value="${x.id}"${String(x.id) === String(money.account) ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select>` : "";
   const picked = accs.find((x) => String(x.id) === String(money.account));
   const which = picked ? picked.name : accs.length === 1 ? accs[0].name : accs.length ? tr("{n} Konten", { n: accs.length }) : tr("Noch kein Konto");
-  const covered = s && s.covered ? tr("Umsätze vom {from} bis {to}", { from: fmtDate(s.covered.first), to: fmtDate(s.covered.last) }) : "";
+  const covered = s && s.covered ? tr("Umsätze vorhanden: {from} – {to}", { from: fmtDate(s.covered.first), to: fmtDate(s.covered.last) }) : "";
   const from = moneyRange().from;
   const gap = s && s.covered && from && s.covered.first > from && accs.length
     ? `<p class="m-warn">${esc(tr("Der Zeitraum beginnt am {from}, die Umsätze erst am {first} – ältere fehlen, die Summen sind zu klein.", { from: fmtDate(from), first: fmtDate(s.covered.first) }))}</p>` : "";
@@ -1998,7 +2013,8 @@ function drawMoneyView() {
       <span class="t-count">${esc(trn(cd.count, "{amount} · 1 Buchung", "{amount} · {n} Buchungen", { amount: eurC(cd.cents) }))}</span></div>
       ${cd.top ? `<p class="m-note" style="margin:0 0 4px">${esc(tr("Am meisten bei {name} ({amount})", { name: cd.top.name, amount: eurC(cd.top.cents) }))}</p>` : ""}
       <label class="toggle m-note" style="margin:0 0 6px"><input type="checkbox" id="m-recat-all"${money.recatAll === false ? "" : " checked"}> ${esc(tr("Umstellen gilt für alle Buchungen desselben Händlers"))}</label>
-      <div class="m-months">${cd.months.map((m) => `<div class="mo"><b>${eurC(m.cents).replace(LANG === "de" ? /,\d\d/ : /\.\d\d/, "")}</b><span class="col" style="height:${Math.round(Math.abs(m.cents) / mmax * 100)}px"></span>${mon(m.month)}</div>`).join("")}</div>
+      <div class="m-months${cd.months.length > 8 ? " many" : ""}">${cd.months.map((m, i) => `<div class="mo"><b>${eurC(m.cents).replace(LANG === "de" ? /,\d\d/ : /\.\d\d/, "")}</b><span class="col" style="height:${Math.round(Math.abs(m.cents) / mmax * 100)}px"></span>${
+        cd.months.length <= 8 || i % Math.ceil(cd.months.length / 6) === 0 ? mon(m.month) : "&nbsp;"}</div>`).join("")}</div>
       ${cd.transactions.map((t) => moneyTxRow(t, true)).join("")}
       <button class="btn m-backcat" data-mact="closecat" style="margin-top:12px">${esc(tr("‹ Alle Kategorien"))}</button></section>`;
   })() : "";
@@ -2019,13 +2035,13 @@ function drawMoneyView() {
       const share = (x) => x.is_own && people.length ? `<div class="m-share${money.shareOpen === x.id ? "" : " hidden"}" data-mshare="${x.id}">
         ${people.map((p) => `<label class="toggle small"><input type="checkbox" data-mvis="${x.id}" value="${p.id}"${(x.visible_to || []).includes(p.id) ? " checked" : ""}> ${esc(tr("{name} sieht das Konto", { name: p.name }))}</label>`).join("")}</div>` : "";
       const row = (x) => `<div class="m-tx"><span class="w"><b>${esc(x.name)}</b>
-        <small>${esc(tr("{n} Umsätze", { n: x.count }))} · ${esc(seen(x))}</small></span>
+        <small>${esc(trn(x.count, "{n} Umsatz", "{n} Umsätze"))} · ${esc(seen(x))}</small></span>
         ${x.is_own && people.length ? `<button class="m-pill" data-mvisbtn="${x.id}" aria-expanded="${money.shareOpen === x.id}">${esc(tr("Wer sieht's?"))}</button>` : ""}
         ${x.is_own ? `<button class="m-pill" data-mdel="${x.id}" title="${esc(tr("Konto samt Umsätzen löschen"))}">${esc(tr("Löschen"))}</button>` : ""}</div>${share(x)}`;
       const top = byUse.slice(0, 4), rest = byUse.slice(4);
-      return top.map(row).join("") + (rest.length ? `<details class="m-rules"><summary>${esc(tr("{n} weitere Konten", { n: rest.length }))}</summary>${rest.map(row).join("")}</details>` : "");
+      return top.map(row).join("") + (rest.length ? `<details class="m-rules"><summary>${esc(trn(rest.length, "{n} weiteres Konto", "{n} weitere Konten"))}</summary>${rest.map(row).join("")}</details>` : "");
     })()}
-      ${(money.rules || []).length ? `<details class="m-rules"><summary>${esc(tr("{n} eigene Regeln", { n: money.rules.length }))}</summary>${money.rules.map((r) =>
+      ${(money.rules || []).length ? `<details class="m-rules"><summary>${esc(trn(money.rules.length, "{n} eigene Regel", "{n} eigene Regeln"))}</summary>${money.rules.map((r) =>
         `<div class="m-tx"><span class="w"><b>${esc(r.pattern.startsWith("kat:") ? tr("Bank-Kategorie „{name}“", { name: r.pattern.slice(4) }) : tr("„{word}“", { word: r.pattern }))}</b><small>→ ${esc(tr(r.category))}</small></span><button class="m-pill" data-mrule="${r.id}">${esc(tr("Entfernen"))}</button></div>`).join("")}</details>` : ""}
       <p class="m-note">${esc(tr("Die Umsätze bleiben auf eurem Server und erscheinen nie in Freigabe-Links."))}</p></section></div>`;
   box.innerHTML = head + kpis + `<div class="m-cols"><div class="m-main" style="display:flex;flex-direction:column;gap:16px;min-width:0">${detail}${bars}</div>${side}</div>`;
@@ -2064,7 +2080,7 @@ function drawMoneyYearly() {
     `<option value="${a.id}"${pot && pot.id === a.id ? " selected" : ""}>${esc(a.name)}</option>`).join("")}</select>`;
   const live = y.items.filter((i) => i.in_sum && i.active).length;
   const kpis = `<div class="m-kpis">
-    <div class="m-kpi"><span class="k">${esc(tr("Pro Jahr"))}</span><b>${eurC(y.totals.per_year)}</b><small>${esc(tr("{n} Posten, je der aktuelle Betrag", { n: live }))}</small></div>
+    <div class="m-kpi"><span class="k">${esc(tr("Pro Jahr"))}</span><b>${eurC(y.totals.per_year)}</b><small>${esc(trn(live, "{n} Posten, je der aktuelle Betrag", "{n} Posten, je der aktuelle Betrag|n"))}</small></div>
     <div class="m-kpi"><span class="k">${esc(tr("Nötig im Monat"))}</span><b>${eurC(y.totals.monthly_needed)}</b><small>${esc(tr("Jahressumme ÷ 12"))}</small></div>
     <div class="m-kpi"><span class="k">${esc(tr("Rücklagen-Topf"))}</span><b>${pot ? eurC(pot.monthly) : "–"}</b><small>${pot ? moneyPotLine(y).replace(/^[^:]*: [^–]*– /, "") : esc(tr("Konto wählen:"))} ${potSel}</small></div>
     <div class="m-kpi"><span class="k">${Y - 1} → ${Y}</span><b>${eurC(y.totals.last)} → ${eurC(y.totals.this)}</b><small>${esc(tr("abgebucht im Kalenderjahr"))}</small></div></div>`;
@@ -2091,6 +2107,7 @@ function drawMoneyYearly() {
 function drawMoneySearch() {
   const r = money.search;
   if (!r) return `<section class="tcard"><p class="muted" style="margin:0">${esc(tr("Suche läuft …"))}</p></section>`;
+  if (r.failed) return `<section class="tcard"><p class="muted" style="margin:0">${esc(tr("Suche fehlgeschlagen – bitte noch einmal versuchen."))}</p></section>`;
   const range = r.range ? `<span class="chip active">${fmtDate(r.range.from)} – ${fmtDate(r.range.to)}</span>` : "";
   const words = r.words.map((w) => `<span class="chip active">${esc(w)}</span>`).join("");
   return `<section class="tcard"><div class="t-head m-search-h"><h2>${esc(tr("Suche"))}</h2>${range}${words}
@@ -2250,10 +2267,10 @@ async function bankPreview() {
     const map = Object.entries(r.mapping).map(([k, v]) => esc(tr("{label}: „{value}“", { label: cols[k] || k, value: v }))).join(" · ");
     bankMulti = r.accounts || null;
     const accList = bankMulti ? `<div class="bk-accounts"><p class="small" style="margin:8px 0 4px">${tr("<b>{n} Konten in der Datei</b> – geteilte sehen die angehakten Personen unten, private nur du", { n: bankMulti.length })}</p>
-      ${bankMulti.map((a) => `<div class="m-tx"><span class="w"><b>${esc(a.name)}</b><small>··${esc(a.tail)} · ${esc(tr("{n} Umsätze", { n: a.count }))} · ${esc(a.existing ? tr("schon da, {n} neu", { n: a.new }) : tr("neu"))}</small></span>
+      ${bankMulti.map((a) => `<div class="m-tx"><span class="w"><b>${esc(a.name)}</b><small>··${esc(a.tail)} · ${esc(trn(a.count, "{n} Umsatz", "{n} Umsätze"))} · ${esc(a.existing ? tr("schon da, {n} neu", { n: a.new }) : tr("neu"))}</small></span>
         ${a.existing ? `<span class="m-pill">${esc(tr("wird ergänzt"))}</span>` : `<label class="toggle small"><input type="checkbox" data-bkshare="${esc(a.key)}" checked> ${esc(tr("teilen"))}</label>`}</div>`).join("")}</div>` : "";
-    $("#bk-preview").innerHTML = `<p class="small" style="margin:0"><b>${r.bank ? esc(r.bank) + " · " : ""}${esc(tr("{n} Umsätze", { n: r.count }))}</b> ${esc(tr("vom {from} bis {to}:", { from: fmtDate(r.first), to: fmtDate(r.last) }))}
-      ${esc(tr("{n} neu", { n: r.new }))}${r.duplicates ? `, ${esc(tr("{n} schon da", { n: r.duplicates }))}` : ""}${r.skipped ? `, ${esc(tr("{n} Zeilen ohne Datum/Betrag übersprungen", { n: r.skipped }))}` : ""}${r.to_sort ? ` · ${esc(tr("{n} zum Einsortieren", { n: r.to_sort }))}` : ""}</p>
+    $("#bk-preview").innerHTML = `<p class="small" style="margin:0"><b>${r.bank ? esc(r.bank) + " · " : ""}${esc(trn(r.count, "{n} Umsatz", "{n} Umsätze"))}</b> ${esc(tr("vom {from} bis {to}:", { from: fmtDate(r.first), to: fmtDate(r.last) }))}
+      ${esc(tr("{n} neu", { n: r.new }))}${r.duplicates ? `, ${esc(tr("{n} schon da", { n: r.duplicates }))}` : ""}${r.skipped ? `, ${esc(trn(r.skipped, "{n} Zeile ohne Datum/Betrag übersprungen", "{n} Zeilen ohne Datum/Betrag übersprungen"))}` : ""}${r.to_sort ? ` · ${esc(tr("{n} zum Einsortieren", { n: r.to_sort }))}` : ""}</p>
       <p class="muted small" style="margin:4px 0 0">${tr("Erkannte Spalten: {map}", { map })}</p>${accList}
       <table class="bk-table">${(r.rows || []).map((x) => `<tr><td>${fmtDate(x.booked)}</td><td>${esc(x.counterparty || "")}<br><span class="muted">${esc((x.purpose || "").slice(0, 60))}</span></td>
         <td>${x.category ? esc(tr(x.category)) : `<span class="muted">${esc(tr("offen"))}</span>`}</td><td class="r">${eurC(x.cents)}</td></tr>`).join("")}</table>`;
@@ -2618,7 +2635,9 @@ async function uploadFiles(all) {
 const phoneDetail = matchMedia("(max-width: 767px)");
 const noteDrafts = new Map();   // angefangene Notiz je Dokument – Schließen verwirft sie nicht
 async function openDetail(id) {
-  const d = await api(`/documents/${id}?include_text=true`);
+  let d;
+  try { d = await api(`/documents/${id}?include_text=true`); }
+  catch (e) { toast(tr("Dokument ließ sich nicht öffnen: {msg}", { msg: e.message || "" }), 4000); return false; }   // z. B. inzwischen gelöscht
   state.current = d;
   saver.pending.clear(); saver.failed = null;
   show("#detail");
@@ -3129,7 +3148,9 @@ function renderCalFeed(path) {
   const url = location.origin + path;
   $("#s-cal-url").value = url;
   $("#s-cal-open").href = url.replace(/^https?:/, "webcal:");
+  $("#s-cal-ha").value = url.replace(/\.ics$/, "/summary.json");
 }
+$("#s-cal-ha-copy").onclick = (e) => copyText($("#s-cal-ha").value, e.currentTarget);
 $("#s-cal-sect").addEventListener("toggle", async (e) => {
   if (e.target.open) renderCalFeed((await api("/calendar/feed").catch(() => ({}))).path);
 });
@@ -3441,6 +3462,42 @@ $("#reprocess-btn").onclick = async () => {
   toast(tr("Wird erneut analysiert")); closeDetail();
 };
 $("#back-btn").onclick = () => history.back();
+// Tastatur (27.11.2026): Karten, Chips und die „Hochladen“-Beschriftung sind keine echten Knöpfe – Enter und Leertaste
+// lösen sie trotzdem aus
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const t = e.target;
+  if (!(t instanceof HTMLElement) || t.getAttribute("role") !== "button" || /^(BUTTON|A|INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
+  e.preventDefault();
+  // Beschriftung eines Datei-Felds: das Feld selbst anklicken – der Umweg über die Beschriftung öffnete die
+  // Dateiauswahl nicht immer (Chrome, Playwright-Test test_keyboard_upload_label_opens_file_chooser)
+  (t instanceof HTMLLabelElement && t.control ? t.control : t).click();
+});
+// Dialoge mit <form method="dialog">: „Abbrechen“ ist kein Absende-Knopf mehr – Enter in einem Feld löste sonst
+// genau ihn aus und verwarf die Eingabe (27.11.2026). Enter drückt jetzt den Hauptknopf des Dialogs.
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-close]");
+  if (b) b.closest("dialog")?.close("cancel");
+});
+function dialogMainButton(form) {
+  const main = [...form.querySelectorAll('button.btn.primary[type="button"]:not([disabled])')].filter((b) => b.offsetParent);
+  return main.pop();
+}
+document.addEventListener("submit", (e) => {
+  if (e.target.getAttribute("method") !== "dialog" || e.submitter) return;   // echter Knopf (z. B. „Ja, Cloud nutzen“)
+  e.preventDefault();
+  dialogMainButton(e.target)?.click();
+}, true);
+// Mehrere Felder ohne Absende-Knopf: der Browser schickt bei Enter gar nichts ab – also hier selbst auslösen
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+  const t = e.target;
+  if (!(t instanceof HTMLInputElement) || /^(checkbox|radio|button|submit|file)$/.test(t.type)) return;
+  const form = t.closest('form[method="dialog"]');
+  if (!form) return;
+  e.preventDefault();
+  dialogMainButton(form)?.click();
+}, true);
 // Angefangene Notiz bleibt beim Schließen erhalten (je Dokument, bis die Seite neu lädt)
 $("#m-note-text").addEventListener("input", (e) => {
   const id = state.current?.id; if (!id) return;
@@ -4086,7 +4143,11 @@ $("#s-mail-check").onclick = async () => {
 };
 
 // ---------- Sicherung ----------
-function fmtBytes(b) { b = b || 0; return b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`; }
+function fmtBytes(b) {   // „1,5 GB“ im Deutschen (vorher „1.5 GB“)
+  b = b || 0;
+  const n = (v, d) => v.toLocaleString(LOC, { minimumFractionDigits: d, maximumFractionDigits: d });
+  return b >= 1e9 ? `${n(b / 1e9, 1)} GB` : b >= 1e6 ? `${n(b / 1e6, 1)} MB` : `${n(Math.round(b / 1e3), 0)} KB`;
+}
 let backupTimer;
 async function renderBackup() {
   clearTimeout(backupTimer);
@@ -4103,7 +4164,7 @@ async function renderBackup() {
   const box = $("#s-bk-list"); box.innerHTML = "";
   for (const s of st.snapshots.slice(0, 30)) {
     const row = document.createElement("div"); row.className = "list-row";
-    row.innerHTML = `<span><code>${esc(s.name)}</code></span><span class="muted small">${esc(tr("{n} Dokumente · {size}", { n: s.documents ?? "?", size: fmtBytes(s.bytes) }))}</span><span class="spacer"></span><button class="btn ghost danger">${esc(tr("Wiederherstellen"))}</button>`;
+    row.innerHTML = `<span><code>${esc(s.name)}</code></span><span class="muted small">${esc((s.documents == null ? tr("{n} Dokumente · {size}", { n: "?", size: fmtBytes(s.bytes) }) : trn(s.documents, "{n} Dokument · {size}", "{n} Dokumente · {size}", { size: fmtBytes(s.bytes) })))}</span><span class="spacer"></span><button class="btn ghost danger">${esc(tr("Wiederherstellen"))}</button>`;
     row.querySelector("button").onclick = async () => {
       if (!confirm(tr("Stand {name} wiederherstellen?", { name: s.name }) + "\n\n" + tr("Datenbank und Dateien werden mit diesem Snapshot überschrieben; alles, was seitdem dazukam, geht verloren."))) return;
       const word = tr("WIEDERHERSTELLEN");   // Englisch: RESTORE eintippen; an den Server geht immer das deutsche Wort
@@ -4286,7 +4347,7 @@ $("#s-dups-run").onclick = async () => {
   const btn = $("#s-dups-run"), st = $("#s-dups-state"), box = $("#s-dups-list");
   btn.disabled = true; st.textContent = tr("Suche läuft …"); box.innerHTML = "";
   try {
-    const pairs = await api("/duplicates");
+    const pairs = await api(`/duplicates?lang=${LANG}`);
     st.textContent = pairs.length ? trn(pairs.length, "{n} mögliches Paar", "{n} mögliche Paare") : tr("Keine doppelten Dokumente gefunden.");
     for (const p of pairs) box.appendChild(dupPair(p));
   } catch (e) { st.textContent = tr("Fehler: {msg}", { msg: e.message }); }
@@ -4444,7 +4505,7 @@ async function renderCleanup() {
   const st = $("#s-cleanup-state"), box = $("#s-cleanup-list"), btn = $("#s-cleanup-run");
   btn.disabled = true; st.textContent = tr("Wird geprüft …"); box.innerHTML = "";
   try {
-    const r = await api("/cleanup");
+    const r = await api(`/cleanup?lang=${LANG}`);
     st.textContent = r.count ? trn(r.count, "{n} Vorschlag", "{n} Vorschläge") : tr("Nichts zum Aufräumen – alles liegt noch in seiner Frist.");
     for (const g of r.groups) box.appendChild(cleanupGroup(g));
   } catch (e) { st.textContent = tr("Fehler: {msg}", { msg: e.message }); }
@@ -4482,7 +4543,7 @@ async function renderRetention() {
   const isAdmin = !!(state.me && state.me.is_admin);
   $("#s-cleanup-admin").classList.toggle("hidden", !isAdmin);
   if (!isAdmin) return;
-  const r = await api("/cleanup/rules").catch(() => null);
+  const r = await api(`/cleanup/rules?lang=${LANG}`).catch(() => null);
   if (!r) return;
   const box = $("#s-cleanup-rules");
   box.innerHTML = r.defaults.map((d) => `<div class="muted small">${esc(tr("Vorgabe:"))} <b>${esc(tr(d.label))}</b> – ${esc(d.years == null ? tr("nie") : trn(d.years, "{n} Jahr", "{n} Jahre"))}</div>`).join("");

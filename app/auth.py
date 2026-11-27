@@ -136,7 +136,7 @@ def current_user(authorization: Optional[str] = Header(None),
     if not token:
         raise HTTPException(401, "Nicht angemeldet")
     with connect() as con:
-        if config.API_TOKEN and token == config.API_TOKEN:
+        if config.API_TOKEN and secrets.compare_digest(token, config.API_TOKEN):   # zeitkonstant
             u = _bootstrap_user(con)
             if u:
                 return u

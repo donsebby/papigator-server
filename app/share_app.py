@@ -10,7 +10,7 @@ Hauptdienst (gleiche Env-Datei); Migrationen und Worker startet nur der Hauptdie
 """
 from fastapi import FastAPI
 
-from . import share
+from . import logredact, share  # noqa: F401  – logredact kürzt /s/<token> im Zugriffs-Log
 
 app = FastAPI(title="Papigator Freigaben", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(share.public)

@@ -20,6 +20,21 @@ def test_app_loads_without_errors(page):
     shown(page, "#settings-btn")
 
 
+
+def test_installable(page):
+    """So, wie Chrome das Manifest versteht: eigenes Fenster, Start und Bereich /app/, Symbole geladen."""
+    cdp = page.context.new_cdp_session(page)
+    res = cdp.send("Page.getAppManifest")
+    assert not res["errors"] and res["url"].endswith("/app/manifest.webmanifest")
+    m = res["manifest"]
+    assert m["name"] == "Papigator" and m["display"] == "kStandalone"
+    assert m["startUrl"].endswith("/app/") and m["scope"].endswith("/app/") and m["id"].endswith("/app/")
+    assert {i["sizes"] for i in m["icons"]} == {"192x192", "512x512"}
+    assert cdp.send("Page.getInstallabilityErrors")["installabilityErrors"] == []
+    for icon in m["icons"]:
+        assert page.request.get(icon["url"]).ok
+
+
 def test_document_back_and_forward(page):
     page.locator(".card", has_text="Grundsteuer").click()
     shown(page, "#detail")
@@ -166,6 +181,19 @@ def test_create_briefkasten_link(page):
     assert "/s/" in page.input_value("#sh-url")
     page.click("#sh-close")
     expect(page.locator("#s-links")).to_contain_text("Briefkasten · 0 eingegangen")
+
+
+def test_enter_in_dialog_runs_main_action(page):
+    """Enter im Namensfeld legt den Link an – früher löste Enter „Abbrechen“ aus und verwarf die Eingabe (27.11.2026)."""
+    page.click("#settings-btn")
+    page.locator("#s-links-sect summary").click()
+    page.click("#s-upload-new")
+    page.fill("#sh-name", "Per Enter")
+    page.press("#sh-name", "Enter")
+    expect(page.locator("#sh-result")).to_be_visible()
+    assert "/s/" in page.input_value("#sh-url")
+    page.click("#sh-close")
+    expect(page.locator("#s-links")).to_contain_text("Per Enter")
 
 
 def test_folder_download(page, tmp_path):
@@ -1162,7 +1190,7 @@ def test_money_import_overview_category_and_sorting(page):
     expect(mv.locator(".m-bar", has_text="Kleidung")).to_contain_text("69,95")
     mv.locator(".m-bar", has_text="Kleidung").click()
     expect(mv.locator("#m-det-h")).to_have_text("Kleidung")
-    expect(mv).to_contain_text("Am meisten bei zalando")
+    expect(mv).to_contain_text("Am meisten bei ZALANDO SE")   # Schreibweise der Bank, nicht der Händler-Schlüssel (27.11.2026)
     mv.locator(".m-tx", has_text="H&M").locator(".m-recat").select_option("Haushalt")   # falsch einsortiert → umstellen
     expect(mv.locator(".m-bar", has_text="Haushalt")).to_contain_text("29,95")
     page.go_back()                                             # Browser-Zurück schließt die Kategorie
@@ -1508,6 +1536,11 @@ def test_calendar_subscription(page):
     expect(page.locator("#s-cal-open")).to_have_attribute("href", re.compile(r"^webcal://"))
     body = page.evaluate("(async (u) => (await fetch(u, { credentials: 'omit' })).text())", url.input_value())
     assert "BEGIN:VCALENDAR" in body
+    # darunter die Adresse für Home Assistant (27.11.2026): derselbe Link als summary.json
+    ha = page.locator("#s-cal-ha")
+    expect(ha).to_have_value(url.input_value()[:-4] + "/summary.json")
+    summary = page.evaluate("(async (u) => (await fetch(u, { credentials: 'omit' })).json())", ha.input_value())
+    assert {"open", "overdue", "due_7_days", "next", "today"} <= set(summary)
     page.once("dialog", lambda d: d.accept())
     page.click("#s-cal-del")
     expect(page.locator("#s-cal-create")).to_be_visible()

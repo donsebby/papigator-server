@@ -97,6 +97,15 @@ def cloud_purposes(con) -> dict:
             "ask": get_setting(con, "llm_cloud_ask", "1") == "1"}
 
 
+def env_key_for(url: str) -> str:
+    """Der Schlüssel aus PAPIGATOR_LLM_KEY gehört zur Adresse aus PAPIGATOR_LLM_URL – an eine andere (im Web
+    eingetragene) Adresse geht er nicht mit (27.11.2026)."""
+    if config.LLM_API_KEY and config.LLM_API_KEY != "none" and config.LLM_BASE_URL \
+            and host_of(url) == host_of(config.LLM_BASE_URL):
+        return config.LLM_API_KEY
+    return "none"
+
+
 def servers() -> list[dict]:
     """Eingetragene Server in Reihenfolge (Haupt-, dann Ersatz-Server) mit Schlüssel und Cloud-Status."""
     cfg = config.llm_config()
@@ -111,7 +120,7 @@ def servers() -> list[dict]:
             out.append({"slot": slot, "url": url, "model": model, "ask_model": ask_model or model,
                         "host": host_of(url), "cloud": cloud,
                         "approved": (not cloud) or host_of(url) in hosts,
-                        "key": stored_key(con, slot) or config.LLM_API_KEY})
+                        "key": stored_key(con, slot) or env_key_for(url)})
     return out
 
 

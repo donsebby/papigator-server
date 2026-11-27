@@ -205,6 +205,14 @@ def prune(root: Path, keep_days: int, keep_weeks: int) -> int:
     return removed
 
 
+# Tabellen mit Zugangs-Tokens (gespeichert als Hash), die nach dem Zurückspielen nicht wieder aufleben dürfen
+_REVOCABLE = {"share_links": "token", "invites": "token", "calendar_feeds": "token_hash"}
+
+
+def _has_table(con, name: str) -> bool:
+    return con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+
+
 def restore(name: str) -> dict:
     """Snapshot zurückspielen: Dateien überschreiben, Datenbank in die laufende DB kopieren."""
     s = settings()
@@ -226,13 +234,22 @@ def restore(name: str) -> dict:
                         files += 1
         src = sqlite3.connect(path / "papigator.db")
         dst = sqlite3.connect(config.DB_PATH, timeout=60)
-        # Aktuelle Anmeldungen überleben das Zurückspielen – sonst fliegt der Admin mitten im Restore raus
+        # Aktuelle Anmeldungen überleben das Zurückspielen – sonst fliegt der Admin mitten im Restore raus. Umgekehrt
+        # darf nichts zurückkommen, was seit der Sicherung widerrufen wurde (27.11.2026): Sitzungen sind danach genau die
+        # von jetzt; Freigabe-Links, Kalender-Abos und Einladungen nur, wenn es sie jetzt noch gibt.
         sessions = dst.execute("SELECT token, user_id, label, ip, created_at, last_used FROM sessions").fetchall()
+        alive = {t: {r[0] for r in dst.execute(f"SELECT {col} FROM {t}")} if _has_table(dst, t) else None
+                 for t, col in _REVOCABLE.items()}
         with dst:
             src.backup(dst)
         with dst:
+            dst.execute("DELETE FROM sessions")
             dst.executemany("INSERT OR IGNORE INTO sessions(token, user_id, label, ip, created_at, last_used) VALUES (?,?,?,?,?,?)",
                             [s for s in sessions if dst.execute("SELECT 1 FROM users WHERE id=?", (s[1],)).fetchone()])
+            for t, col in _REVOCABLE.items():
+                if alive[t] is not None and _has_table(dst, t):
+                    gone = [r[0] for r in dst.execute(f"SELECT {col} FROM {t}") if r[0] not in alive[t]]
+                    dst.executemany(f"DELETE FROM {t} WHERE {col}=?", [(g,) for g in gone])
         # PDFs von nach der Sicherung liegen noch im Ordner (ohne Eintrag): neue Dokumente bekommen höhere Nummern,
         # sonst überschriebe das nächste Dokument so eine Datei und zeigte kurz ihr altes Vorschaubild
         ids = [int(f.stem) for f in (config.DATA_DIR / "documents").glob("*.pdf") if f.stem.isdigit()]

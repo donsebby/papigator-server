@@ -56,6 +56,9 @@ def _rgb(im):
 MAX_TOTAL_PIXELS = 300_000_000
 
 
+MAX_FRAMES = 200
+
+
 class TooManyPixels(ValueError):
     pass
 
@@ -64,12 +67,22 @@ def images_to_pdf(srcs: list[Path], max_pixels: int | None = None) -> Path:
     """Bilder (JPEG, PNG, TIFF – auch mehrseitig) als eine PDF, eine Seite je Bild bzw. TIFF-Seite. Die Größe kommt
     vorher aus den Dateiköpfen; zu viele Pixel zusammen: TooManyPixels, bevor irgendetwas entpackt wird."""
     from PIL import Image
-    total = 0
+    total, frames_n = 0, 0
+    limit = max_pixels or MAX_TOTAL_PIXELS
     for src in srcs:
         with Image.open(src) as im:
-            total += im.size[0] * im.size[1] * getattr(im, "n_frames", 1)
-    if total > (max_pixels or MAX_TOTAL_PIXELS):
-        raise TooManyPixels(f"{total} Pixel")
+            # Jede Seite einzeln zählen (Kopf lesen, nichts entpacken): eine winzige erste Seite durfte sonst eine
+            # riesige zweite verstecken (TIFF 10×10 + 60000×60000 → Speicher voll, 27.11.2026)
+            n = getattr(im, "n_frames", 1)
+            frames_n += n
+            if frames_n > MAX_FRAMES:
+                raise TooManyPixels(f"mehr als {MAX_FRAMES} Seiten")
+            for k in range(n):
+                if k:
+                    im.seek(k)
+                total += im.size[0] * im.size[1]
+                if total > limit:
+                    raise TooManyPixels(f"{total} Pixel")
     frames = []
     for src in srcs:
         with Image.open(src) as im:
@@ -130,7 +143,7 @@ def _import(path: Path, owner_id: int, parts: list[str] | None = None) -> None:
         src = tmp
     try:
         doc_id = import_pdf(src, owner_id, path.name, tags=_folder_tag(parts or []))
-        log.info("Inbox: %s importiert als Dokument %s", path.name, doc_id)
+        log.info("Inbox: Datei importiert als Dokument %s", doc_id)   # ohne Dateinamen (oft der Titel)
         from .onboarding import mark_inbox_import
         with connect() as con:
             mark_inbox_import(con, owner_id)   # „Los geht’s“: Eingang läuft
@@ -156,7 +169,9 @@ def loop() -> None:
             if fallback:
                 scan_dirs.append((config.INBOX_DIR, fallback, False))  # Wurzel -> Admin, Unterordner sind Nutzer
             for user_dir, owner_id, recursive in scan_dirs:
-                if not user_dir.is_dir():
+                # Nie einem Symlink folgen (27.11.2026): im HA-Add-on läuft der Dienst als root und der Eingang liegt auf der
+                # per Samba beschreibbaren /share – „<nutzer> -> /data/…/documents“ hätte dort importiert und gelöscht
+                if user_dir.is_symlink() or not user_dir.is_dir():
                     continue
                 for f, parts in list(_files(user_dir, recursive)):
                     size = f.stat().st_size
@@ -167,8 +182,11 @@ def loop() -> None:
                         _import(f, owner_id, parts)
                     except Exception as e:
                         detail = getattr(e, "detail", str(e))
-                        log.warning("Inbox: %s nicht importiert: %s", f.name, detail)
+                        log.warning("Inbox: eine Datei nicht importiert (%s) – liegt unter _fehler", type(e).__name__)
                         err_dir = user_dir / "_fehler"
+                        if err_dir.is_symlink():   # „_fehler -> /etc“: nichts dorthin schieben oder schreiben
+                            log.warning("Inbox: _fehler ist ein Symlink – Datei bleibt liegen")
+                            continue
                         err_dir.mkdir(exist_ok=True)
                         if "existiert bereits" in str(detail):
                             f.unlink(missing_ok=True)  # Duplikat: einfach verwerfen

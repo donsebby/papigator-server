@@ -104,6 +104,10 @@ def create_person(body: PersonIn, user: User = Depends(current_user)):
             raise HTTPException(400, "Dieser Name ist für die Notfallmappe reserviert")
         if t:
             tag_id = t["id"]
+            # Ein übrig gebliebener Personen-Tag ohne Personen: altes Foto nicht weitergeben (27.11.2026)
+            if not con.execute("SELECT 1 FROM persons WHERE tag_id=?", (tag_id,)).fetchone():
+                from . import avatars
+                avatars.remove("p", tag_id)
             # Nur einen Ordner, der mir (oder einem Bestand, den ich sehe) gehört, zur Person machen – fremde,
             # verborgene Ordner bleiben, wie sie sind. Bewusst ohne meine eigene Personen-Markierung zu zählen,
             # sonst reichte ein zweiter Aufruf (hidden_tag_ids sieht die Markierung als „sichtbar“ an).
@@ -177,13 +181,14 @@ def get_emergency(request: Request, user: User = Depends(current_user)):
         if tag_id is None or user.id == 0:
             return out
         visible = auth.visible_owner_ids(con, user, "all")
-        if tag_id not in folders.hidden_tag_ids(con, visible):   # umbenannter Name nur für die, die den Ordner sehen
+        hidden = folders.hidden_tag_ids(con, visible)   # einmal für alle Dokumente der Mappe
+        if tag_id not in hidden:   # umbenannter Name nur für die, die den Ordner sehen
             out["name"] = con.execute("SELECT name FROM tags WHERE id=?", (tag_id,)).fetchone()["name"]
         rows = con.execute(
             "SELECT d.* FROM documents d JOIN document_tags dt ON dt.document_id=d.id AND dt.tag_id=? "
             f"WHERE d.deleted_at IS NULL AND d.owner_id IN ({_marks(visible)}) "
             "ORDER BY COALESCE(d.document_date, d.created_at) DESC, d.id DESC", (tag_id, *visible)).fetchall()
-        out["documents"] = [serialize(con, r, user) for r in rows]
+        out["documents"] = [serialize(con, r, user, hidden) for r in rows]
         out["own_count"] = sum(1 for r in rows if r["owner_id"] == user.id and not r["ext_pending"])
         out["links"] = [share._out(con, request, r) for r in con.execute(
             "SELECT * FROM share_links WHERE user_id=? AND kind='tag' AND target=? ORDER BY id DESC", (user.id, str(tag_id)))]

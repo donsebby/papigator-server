@@ -15,6 +15,10 @@ def test_export_only_own_documents(admin, sam):
     admin.put("/shares", json={"user_id": sam.id, "can_edit": True})
     meta = json.loads(_zip(sam.get("/export.zip", params={"scope": "all"})).read("metadata.json"))
     assert [m["title"] for m in meta] == ["Sam B"]           # kein Admin: nur der eigene Pot
+    # Admin: nur, was er sieht (27.11.2026) – Sams Bestand erst, wenn Sam teilt
+    meta = json.loads(_zip(admin.get("/export.zip", params={"scope": "all"})).read("metadata.json"))
+    assert sorted(m["title"] for m in meta) == ["Alex A"]
+    sam.put("/shares", json={"user_id": admin.id, "can_edit": False})
     meta = json.loads(_zip(admin.get("/export.zip", params={"scope": "all"})).read("metadata.json"))
     assert sorted(m["title"] for m in meta) == ["Alex A", "Sam B"]
 
@@ -109,3 +113,14 @@ def test_tag_export_csv_and_rights(admin, sam):
     # Mit Partner-Freigabe und scope=all sind die Dokumente für Sam drin
     admin.put("/shares", json={"user_id": sam.id, "can_edit": False})
     assert any(n.endswith("=Formel.pdf") or "Formel" in n for n in _zip_names(sam.get("/export/tag.zip", params={"tag": "Haus", "scope": "all"})))
+
+
+def test_partner_moves_only_to_self(admin, sam, make_user):
+    """Schreibrecht bei Anna und Carl: Annas Dokument darf Bert zu sich holen, aber nicht zu Carl schieben (27.11.2026)."""
+    carl = make_user("carl")
+    d = admin.upload("x", "Annas Brief").json()["id"]
+    admin.put("/shares", json={"user_id": sam.id, "can_edit": True})
+    carl.put("/shares", json={"user_id": sam.id, "can_edit": True})
+    assert sam.post("/documents/owner", json={"document_ids": [d], "owner_id": carl.id}).status_code == 403
+    assert admin.get(f"/documents/{d}").status_code == 200
+    assert sam.post("/documents/owner", json={"document_ids": [d], "owner_id": sam.id}).status_code == 200

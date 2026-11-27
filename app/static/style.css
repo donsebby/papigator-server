@@ -1261,3 +1261,26 @@ dialog[open]::backdrop { animation: fade-in .26s ease; }
 /* Paperless-Import: Fortschritt im Abschnitt, Liste der nicht übernommenen */
 .pl-progress { margin: 0; }
 .pl-problems { margin: 0; padding-left: 18px; max-height: 220px; overflow: auto; }
+
+/* Lange deutsche Wörter in Titeln mit Trennstrich umbrechen statt mitten im Wort („Arbeitsunfähigkeitsbes|cheinigung“) */
+.card .info, .t-title, .t-dtitle { hyphens: auto; -webkit-hyphens: auto; }
+
+/* Server-Prüfung 27.11.2026 */
+/* Buchungszeile am Handy: Auswahl und Knöpfe in eine eigene Zeile – sonst blieb für den Namen nichts und die Zeile ragte heraus */
+@media (max-width: 600px) {
+  .m-tx { flex-wrap: wrap; row-gap: 6px; }
+  .m-tx .w { flex: 1 1 0; min-width: 0; }
+  .m-tx .m-recat { order: 5; flex: 1 1 100%; max-width: none; }
+  .m-tx .m-pill { order: 6; }
+}
+/* Viele Monate im Kategorie-Diagramm: Beträge über den Balken ausblenden statt übereinander (siehe app.js, .many) */
+.m-months.many { gap: 3px; }
+.m-months.many .mo b { display: none; }
+.m-months.many .mo { font-size: 10px; white-space: nowrap; }
+/* Lange Filter-Chips (Absender, Tag) am Handy kürzen statt die Seite zu verbreitern */
+.filterbar .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* Touch-Geräte haben kein :hover – Auswahlkreis auf den Karten trotzdem zeigen */
+@media (hover: none) { .card .check { opacity: .8; } }
+/* Weiß auf hellem Akzent (Dunkelmodus) war kaum lesbar */
+.m-choice.sug { background: var(--fill); }
+#s-llm-result.ok { color: var(--link); }

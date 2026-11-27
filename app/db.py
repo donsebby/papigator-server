@@ -389,6 +389,10 @@ def init_db() -> None:
         # „Hat kein Datum“ (17.11.2026): von Hand bestätigt – steht dann nicht mehr unter „Zu prüfen“
         if "no_date" not in cols:
             con.execute("ALTER TABLE documents ADD COLUMN no_date INTEGER NOT NULL DEFAULT 0")
+        # Von Hand geänderte Felder (27.11.2026, kommagetrennt): die KI überschreibt sie nicht mehr – weder beim
+        # Nachholen fehlgeschlagener Erkennung noch, wenn jemand während des Erkennens bearbeitet. „Neu erkennen“ leert sie.
+        if "hand_fields" not in cols:
+            con.execute("ALTER TABLE documents ADD COLUMN hand_fields TEXT")
         if not con.execute("SELECT 1 FROM settings WHERE key='date_check_v1'").fetchone():
             from .processing import flag_doubtful_dates   # späte Bindung: processing importiert db
             n = flag_doubtful_dates(con)
@@ -396,6 +400,36 @@ def init_db() -> None:
         else:
             from .processing import recheck_flagged_dates
             recheck_flagged_dates(con)
+        # Stichprobe 27.11.2026: Empfänger aus dem Briefkopf, Nummern des Absenders, § 35a Schornsteinfeger, HU-Termin,
+        # 16 % MwSt außerhalb 2020 – einmal über den Bestand
+        if not con.execute("SELECT 1 FROM settings WHERE key='recheck_v2'").fetchone():
+            from .processing import recheck_v2   # späte Bindung: processing importiert db
+            con.row_factory = sqlite3.Row
+            try:
+                n = recheck_v2(con)
+            finally:
+                con.row_factory = None
+            con.execute("INSERT INTO settings(key, value) VALUES ('recheck_v2', ?)", (str(n),))
+        # Einmalig (27.11.2026): ohne KI abgelegte Dokumente ohne Datum bekommen eins, wenn es eindeutig im Text steht
+        if not con.execute("SELECT 1 FROM settings WHERE key='date_noai_v1'").fetchone():
+            from .processing import date_without_ai   # späte Bindung: processing importiert db
+            ids = [r[0] for r in con.execute("SELECT id FROM documents WHERE llm_status='skipped' AND status='done' "
+                                             "AND document_date IS NULL AND no_date=0 AND deleted_at IS NULL")]
+            n = sum(date_without_ai(con, i) for i in ids)
+            if n:
+                log.info("Datum ohne KI nachgetragen: %d Dokumente", n)
+            con.execute("INSERT INTO settings(key, value) VALUES ('date_noai_v1', ?)", (str(n),))
+        # Einmalig (27.11.2026): ohne KI abgelegte Dokumente bekommen den Absender aus dem eigenen Bestand und
+        # statt eines bloßen Dateinamens den Titel „Absender · Datum“
+        if not con.execute("SELECT 1 FROM settings WHERE key='sender_noai_v1'").fetchone():
+            from .processing import sender_title_without_ai
+            ids = [r[0] for r in con.execute("SELECT id FROM documents WHERE llm_status='skipped' AND status='done' "
+                                             "AND deleted_at IS NULL AND text IS NOT NULL")]
+            known: dict = {}   # Absender je Pot nur einmal laden (sonst Minuten bei großem Bestand)
+            n = sum(sender_title_without_ai(con, i, known) for i in ids)
+            if n:
+                log.info("Absender/Titel ohne KI nachgetragen: %d Dokumente", n)
+            con.execute("INSERT INTO settings(key, value) VALUES ('sender_noai_v1', ?)", (str(n),))
         if not con.execute("SELECT 1 FROM settings WHERE key='tags_parents_v1'").fetchone():
             add_parent_tags(con)   # einmalig: bestehende Dokumente bekommen ihre Oberordner
             con.execute("INSERT INTO settings(key, value) VALUES ('tags_parents_v1', '1')")
@@ -491,6 +525,9 @@ def connect():
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA recursive_triggers=ON")   # Oberordner über mehrere Ebenen (document_tags_parents)
+    # Gelöschtes überschreiben statt nur freigeben (27.11.2026) – sonst blieb der Text „endgültig gelöschter“ Dokumente
+    # in freien Seiten der Datenbank und wanderte mit in jede Sicherung
+    con.execute("PRAGMA secure_delete=ON")
     try:
         yield con
         con.commit()

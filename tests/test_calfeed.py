@@ -41,3 +41,24 @@ def test_feed_includes_shared_dues_with_assignee(admin, sam):
     path = sam.post("/calendar/feed").json()["path"]
     body = sam.client.get(path).text
     assert "Frist: Hundesteuer" in body and "Kümmert sich: sam" in body
+
+
+def test_summary_for_home_assistant(admin, sam, client):
+    """Kurzfassung für einen REST-Sensor: gleicher Link, gleiche Fristen, ohne Anmeldung; neu/aus wie das Abo."""
+    _due(admin, "Überfällig", -2)
+    _due(admin, "Kfz-Steuer", 3)
+    _due(admin, "Später", 30)
+    done = _due(admin, "Erledigt", 1)
+    admin.patch(f"/documents/{done}", json={"due_done": True})
+    _due(sam, "Fremde Frist", 1)
+    path = admin.post("/calendar/feed").json()["path"]
+    url = path[:-4] + "/summary.json"
+    r = client.get(url)
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    s = r.json()
+    assert (s["open"], s["overdue"], s["due_7_days"]) == (3, 1, 1)
+    assert s["next"]["title"] == "Überfällig" and s["next"]["in_days"] == -2 and s["next"]["note"] == "Zahlen"
+    assert s["today"] == dt.date.today().isoformat()
+    assert client.get("/calendar/falsch/summary.json").status_code == 404
+    admin.delete("/calendar/feed")
+    assert client.get(url).status_code == 404

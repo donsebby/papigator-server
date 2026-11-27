@@ -310,6 +310,7 @@ TEXTS = {
            "expired_sub": "Dieser Freigabe-Link ist abgelaufen oder wurde zurückgezogen.",
            "pw_wrong": "Das Passwort stimmt nicht.", "pw_locked": "Zu viele Versuche – bitte später noch einmal.",
            "pw_sub": "Diese Freigabe ist mit einem Passwort geschützt.", "pw_ph": "Passwort", "open": "Öffnen",
+           "pw_title": "Geschützte Freigabe",
            "valid_until": " · gültig bis {d}", "doc": "Dokument", "download": "PDF herunterladen",
            "empty": "Hier liegt gerade nichts.", "docs_1": "{n} Dokument", "docs_n": "{n} Dokumente",
            "open_until": "Offen bis {d}", "thanks_1": "Danke! {n} Datei ist angekommen.",
@@ -323,6 +324,7 @@ TEXTS = {
            "expired_sub": "This share link has expired or was revoked.",
            "pw_wrong": "Wrong password.", "pw_locked": "Too many attempts – please try again later.",
            "pw_sub": "This share is password protected.", "pw_ph": "Password", "open": "Open",
+           "pw_title": "Protected share",
            "valid_until": " · valid until {d}", "doc": "Document", "download": "Download PDF",
            "empty": "Nothing here right now.", "docs_1": "{n} document", "docs_n": "{n} documents",
            "open_until": "Open until {d}", "thanks_1": "Thank you! {n} file has arrived.",
@@ -442,8 +444,9 @@ def public_page(token: str, request: Request, error: str | None = None, ok: int 
         if not _unlocked(con, row, request, token):
             err = f'<p class="err">{t["pw_wrong"]}</p>' if error == "pw" else (
                 f'<p class="err">{t["pw_locked"]}</p>' if error == "locked" else "")
-            return _page(row["name"], f'<form class="box" method="post" action="/s/{html.escape(token)}/unlock">'
-                         f'<h1 style="font-size:22px">{html.escape(row["name"])}</h1><p class="sub">{t["pw_sub"]}</p>'
+            # Vor dem Passwort kein Name: er ist oft der Dokumenttitel („Befund Psychotherapie …“) – 27.11.2026
+            return _page(t["pw_title"], f'<form class="box" method="post" action="/s/{html.escape(token)}/unlock">'
+                         f'<h1 style="font-size:22px">{t["pw_title"]}</h1><p class="sub">{t["pw_sub"]}</p>'
                          f'{err}<input type="password" name="password" placeholder="{t["pw_ph"]}" autofocus required>'
                          f'<button type="submit">{t["open"]}</button></form>', upload=row["kind"] == "upload", lang=lang)
         if row["kind"] == "upload":
@@ -466,7 +469,19 @@ def public_page(token: str, request: Request, error: str | None = None, ok: int 
 
 
 @public.post("/s/{token}/unlock", include_in_schema=False)
-def public_unlock(token: str, request: Request, password: str = Form("")):
+async def public_unlock(token: str, request: Request):
+    # Erst Link und Größe prüfen, dann das Formular lesen (27.11.2026): mit Form("") las FastAPI jeden noch so großen
+    # Körper an jeden ausgedachten Link, bevor hier irgendetwas geprüft wurde
+    with connect() as con:
+        _load(con, token)
+    try:
+        size = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        size = 0
+    if not size or size > 4096:
+        raise HTTPException(413, "Zu groß")
+    form = await request.form()
+    password = str(form.get("password") or "")[:256]
     with connect() as con:
         row = _load(con, token)
         key = f"share:{row['id']}"

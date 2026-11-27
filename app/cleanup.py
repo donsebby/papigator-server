@@ -62,6 +62,30 @@ DEFAULTS = [
 NEVER_LABEL = "Nie vorschlagen"
 NEVER_BASIS = "Gehalt bis zur Rente, Verträge, Versicherungen, Zeugnisse, Urkunden, Gesundheit, Vollmachten, Notfallmappe …"
 _PLURAL = ("", "e", "en", "n", "s", "es", "er")
+OWN_BASIS = "Eigene Einstellung für diesen Ordner"
+
+# Englische Oberfläche (27.11.2026): Gruppen und Begründungen kamen bisher immer deutsch
+EN = {
+    "Rechnungen & Quittungen": "Invoices & receipts",
+    "Gewährleistung 2 Jahre, Verjährung 3 Jahre ab Jahresende (§§ 195, 199 BGB)":
+        "2-year statutory warranty, claims expire 3 years after year end (§§ 195, 199 BGB)",
+    "Handwerkerrechnungen": "Tradesman invoices",
+    "Gewährleistung für Arbeiten am Haus 5 Jahre (§ 634a BGB) – Aufbewahrungspflicht 2 Jahre (§ 14b UStG)":
+        "5-year warranty for work on the house (§ 634a BGB) – must be kept 2 years (§ 14b UStG)",
+    "Kontoauszüge": "Bank statements",
+    "Privat keine Pflicht – 3 Jahre reichen für Rückfragen und die Verjährung":
+        "No legal duty for private persons – 3 years cover queries and the limitation period",
+    "Steuer": "Tax",
+    "Das Finanzamt kann bis zu 10 Jahre nachfordern (§ 169 AO)": "The tax office can claim back up to 10 years (§ 169 AO)",
+    "Nie vorschlagen": "Never suggest",
+    "Gehalt bis zur Rente, Verträge, Versicherungen, Zeugnisse, Urkunden, Gesundheit, Vollmachten, Notfallmappe …":
+        "Pay slips until retirement, contracts, insurance, references, certificates, health, powers of attorney, emergency folder …",
+    OWN_BASIS: "Your own setting for this folder",
+}
+
+
+def _t(s, en: bool):
+    return EN.get(s, s) if en and isinstance(s, str) else s
 
 
 def _norm(name: str) -> str:
@@ -100,7 +124,7 @@ def _rule_for_tag(tree: dict, custom: dict, tag_id: int, never_ids=frozenset()):
         years = custom[tag_id]
         if years is None:
             return ("never",)
-        return (f"tag:{tag_id}", tree[tag_id][0], years, "Eigene Einstellung für diesen Ordner")
+        return (f"tag:{tag_id}", tree[tag_id][0], years, OWN_BASIS)
     r = default_rule(tree[tag_id][0])
     return r if r is None or r[0] == "never" else (f"default:{r[0]}", *r[1:])
 
@@ -140,7 +164,7 @@ def _editable(con, user: User) -> list[int]:
 
 
 @router.get("/cleanup")
-def suggestions(user: User = Depends(current_user)):
+def suggestions(lang: str = "de", user: User = Depends(current_user)):
     """Dokumente, deren Aufbewahrungsfrist abgelaufen ist – nach Grund gruppiert. Nur Dokumente, die ich bearbeiten
     darf; nicht im Papierkorb, nicht ungeprüft aus dem Briefkasten, ohne offene Frist."""
     from .main import serialize  # späte Bindung gegen Zirkel
@@ -175,7 +199,9 @@ def suggestions(user: User = Depends(current_user)):
             until = dt.date(int(date[:4]) + rule[2], 12, 31)
             if today <= until:
                 continue
-            g = groups.setdefault(rule[0], {"key": rule[0], "label": rule[1], "years": rule[2], "basis": rule[3],
+            en = lang.lower().startswith("en")
+            g = groups.setdefault(rule[0], {"key": rule[0], "label": rule[1] if rule[0].startswith("tag:") else _t(rule[1], en),
+                                            "years": rule[2], "basis": _t(rule[3], en),
                                             "custom": rule[0].startswith("tag:"), "documents": []})
             doc = serialize(con, d, user)
             doc["keep_until"] = until.isoformat()
@@ -185,15 +211,17 @@ def suggestions(user: User = Depends(current_user)):
 
 
 @router.get("/cleanup/rules")
-def list_rules(user: User = Depends(current_user)):
+def list_rules(lang: str = "de", user: User = Depends(current_user)):
     """Vorgaben (zum Anzeigen) und eigene Einstellungen pro Ordner (nur sichtbare Ordner)."""
     with connect() as con:
         hidden = folders.hidden_tag_ids(con, auth.visible_owner_ids(con, user, "all")) if user.id else set()
         custom = [{"tag_id": r["tag_id"], "tag": r["name"], "years": r["years"]} for r in con.execute(
             "SELECT r.tag_id, r.years, t.name FROM retention r JOIN tags t ON t.id=r.tag_id ORDER BY t.name COLLATE NOCASE")
             if r["tag_id"] not in hidden]
-    defaults = [{"key": k, "label": label, "years": y, "basis": basis, "words": words} for k, label, y, words, basis in DEFAULTS]
-    defaults.append({"key": "never", "label": NEVER_LABEL, "years": None, "basis": NEVER_BASIS, "words": NEVER_WORDS})
+    en = lang.lower().startswith("en")
+    defaults = [{"key": k, "label": _t(label, en), "years": y, "basis": _t(basis, en), "words": words}
+                for k, label, y, words, basis in DEFAULTS]
+    defaults.append({"key": "never", "label": _t(NEVER_LABEL, en), "years": None, "basis": _t(NEVER_BASIS, en), "words": NEVER_WORDS})
     return {"defaults": defaults, "custom": custom}
 
 

@@ -17,6 +17,8 @@ const LANG = (() => {
   const l = (navigator.languages && navigator.languages[0]) || navigator.language || "de";
   return l.toLowerCase().startsWith("de") ? "de" : "en";
 })();
+// Silbentrennung und Vorlesen nach der Oberflächensprache (index.html steht fest auf lang="de")
+document.documentElement.lang = LANG;
 // Zahlen, Beträge, Monatsnamen: Deutsch immer de-DE; Englisch im Format des Browsers, wenn der Englisch spricht
 const LOC = LANG === "de" ? "de-DE" : (() => {
   const l = (navigator.languages && navigator.languages[0]) || navigator.language || "";
@@ -137,6 +139,8 @@ const EN = {
   "Abmelden": "Sign out",
   "Abo-Link": "Subscription link",
   "Abo-Link erstellen": "Create subscription link",
+  "Für Home Assistant (REST-Sensor): offene und überfällige Fristen und die nächste, als JSON.": "For Home Assistant (REST sensor): open and overdue deadlines and the next one, as JSON.",
+  "Adresse für Home Assistant": "Address for Home Assistant",
   "Abos": "Subscriptions",
   "Abruf alle": "Check every",
   "Abruf läuft bereits": "Fetching is already running",
@@ -1102,6 +1106,7 @@ const EN = {
   "Umsätze bis {date} – neue CSV importieren": "Transactions up to {date} – import a new CSV",
   "Umsätze ließen sich gerade nicht laden.": "Transactions couldn't be loaded right now.",
   "Umsätze vom {from} bis {to}": "Transactions from {from} to {to}",
+  "Umsätze vorhanden: {from} – {to}": "Transactions on file: {from} – {to}",
   "unbefristet": "no expiry",
   "Unbekannte Dokumentart": "Unknown document kind",
   "Unbekannte Händler, PayPal, Amazon – einmal zugeordnet, merkt Papigator sich das": "Unknown merchants, PayPal, Amazon – assign once and Papigator remembers",
@@ -1352,7 +1357,7 @@ const EN = {
   "{n} Ordner|one": "{n} folder",
   "{n} PDFs teilen …": "Share {n} PDFs …",
   "{n} PDFs werden als ZIP heruntergeladen": "Downloading {n} PDFs as a ZIP",
-  "{n} Posten, je der aktuelle Betrag": "{n} items, each at its current amount",
+  "{n} Posten, je der aktuelle Betrag": "{n} item, at its current amount",
   "{n} S.": "{n} p.",
   "{n} schon da": "{n} already there",
   "{n} schon vorhanden": "{n} already there",
@@ -1367,6 +1372,16 @@ const EN = {
   "{n} Tags löschen? Die Dokumente bleiben, verlieren nur den Tag.": "Delete {n} tags? The documents stay, they only lose the tags.",
   "{n} Tags vergeben": "{n} tags assigned",
   "{n} Umsätze": "{n} transactions",
+  "{n} Umsatz": "{n} transaction",
+  "{n} weiteres Konto": "{n} more account",
+  "{n} eigene Regel": "{n} custom rule",
+  "{n} Zeile ohne Datum/Betrag übersprungen": "{n} row without date/amount skipped",
+  "{n} Dokument · {size}": "{n} document · {size}",
+  "{n} Posten, je der aktuelle Betrag|n": "{n} items, each at its current amount",
+  "Suche fehlgeschlagen – bitte noch einmal versuchen.": "Search failed – please try again.",
+  "Server nicht erreichbar – Liste nicht aktualisiert": "Server unreachable – list not updated",
+  "Liste ließ sich nicht laden: {msg}": "Could not load the list: {msg}",
+  "Dokument ließ sich nicht öffnen: {msg}": "Could not open the document: {msg}",
   "{n} Umsätze entfernt": "{n} transactions removed",
   "{n} Umsätze importieren": "Import {n} transactions",
   "{n} Umsätze importiert": "{n} transactions imported",

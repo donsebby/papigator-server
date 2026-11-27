@@ -20,7 +20,7 @@ import logging
 import bisect
 import re
 import threading
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -243,15 +243,46 @@ def _account_columns(data: list[list[str]], used: set[int]) -> tuple[Optional[in
     return None, None
 
 
+def _fp_base(r: dict) -> str:
+    return "|".join([r["booked"], str(r["cents"]), (r["counterparty"] or "").lower().strip(),
+                     re.sub(r"\s+", " ", (r["purpose"] or "").lower()).strip()])
+
+
+def _fp(base: str, n: int) -> str:
+    return hashlib.sha256(f"{base}|{n}".encode()).hexdigest()[:32]
+
+
 def _fingerprints(rows: list[dict]) -> list[str]:
     seen: dict[str, int] = {}
     out = []
     for r in rows:
-        base = "|".join([r["booked"], str(r["cents"]), (r["counterparty"] or "").lower().strip(),
-                         re.sub(r"\s+", " ", (r["purpose"] or "").lower()).strip()])
+        base = _fp_base(r)
         n = seen.get(base, 0)
         seen[base] = n + 1
-        out.append(hashlib.sha256(f"{base}|{n}".encode()).hexdigest()[:32])
+        out.append(_fp(base, n))
+    return out
+
+
+def _new_rows(rows: list[tuple[dict, str]], have: set[str]) -> list[tuple[dict, str]]:
+    """Neue Umsätze eines Kontos (27.11.2026): je gleich aussehender Buchung (Tag, Betrag, Gegenüber, Zweck) zählen,
+    wie viele das Konto schon hat – unabhängig davon, wie sie früher durchnummeriert wurden. Früher zählte die Nummer
+    über die ganze Datei; zwei gleiche Buchungen in verschiedenen Konten bekamen so |0 und |1, und ein späterer Export
+    nur des zweiten Kontos (wieder |0) kam doppelt herein. Neue Zeilen bekommen die nächste freie Nummer."""
+    out, seen, stored_n = [], {}, {}
+    for r, _ in rows:
+        base = _fp_base(r)
+        k = seen.get(base, 0)
+        seen[base] = k + 1
+        if base not in stored_n:   # einmal je Buchungsart: wie viele hat das Konto schon (Nummern 0–49)
+            stored_n[base] = sum(1 for i in range(50) if _fp(base, i) in have)
+        if k < stored_n[base]:
+            continue                        # schon im Konto
+        n = 0
+        while _fp(base, n) in have:
+            n += 1
+        fp = _fp(base, n)
+        have.add(fp)
+        out.append((r, fp))
     return out
 
 
@@ -542,7 +573,7 @@ def import_csv(file: UploadFile = File(...), preview: bool = Form(False), accoun
             members = ([acc["owner_id"], *[x[0] for x in con.execute("SELECT user_id FROM bank_access WHERE account_id=?",
                                                                      (acc["id"],))]] if acc else [user.id, *people])
             rules = _rules_for(con, members)
-            g["new"] = [(r, fp) for r, fp in g["rows"] if fp not in g["have"]]
+            g["new"] = _new_rows(g["rows"], set(g["have"]))
             g["cats"] = [categorize(r, rules) for r, _ in g["new"]]
         all_new = [x for g in groups.values() for x in g["new"]]
         all_cats = [c for g in groups.values() for c in g["cats"]]
@@ -668,15 +699,18 @@ def summary_data(con, user: User, date_from=None, date_to=None, account=None) ->
     if not n:
         return {**empty, "covered": {"first": cov[0], "last": cov[1]}}
     ns = ",".join("?" * len(NOT_SPENDING))
+    # Nicht einsortierte Gutschriften (Überweisung von privat, Rückzahlung …) sind keine negativen Ausgaben – sonst
+    # drückten sie „ausgegeben“ unter null (27.11.2026). Einsortierte Erstattungen (Rücksendung) zählen weiter gegen.
+    spend = f"CASE WHEN category IS NULL AND cents > 0 THEN 0 ELSE cents END"
     cats = [{"name": r[0] or "Nicht einsortiert", "cents": -r[1], "count": r[2]} for r in con.execute(
-        f"SELECT category, SUM(cents), COUNT(*) FROM bank_tx t WHERE {q} AND COALESCE(category, '') NOT IN ({ns}) "
+        f"SELECT category, SUM({spend}), COUNT(*) FROM bank_tx t WHERE {q} AND COALESCE(category, '') NOT IN ({ns}) "
         f"GROUP BY category", (*params, *NOT_SPENDING))]
     cats = [c for c in cats if c["cents"] > 0 or c["name"] == "Nicht einsortiert"]
     cats.sort(key=lambda c: -c["cents"])
     income = con.execute(f"SELECT COALESCE(SUM(cents), 0) FROM bank_tx t WHERE {q} AND category='Einnahmen'",
                          params).fetchone()[0]
     months = [{"month": r[0], "cents": -r[1]} for r in con.execute(
-        f"SELECT substr(booked, 1, 7), SUM(cents) FROM bank_tx t WHERE {q} AND COALESCE(category, '') NOT IN ({ns}) "
+        f"SELECT substr(booked, 1, 7), SUM({spend}) FROM bank_tx t WHERE {q} AND COALESCE(category, '') NOT IN ({ns}) "
         f"GROUP BY 1 ORDER BY 1", (*params, *NOT_SPENDING))]
     to_sort = con.execute(f"SELECT COUNT(*) FROM bank_tx t WHERE {q} AND (category IS NULL OR cat_source='ai')",
                           params).fetchone()[0]
@@ -699,19 +733,27 @@ def category(name: str, date_from: Optional[str] = Query(None, alias="from"), da
         cond = "t.category IS NULL" if name == "Nicht einsortiert" else "t.category = ?"
         args = params if name == "Nicht einsortiert" else [*params, name]
         q = " AND ".join(where) + " AND " + cond
-        rows = con.execute(f"SELECT t.* FROM bank_tx t WHERE {q} ORDER BY t.booked DESC, t.id DESC LIMIT 500", args).fetchall()
+        # Summe, Monate und „Am meisten bei“ über alle Buchungen – nur die Liste ist auf 500 begrenzt (vorher rechnete
+        # auch die Summe nur über die neuesten 500 und wich bei „Alles“ von der Übersicht ab)
+        rows = con.execute(f"SELECT t.* FROM bank_tx t WHERE {q} ORDER BY t.booked DESC, t.id DESC", args).fetchall()
         sign = 1 if name == "Einnahmen" else -1
         months: dict[str, int] = {}
         top: dict[str, int] = {}
+        names: dict[str, Counter] = {}
         for r in rows:
+            if name == "Nicht einsortiert" and r["cents"] > 0:
+                continue   # offene Gutschrift: in der Liste, aber nicht in der Summe (wie in der Übersicht)
             months[r["booked"][:7]] = months.get(r["booked"][:7], 0) + sign * r["cents"]
             k = merchant_key(r["counterparty"], r["purpose"]) or (r["counterparty"] or "?")
             top[k] = top.get(k, 0) + sign * r["cents"]
+            names.setdefault(k, Counter())[(r["counterparty"] or "").strip() or k] += 1
         best = max(top.items(), key=lambda kv: kv[1]) if top else None
+        # Anzeigename: die häufigste Schreibweise des Gegenübers, nicht der kleingeschriebene Händler-Schlüssel
+        shown = names[best[0]].most_common(1)[0][0] if best else None
         return {"name": name, "cents": sum(months.values()), "count": len(rows),
                 "months": [{"month": m, "cents": c} for m, c in sorted(months.items())],
-                "top": {"name": best[0], "cents": best[1]} if best else None,
-                "transactions": [tx_out(con, r, user) for r in rows]}
+                "top": {"name": shown, "cents": best[1]} if best else None,
+                "transactions": [tx_out(con, r, user) for r in rows[:500]]}
 
 
 @router.get("/to_sort")

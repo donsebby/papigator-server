@@ -79,7 +79,7 @@ def _brief(r) -> dict:
             "thumbnail_url": f"/documents/{r['id']}/thumbnail", "file_url": f"/documents/{r['id']}/file"}
 
 
-def find_pairs(con, owners: list[int]) -> list[dict]:
+def find_pairs(con, owners: list[int], lang: str = "de") -> list[dict]:
     if not owners:
         return []
     marks = ",".join("?" * len(owners))
@@ -129,13 +129,14 @@ def find_pairs(con, owners: list[int]) -> list[dict]:
             pass
         elif not (score >= WITH_META and same_date and amount is not False):
             continue
-        reasons = [f"Text {round(score * 100)} % gleich"]
+        en = lang.lower().startswith("en")   # Gründe auch englisch (27.11.2026)
+        reasons = [f"Text {round(score * 100)} % " + ("alike" if en else "gleich")]
         if same_date:
-            reasons.append("gleiches Datum")
+            reasons.append("same date" if en else "gleiches Datum")
         if amount:
-            reasons.append("gleicher Betrag")
+            reasons.append("same amount" if en else "gleicher Betrag")
         if ra["sender"] and (ra["sender"] or "").lower() == (rb["sender"] or "").lower():
-            reasons.append("gleicher Absender")
+            reasons.append("same sender" if en else "gleicher Absender")
         first, second = (ra, rb) if ra["id"] < rb["id"] else (rb, ra)  # links das ältere
         pairs.append({"score": round(score, 3), "reasons": reasons, "a": _brief(first), "b": _brief(second)})
     pairs.sort(key=lambda p: -p["score"])
@@ -147,11 +148,11 @@ def _editable(con, user: User) -> list[int]:
 
 
 @router.get("/duplicates")
-def list_duplicates(user: User = Depends(current_user)):
+def list_duplicates(lang: str = "de", user: User = Depends(current_user)):
     if user.id == 0:
         return []
     with connect() as con:
-        pairs = find_pairs(con, _editable(con, user))
+        pairs = find_pairs(con, _editable(con, user), lang)
         names = {r["id"]: r["display_name"] for r in con.execute("SELECT id, display_name FROM users")}
     for p in pairs:
         for side in ("a", "b"):
@@ -180,10 +181,14 @@ def resolve(body: ResolveIn, user: User = Depends(current_user)):
     with connect() as con:
         keep = _doc_for_edit(con, user, body.keep)
         drop = _doc_for_edit(con, user, body.drop)
-        con.execute("INSERT OR IGNORE INTO document_tags(document_id, tag_id, source) "
-                    "SELECT ?, tag_id, source FROM document_tags WHERE document_id=?", (keep["id"], drop["id"]))
+        # Tags und Felder nur innerhalb eines Bestands übernehmen (27.11.2026) – sonst wanderten z. B. Personen-Tags
+        # aus Bs Bestand an As Dokument, wo As Partner sie sehen
+        same = keep["owner_id"] == drop["owner_id"]
+        if same:
+            con.execute("INSERT OR IGNORE INTO document_tags(document_id, tag_id, source) "
+                        "SELECT ?, tag_id, source FROM document_tags WHERE document_id=?", (keep["id"], drop["id"]))
         fill = {k: drop[k] for k in ("document_date", "sender", "amount", "currency", "summary", "due_date", "due_note")
-                if keep[k] in (None, "") and drop[k] not in (None, "")}
+                if same and keep[k] in (None, "") and drop[k] not in (None, "")}
         if fill:
             con.execute(f"UPDATE documents SET {', '.join(f'{k}=?' for k in fill)}, updated_at=datetime('now') WHERE id=?",
                         (*fill.values(), keep["id"]))

@@ -110,3 +110,30 @@ def test_finds_poor_rescan_with_hyphenation_and_ocr_errors(admin):
            .replace("Stromverbrauch", "Stromverbrauoh").replace("genannte", "genarmte"))
     _doc(admin, "Strom Scan", bad, document_date="2025-03-14", amount=1205.13)
     assert len(admin.get("/duplicates").json()) == 1
+
+
+def test_resolve_across_pots_copies_nothing(admin, sam):
+    """Dublette aus zwei Beständen: das andere wandert in den Papierkorb, Tags und Felder bleiben, wo sie sind (27.11.2026)."""
+    admin.put("/shares", json={"user_id": sam.id, "can_edit": True})
+    a = _doc(sam, "Meins", LETTER)
+    b = _doc(admin, "Alex", LETTER, sender="Stadtwerke")
+    admin.patch(f"/documents/{b['id']}", json={"tags": ["Privat"]})
+    _done(b["id"])
+    r = sam.post("/duplicates/resolve", json={"keep": a["id"], "drop": b["id"]}).json()
+    assert r["filled"] == []
+    kept = sam.get(f"/documents/{a['id']}").json()
+    assert kept["sender"] is None and kept["tags"] == []
+
+
+def test_reasons_in_english(admin):
+    _doc(admin, "A", LETTER, document_date="2025-03-14")
+    _doc(admin, "B", LETTER, document_date="2025-03-14")
+    r = admin.get("/duplicates", params={"lang": "en"}).json()
+    assert r and "same date" in r[0]["reasons"] and "alike" in r[0]["reasons"][0]
+    assert "gleiches Datum" in admin.get("/duplicates").json()[0]["reasons"]
+
+
+def test_cleanup_rules_in_english(admin):
+    d = {x["key"]: x for x in admin.get("/cleanup/rules", params={"lang": "en"}).json()["defaults"]}
+    assert d["tax"]["label"] == "Tax" and d["never"]["label"] == "Never suggest"
+    assert {x["key"]: x for x in admin.get("/cleanup/rules").json()["defaults"]}["tax"]["label"] == "Steuer"

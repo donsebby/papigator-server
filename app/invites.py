@@ -34,20 +34,8 @@ SHARE_MODES = ("none", "read", "edit")
 
 # ---------- Access-Log: Token schwärzen ----------
 
-_TOKEN_PATH = re.compile(r"(/invites/)(?!\d+(?:$|[/?]))[^/?\s]+")
+from . import logredact  # noqa: F401  – kürzt Tokens (auch /invites/<token>) im Zugriffs-Log
 
-
-class _RedactInviteTokens(logging.Filter):
-    """uvicorn schreibt jede Anfrage samt Pfad ins Log – bei /invites/<token> wäre das der Schlüssel zum Konto."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        args = record.args
-        if isinstance(args, tuple) and any(isinstance(a, str) and "/invites/" in a for a in args):
-            record.args = tuple(_TOKEN_PATH.sub(r"\1…", a) if isinstance(a, str) else a for a in args)
-        return True
-
-
-logging.getLogger("uvicorn.access").addFilter(_RedactInviteTokens())
 
 
 # ---------- Hilfen ----------

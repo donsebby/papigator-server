@@ -115,3 +115,17 @@ def test_chip_labels_follow_language(family):
     _dated(admin, "Grundsteuer", (dt.date.today() - dt.timedelta(days=30)).isoformat())
     assert admin.get("/search", params={"q": "Grundsteuer aus 2020", "lang": "en"}).json()["dropped"] == ["1 Jan 2020 – 31 Dec 2020"]
     assert admin.get("/search", params={"q": "Grundsteuer aus 2020"}).json()["dropped"] == ["01.01.2020 – 31.12.2020"]
+
+
+def test_minus_word_and_since_year(admin):
+    """„vertrag -mobilfunk“ schließt aus statt zu suchen; „seit 2023“ ist Zeitraum, kein Suchwort (27.11.2026)."""
+    m = admin.upload(text="Vertrag Mobilfunk neu", title="Vertrag Mobilfunk").json()["id"]
+    s = admin.upload(text="Vertrag Strom", title="Vertrag Strom").json()["id"]
+    r = admin.get("/search", params={"q": "vertrag -mobilfunk"}).json()
+    ids = [d["id"] for d in r["documents"]]
+    assert s in ids and m not in ids
+    assert any(c["value"] == "-mobilfunk" for c in r["chips"])
+    w = admin.upload(text="Rechnung Stadtwerke Abschlag", title="Stadtwerke Abschlag").json()["id"]
+    admin.patch(f"/documents/{w}", json={"document_date": "2025-03-01"})
+    r = admin.get("/search", params={"q": "Stadtwerke seit 2023"}).json()
+    assert w in [d["id"] for d in r["documents"]] and "2023" not in [c.get("value") for c in r["chips"]]

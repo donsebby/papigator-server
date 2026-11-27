@@ -2362,5 +2362,32 @@
   "refs": {
    "customer": "A123456780"
   }
+ },
+ {
+  "i": 100,
+  "file": "Funkwerk_Rechnung_2026_11.pdf",
+  "title": "Funkwerk Rechnung November 2026",
+  "document_date": "2026-11-04",
+  "sender": "Funkwerk Mobil GmbH",
+  "amount": 42.95,
+  "currency": "EUR",
+  "summary": "Monatliche Rechnung für den Mobilfunkvertrag FunkMobil M.",
+  "due_date": "2026-11-14",
+  "due_note": "Zahlungsziel",
+  "due_done": 1,
+  "doc_kind": "rechnung",
+  "direction": "out",
+  "autopay": 1,
+  "recurring": "monatlich",
+  "tags": [
+   "Handy",
+   "Rechnung",
+   "Telekommunikation"
+  ],
+  "recipient": "Alex Muster",
+  "refs": {
+   "customer": "4711 0815 2",
+   "invoice": "934543046"
+  }
  }
 ]

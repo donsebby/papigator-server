@@ -75,10 +75,13 @@ def test_password(client, admin):
     assert link["has_password"]
     client.cookies.clear()
     page = client.get(_path(link))
-    assert "Passwort" in page.text and "Passwortschutz" in page.text   # Name sichtbar, Inhalt nicht
+    assert "Passwort" in page.text and "Passwortschutz" not in page.text   # vor dem Passwort weder Name noch Inhalt
     assert client.get(f"{_path(link)}/file/{doc['id']}").status_code == 404
     r = client.post(f"{_path(link)}/unlock", data={"password": "falsch"}, follow_redirects=False)
     assert r.status_code == 303 and "error=pw" in r.headers["location"]
+    # Großer Körper wird nicht gelesen, ein ausgedachter Link auch nicht (27.11.2026)
+    assert client.post(f"{_path(link)}/unlock", data={"password": "x" * 10000}).status_code == 413
+    assert client.post("/s/ausgedacht/unlock", data={"password": "x"}).status_code == 404
     r = client.post(f"{_path(link)}/unlock", data={"password": "geheim1"}, follow_redirects=False)
     assert r.status_code == 303
     assert client.get(f"{_path(link)}/file/{doc['id']}").status_code == 200

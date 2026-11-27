@@ -131,6 +131,12 @@ Assistant Green, Raspberry Pi, a VM). One container: web app, API, OCR, scanner 
 Data lives in the add-on and is part of Home Assistant backups (taken with the add-on paused); the scanner inbox is
 `/share/papigator/inbox`, reachable through the Samba add-on. Papigator's own nightly backup is off by default. Details: [`homeassistant/DOCS.md`](homeassistant/DOCS.md).
 
+Deadlines show up in Home Assistant as a calendar (*Remote Calendar* integration with the calendar subscription link from
+the web app's settings) or as REST sensors: the same link with `/summary.json` instead of `.ics` returns
+`{"open", "overdue", "due_7_days", "next": {"title", "date", "note", "in_days"}, "today"}`. Example configuration in
+[`homeassistant/DOCS.md`](homeassistant/DOCS.md#deadlines-in-home-assistant). Like the `.ics` link it works without a
+login, so keep it in `secrets.yaml` and inside your network.
+
 ## Find the server automatically
 
 The main service (port 8000, not the share service) announces itself in the local network via Bonjour/mDNS as
@@ -146,7 +152,7 @@ Multicast DNS only reaches devices in the same network segment, and it does not 
 | Bare metal, VM, LXC container (bridged to your LAN) | Yes (LXC: expected, not tested on every setup) |
 | Docker Compose / `docker run` with the default bridge network | No – add `network_mode: host` to the `papigator` service (and drop its `ports:`), or enter the address by hand |
 | Unraid (template default *Bridge*) | No – switch *Network Type* to *Host* (a custom `br0` network with its own IP should work too, untested) |
-| Home Assistant add-on | No – add-ons run in Home Assistant's internal network; the add-on does not use `host_network` |
+| Home Assistant add-on | Not via Bonjour (add-ons run in Home Assistant's internal network, no `host_network`) – but the app also checks `http://homeassistant.local:8000` directly, so a Home Assistant with its default name is found too |
 | Server reachable only over VPN, other VLAN/subnet | No (unless your router reflects mDNS) |
 
 Papigator announces its own name `papigator-<host>.local` with the address of its default route instead of

@@ -113,8 +113,9 @@ def harden_files() -> None:
     """Datenordner nur für den Dienst lesbar; der Eingangsordner bleibt für den Scanner-Nutzer offen."""
     try:
         config.DATA_DIR.chmod(0o711)                       # Durchgang für /inbox, aber kein Auflisten
-        for d in (config.DOCS_DIR, config.THUMBS_DIR):
-            d.chmod(0o700)
+        for d in (config.DOCS_DIR, config.THUMBS_DIR, config.DATA_DIR / "avatars"):   # Profilfotos auch (27.11.2026)
+            if d.exists():
+                d.chmod(0o700)
         for f in config.DATA_DIR.glob("*.db*"):
             f.chmod(0o600)
         if KEY_FILE.exists():

@@ -85,3 +85,19 @@ def test_avatars_are_in_the_backup(admin, tmp_path):
         set_setting(con, "backup_dir", str(tmp_path))
     snap = backup.run()
     assert (tmp_path / snap["name"] / "avatars" / f"u{admin.id}.jpg").is_file()
+
+
+def test_deleted_account_leaves_no_person_photo_or_private_tag(admin, make_user, sam):
+    """Konto gelöscht (27.11.2026): seine Personen, Fotos und leeren eigenen Tags verschwinden – „Lotta“ neu angelegt
+    bekommt kein fremdes Kinderfoto, „Psychotherapie“ steht danach nicht in der Tag-Liste anderer."""
+    kim = make_user("kim")
+    p = kim.post("/persons", json={"name": "Lotta"}).json()
+    assert _up(kim, f"/persons/{p['id']}/avatar", _photo()).status_code == 200
+    d = kim.upload(text="Termin", title="Sitzung").json()
+    kim.patch(f"/documents/{d['id']}", json={"tags": ["Psychotherapie"]})
+    kid = next(u["id"] for u in admin.get("/users").json() if u["username"] == "kim")
+    assert admin.delete(f"/users/{kid}").status_code == 204
+    names = {t["name"] for t in sam.get("/tags").json()}
+    assert "Lotta" not in names and "Psychotherapie" not in names
+    q = sam.post("/persons", json={"name": "Lotta"}).json()
+    assert sam.get(f"/persons/{q['id']}/avatar").status_code == 404

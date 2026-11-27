@@ -83,7 +83,7 @@ def suggest_tag_merges(tags: list[dict], prompt: str | None = None) -> list[dict
     try:
         data = json.loads(m.group(0)) if m else []
     except Exception:
-        log.warning("Tag-Vorschläge: unlesbare LLM-Antwort: %s", content[:200])
+        log.warning("Tag-Vorschläge: unlesbare LLM-Antwort (%d Zeichen)", len(content or ""))
         data = []
     groups, used = [], set()
     for g in data if isinstance(data, list) else []:
@@ -505,7 +505,9 @@ def _tag_facts(owner_ids: list[int], question: str, span) -> str:
                 f"  AND d.deleted_at IS NULL AND d.ext_pending=0 AND d.document_date IS NOT NULL AND d.amount IS NOT NULL "
                 # Jahresabrechnungen nicht: ihr Betrag ist Nachzahlung oder Guthaben, nicht, was es gekostet hat
                 f"  AND coalesce(d.doc_kind, '') != 'abrechnung' "
-                f"  AND d.owner_id IN ({marks}){where} GROUP BY d.document_date, d.amount, d.direction, d.doc_kind) "
+                f"  AND d.owner_id IN ({marks}){where} "
+                # Zweitscan = gleicher Tag, Betrag, Absender – zwei Versicherer mit je 120 € am 1.1. sind zwei Posten (27.11.2026)
+                f"  GROUP BY d.document_date, d.amount, d.direction, d.doc_kind, lower(trim(coalesce(d.sender, ''))), d.currency) "
                 f"GROUP BY y, sender ORDER BY y, sender", (t["id"], *owner_ids, *args)).fetchall()
             years: dict[str, list] = {}
             for r in rows:
@@ -595,7 +597,7 @@ def facts(owner_ids: list[int], today: dt.date, warranty: bool = False,
             # gleicher Betrag am gleichen Tag: dieselbe Rechnung (zweiter Scan) – nur einmal
             f"SELECT substr(document_date,1,4) AS y, MIN(title) AS title, tax_35a FROM documents WHERE deleted_at IS NULL "
             f"AND ext_pending=0 AND tax_35a > 0 AND document_date >= ? AND owner_id IN ({marks}) "
-            f"GROUP BY document_date, tax_35a ORDER BY document_date",
+            f"GROUP BY document_date, tax_35a, lower(trim(coalesce(sender, ''))) ORDER BY document_date",
             (f"{today.year - 3}-01-01", *owner_ids)).fetchall()
     def due_line(r):
         amt = f", {_eur_text(r['amount'], r['currency'])}" if r["amount"] else ""
@@ -833,7 +835,7 @@ def check_sum(answer: str, lang: str = "de") -> str:
         if _money(found[0]) != total:
             a, b = found[0].span()
             lines[i] = line[:a] + _fmt_money(total) + line[b:] + _t("recalc", lang)
-            log.info("Summe korrigiert: %s -> %s", found[0].group(0), _fmt_money(total))
+            log.info("Summe in der Antwort korrigiert")
         return "\n".join(lines)
     return answer
 

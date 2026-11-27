@@ -39,6 +39,16 @@ TOUR = [
 
 # Neueste zuerst
 RELEASES = [
+    {"id": "2026-11-27", "label": {"de": "November 2026", "en": "November 2026"}, "cards": [
+        {"anim": "kinds", "de": ("Ordentlich auch ohne KI", "Ohne KI übernimmt Papigator Datum und Absender, wenn sie eindeutig "
+                              "im Brief stehen, und Tags, die frühere Briefe desselben Absenders hatten."),
+         "en": ("Tidy even without AI", "Without AI, Papigator takes the date and sender when the letter states them "
+                "clearly, and the tags earlier letters from the same sender had.")},
+        {"anim": "calendar", "only": "web", "de": ("Fristen in Home Assistant", "Das Kalender-Abo gibt es jetzt auch als Sensor: offene "
+                                    "und überfällige Fristen auf deinem Dashboard."),
+         "en": ("Deadlines in Home Assistant", "The calendar subscription now also works as a sensor: open and overdue "
+                "deadlines on your dashboard.")},
+    ]},
     {"id": "2026-11-26", "label": {"de": "November 2026", "en": "November 2026"}, "cards": [
         {"anim": "search", "only": "web", "de": ("Ein Feld für alles", "Die Web-App ist neu gebaut: Suchen und Fragen in "
                                                  "einem Feld, am Handy mit Leiste unten wie in der App."),

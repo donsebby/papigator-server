@@ -3,6 +3,7 @@ import hashlib
 import json as _json
 import logging
 import math
+import mimetypes
 import re
 import zipfile
 import shutil
@@ -19,6 +20,7 @@ from pydantic import BaseModel, Field
 
 import threading
 
+from . import logredact  # noqa: F401  – Tokens und Suchanfragen nicht ins Zugriffs-Log
 from . import ask as askmod, auth, backup as backupmod, config, demo, due as duemod, extras, folders, inbox, llm, mail as mailmod, processing, security, smartsearch, worker
 from .auth import User, current_user, require_admin
 from .db import connect, refresh_parent_tags, get_setting, init_db, search_where, set_setting
@@ -106,7 +108,7 @@ def shutdown() -> None:
 
 # ---------- Helpers ----------
 
-def serialize(con, row, user: User) -> dict:
+def serialize(con, row, user: User, hidden: Optional[set] = None) -> dict:
     tags = [
         {"id": t["id"], "name": t["name"], "color": t["color"], "source": t["source"], "kind": t["kind"]}
         for t in con.execute(
@@ -115,6 +117,12 @@ def serialize(con, row, user: User) -> dict:
             (row["id"],),
         )
     ]
+    # Automatisch mitgehängte Oberordner, die der Nutzer nicht kennen darf, nicht zeigen (27.11.2026): wer einen fremden
+    # Unterordner-Namen errät und anhängt, bekäme sonst dessen verborgenen Oberordner ans eigene Dokument
+    if user.id and any(t["source"] == "parent" for t in tags):
+        if hidden is None:
+            hidden = folders.hidden_tag_ids(con, auth.visible_owner_ids(con, user, "all"))
+        tags = [t for t in tags if not (t["source"] == "parent" and t["id"] in hidden)]
     d = dict(row)
     d.pop("text", None)
     d["tags"] = tags
@@ -401,9 +409,19 @@ def _remove_user(con, user_id: int) -> list[int]:
     """Konto samt allem, was ihm gehört: Dokumente, Konten mit Umsätzen, Regeln, Sitzungen, Freigaben (über die
     Fremdschlüssel). Fristen anderer, für die es zuständig war, gelten wieder für alle. → Dokument-IDs (Dateien)."""
     ids = [r["id"] for r in con.execute("SELECT id FROM documents WHERE owner_id=?", (user_id,))]
+    persons = [r[0] for r in con.execute("SELECT tag_id FROM persons WHERE user_id=?", (user_id,))]
+    own_tags = [r[0] for r in con.execute("SELECT id FROM tags WHERE created_by=?", (user_id,))]
     con.execute("UPDATE documents SET due_assignee=NULL WHERE due_assignee=?", (user_id,))
     con.execute("DELETE FROM users WHERE id=?", (user_id,))
     avatars.remove("u", user_id)
+    # Seine Personen (Kinder) und eigenen Tags, die jetzt leer sind, samt Fotos mit wegräumen (27.11.2026) – sonst
+    # standen „Lotta“ oder „Psychotherapie“ danach für alle in der Tag-Liste, und wer „Lotta“ neu anlegte, bekam das Foto
+    for tid in set(persons) | set(own_tags):
+        if con.execute("SELECT 1 FROM persons WHERE tag_id=?", (tid,)).fetchone():
+            continue
+        avatars.remove("p", tid)
+        con.execute("DELETE FROM tags WHERE id=? AND NOT EXISTS (SELECT 1 FROM document_tags WHERE tag_id=?) "
+                    "AND NOT EXISTS (SELECT 1 FROM tags c WHERE c.parent_id=?)", (tid, tid, tid))
     return ids
 
 
@@ -733,7 +751,8 @@ def list_documents(
         }
         sql += " ORDER BY " + orders.get(sort, orders["date"]) + " LIMIT ? OFFSET ?"
         params += [limit, offset]
-        return [serialize(con, r, user) for r in con.execute(sql, params)]
+        hidden = folders.hidden_tag_ids(con, auth.visible_owner_ids(con, user, "all")) if user.id else set()
+        return [serialize(con, r, user, hidden) for r in con.execute(sql, params)]
 
 
 @app.get("/search")
@@ -829,7 +848,11 @@ def set_owner(body: OwnerRequest, user: User = Depends(current_user)):
         if body.owner_id not in {u["id"] for u in assignable_users(con, user)}:
             raise HTTPException(403, "Diesem Nutzer darfst du keine Dokumente zuordnen")
         for i in body.document_ids:
-            get_doc(con, i, user, edit=True)
+            row = get_doc(con, i, user, edit=True)
+            # Fremde Dokumente (Schreibrecht als Partner) nur zu mir holen, nie in einen dritten Bestand schieben –
+            # sonst verschwand ein Dokument aus Annas Sicht und landete bei Carl, den Anna nie geteilt hat (27.11.2026)
+            if row["owner_id"] != user.id and body.owner_id not in (user.id, row["owner_id"]):
+                raise HTTPException(403, "Fremde Dokumente kannst du nur zu dir holen")
         marks = ",".join("?" * len(body.document_ids))
         con.execute(f"UPDATE documents SET owner_id=?, updated_at=datetime('now') WHERE id IN ({marks})",
                     (body.owner_id, *body.document_ids))
@@ -850,8 +873,9 @@ def due_count(scope: Optional[str] = None, days: int = Query(30, ge=0, le=3650),
         marks = ",".join("?" * len(owners))
         base = (f"FROM documents d WHERE d.deleted_at IS NULL AND d.owner_id IN ({marks}) "
                 "AND d.due_date IS NOT NULL AND COALESCE(d.due_done, 0) = 0 AND d.ext_pending=0")
-        n = con.execute(f"SELECT COUNT(*) {base} AND d.due_date <= date('now', ?)", (*owners, f"+{days} days")).fetchone()[0]
-        over = con.execute(f"SELECT COUNT(*) {base} AND d.due_date < date('now')", owners).fetchone()[0]
+        # Ortszeit wie überall sonst (27.11.2026) – mit UTC zählte eine gestrige Frist kurz nach Mitternacht noch nicht als überfällig
+        n = con.execute(f"SELECT COUNT(*) {base} AND d.due_date <= date('now', 'localtime', ?)", (*owners, f"+{days} days")).fetchone()[0]
+        over = con.execute(f"SELECT COUNT(*) {base} AND d.due_date < date('now', 'localtime')", owners).fetchone()[0]
         return {"count": n, "overdue": over}
 
 
@@ -1120,6 +1144,14 @@ def update_document(doc_id: int, body: DocumentUpdate, user: User = Depends(curr
             sets = ", ".join(f"{k}=?" for k in fields)
             con.execute(f"UPDATE documents SET {sets}, updated_at=datetime('now') WHERE id=?",
                         (*fields.values(), doc_id))
+            # Merken, was von Hand kam: eine späte oder nachgeholte KI-Erkennung überschreibt es nicht
+            # nur, was sich wirklich geändert hat – ein Client, der alles mitschickt, sperrte sonst auch leere Felder
+            changed = {k for k, v in fields.items() if k in row.keys() and row[k] != v}
+            processing.mark_hand_fields(con, doc_id, changed - {"ext_pending", "date_check", "no_date", "due_done"})
+        if (fields.get("sender") or "").strip():
+            if row["llm_status"] == "skipped" and "title" not in fields:
+                processing.sender_title_without_ai(con, doc_id)   # Titel war nur ein Dateiname → „Absender · Datum“
+            processing.learn_sender(con, row["owner_id"], fields["sender"])   # ohne KI: andere Briefe desselben Absenders mitnehmen
         if body.tags is not None:
             con.execute("DELETE FROM document_tags WHERE document_id=?", (doc_id,))
             set_tags(con, doc_id, body.tags)
@@ -1286,7 +1318,8 @@ def reprocess(doc_id: int, rerun_ocr: bool = False, user: User = Depends(current
         get_doc(con, doc_id, user, edit=True)
         if rerun_ocr:
             con.execute("UPDATE documents SET text=NULL, text_source=NULL WHERE id=?", (doc_id,))
-        con.execute("UPDATE documents SET status='pending', llm_status=NULL WHERE id=?", (doc_id,))
+        # „Neu erkennen“ heißt ausdrücklich: auch von Hand Geändertes darf die KI neu setzen
+        con.execute("UPDATE documents SET status='pending', llm_status=NULL, hand_fields=NULL WHERE id=?", (doc_id,))
     worker.wake()
     return {"ok": True}
 
@@ -1421,10 +1454,13 @@ class TagIn(BaseModel):
     parent_id: Optional[int] = None   # Ordner, in dem der Tag liegt; None/0 = oberste Ebene
 
 
-def _check_parent(con, tag_id: Optional[int], parent_id: Optional[int]) -> Optional[int]:
+def _check_parent(con, tag_id: Optional[int], parent_id: Optional[int], user: Optional[User] = None) -> Optional[int]:
     if not parent_id:
         return None
     if not con.execute("SELECT 1 FROM tags WHERE id=?", (parent_id,)).fetchone():
+        raise HTTPException(404, "Ordner nicht gefunden")
+    # Ein verborgener fremder Ordner sieht aus wie einer, den es nicht gibt (27.11.2026)
+    if user is not None and user.id and parent_id in folders.hidden_tag_ids(con, auth.visible_owner_ids(con, user, "all")):
         raise HTTPException(404, "Ordner nicht gefunden")
     if tag_id is not None and folders.would_cycle(con, tag_id, parent_id):
         raise HTTPException(400, "Ein Ordner kann nicht in sich selbst oder seinen Unterordnern liegen")
@@ -1559,7 +1595,11 @@ def list_tags(scope: Optional[str] = None, user: User = Depends(current_user)):
         # (Papierkorb zählt mit), an gar keinem (leere Ordner) oder die man selbst (bzw. ein Partner) angelegt hat –
         # dazu die Oberordner der gezeigten.
         hidden = folders.hidden_tag_ids(con, auth.visible_owner_ids(con, user, "all"))
-        return [t for t in tags if t["id"] not in hidden]
+        out = [t for t in tags if t["id"] not in hidden]
+        for t in out:   # Oberordner, den ich nicht sehen darf: auch seine ID nicht (Ordner-Ansicht zeigt den Tag oben)
+            if t.get("parent_id") in hidden:
+                t["parent_id"] = None
+        return out
 
 
 @app.post("/tags", status_code=201)
@@ -1567,12 +1607,13 @@ def create_tag(body: TagIn, user: User = Depends(current_user)):
     with connect() as con:
         if not body.name.strip():
             raise HTTPException(400, "Name fehlt")
-        parent = _check_parent(con, None, body.parent_id)
+        parent = _check_parent(con, None, body.parent_id, user)
         con.execute("INSERT OR IGNORE INTO tags(name, color, parent_id, created_by) VALUES (?,?,?,?)",
                     (body.name.strip(), _tag_color(body.color), parent, user.id or None))
         out = dict(con.execute("SELECT * FROM tags WHERE name=?", (body.name.strip(),)).fetchone())
         if out["created_by"] != user.id and out["id"] in folders.hidden_tag_ids(con, auth.visible_owner_ids(con, user, "all")):
-            out["created_by"] = None   # fremder, verborgener Ordner: nicht verraten, wem er gehört
+            # fremder, verborgener Tag gleichen Namens: nichts über ihn verraten (Ordner, Farbe, Art, Besitzer)
+            out.update(created_by=None, parent_id=None, color=None, kind=None)
         return out
 
 
@@ -1925,12 +1966,16 @@ def _refs_obj(raw) -> dict:
 def export_zip(scope: str = Query("mine", description="mine | all"),
                layout: str = Query("flat", description="flat | folders (Ordner/Jahr/Datum Titel.pdf)"),
                user: User = Depends(current_user)):
-    """Alle PDFs + metadata.json als ZIP (eigener Pot; Admin mit scope=all: alle)."""
+    """Alle PDFs + metadata.json als ZIP (eigener Pot; Admin mit scope=all: alles, was er sieht – eigener Pot und mit ihm
+    geteilte). Bis 27.11.2026 bekam ein Admin hier alle Bestände, auch solche, die er sonst nirgends sieht."""
     with connect() as con:
         tree = folders.tag_tree(con)
         used: set[str] = set()
         if scope == "all" and user.is_admin:
-            rows = con.execute("SELECT * FROM documents WHERE deleted_at IS NULL ORDER BY id").fetchall()
+            owners = auth.visible_owner_ids(con, user, "all")
+            marks = ",".join("?" * len(owners)) or "NULL"
+            rows = con.execute(f"SELECT * FROM documents WHERE deleted_at IS NULL AND owner_id IN ({marks}) "
+                               "AND (ext_pending=0 OR owner_id=?) ORDER BY id", (*owners, user.id)).fetchall()
         else:
             rows = con.execute("SELECT * FROM documents WHERE deleted_at IS NULL AND owner_id=? ORDER BY id", (user.id,)).fetchall()
         meta = []
@@ -2017,7 +2062,7 @@ def test_llm(body: LlmTestIn, admin: User = Depends(require_admin)):
     if key and not llm.is_local(url) and url.startswith("http://"):
         raise HTTPException(400, "Schlüssel nur über https:// senden")
     with worker.interactive_llm():
-        return processing.llm_test(url, body.model or "", key or config.LLM_API_KEY)
+        return processing.llm_test(url, body.model or "", key or llm.env_key_for(url))
 
 
 class LlmPauseIn(BaseModel):
@@ -2056,8 +2101,8 @@ def retag_all(scope: str = Query("failed", description="failed | all"), admin: U
     with connect() as con:
         if scope == "all":
             # Nachtragen (refill*) gilt danach als erledigt – sonst schriebe der Worker nur die Nachtrag-Felder
-            n = con.execute("UPDATE documents SET status='tagging', llm_status=CASE WHEN llm_status LIKE 'refill%' "
-                            "THEN 'pending' ELSE llm_status END WHERE status='done'").rowcount
+            n = con.execute("UPDATE documents SET status='tagging', hand_fields=NULL, llm_status=CASE WHEN llm_status LIKE 'refill%' "
+                            "THEN 'pending' ELSE llm_status END WHERE status='done'").rowcount   # „alle“ überschreibt laut Rückfrage auch Handarbeit
         else:
             n = con.execute("UPDATE documents SET status='tagging' WHERE status='done' AND llm_status IN ('failed','skipped')").rowcount
     worker.wake()
@@ -2156,7 +2201,9 @@ def ping():
     """Ohne Anmeldung: lebt der Server, und braucht er die Ersteinrichtung? (Docker-Healthcheck, Web-Start)"""
     with connect() as con:
         users = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    return {"ok": True, "needs_setup": users == 0}
+    # app/version: die iPhone-App erkennt daran einen Papigator-Server, den sie direkt geprüft hat (homeassistant.local,
+    # 27.11.2026) – dieselben Angaben stehen ohnehin in der Bonjour-Meldung
+    return {"ok": True, "needs_setup": users == 0, "app": "papigator", "version": app.version}
 
 
 @app.get("/health")
@@ -2165,13 +2212,17 @@ def health(user: User = Depends(current_user)):
     with connect() as con:
         # Papierkorb nicht mitzählen: dort bleibt ein Dokument im alten Zustand (z. B. „tagging“), bis es
         # wiederhergestellt wird – sonst hinge die Fortschrittsanzeige für immer
+        # Nur die eigenen bzw. sichtbaren Bestände zählen – Admins sehen alles (27.11.2026; vorher sah jeder, dass
+        # bei anderen gerade 3 Dokumente erkannt werden)
+        own = "" if user.is_admin else (
+            " AND owner_id IN (" + (",".join(str(int(i)) for i in auth.visible_owner_ids(con, user, "all")) or "NULL") + ")")
         counts = {r["status"]: r["n"] for r in con.execute(
-            "SELECT status, COUNT(*) AS n FROM documents WHERE deleted_at IS NULL GROUP BY status")}
-        llm_failed = con.execute("SELECT COUNT(*) FROM documents WHERE llm_status='failed' AND deleted_at IS NULL").fetchone()[0]
+            f"SELECT status, COUNT(*) AS n FROM documents WHERE deleted_at IS NULL{own} GROUP BY status")}
+        llm_failed = con.execute(f"SELECT COUNT(*) FROM documents WHERE llm_status='failed' AND deleted_at IS NULL{own}").fetchone()[0]
         users = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         # Bestand still nachtragen (Art/Empfänger/Nummern, refill_k): Status bleibt „done“, zählt also nicht oben mit
         backfill = con.execute("SELECT COUNT(*) FROM documents WHERE llm_status='refill_k' AND status='done' "
-                               "AND deleted_at IS NULL").fetchone()[0]
+                               f"AND deleted_at IS NULL{own}").fetchone()[0]
         backfill_total = max(backfill, int(get_setting(con, "kinds_v1", "0") or 0))
     # Ohne nutzbare KI (aus, nicht erreichbar, Mac schläft) passiert nichts – dann nicht „KI arbeitet“ zeigen, sondern
     # nur sagen, dass es wartet
@@ -2197,6 +2248,7 @@ async def no_stale_frontend(request: Request, call_next):
     return response
 
 
+mimetypes.add_type("application/manifest+json", ".webmanifest")   # sonst je nach System text/plain
 app.mount("/app", StaticFiles(directory=str(Path(__file__).parent / "static"), html=True), name="static")
 
 

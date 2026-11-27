@@ -541,6 +541,23 @@ Ihre Tochter Mia Muster, geb. 16.08.2018, ist seit ihrer Geburt bei Ihnen famili
 Diese Bescheinigung wurde maschinell erstellt und ist ohne Unterschrift gültig.
 """, kind="Bescheinigung", amount=None, recipient="Alex Muster", refs={"customer": "A123456780"})
 
+# --- Nachtrag (27.11.2026): Funkwerk-Rechnung November 2026 – am Ende, damit sich die Zufallsfolge (und damit
+# meta.json, das nach Position zugeordnet ist) der übrigen Dokumente nicht verschiebt
+m = date(2026, 11, 4)
+amt = 42.95 + random.choice([0, 0, 0, 0, 4.99, 2.40])
+rn = f"{random.randint(100000000, 999999999)}"
+add("alex", m, f"Funkwerk_Rechnung_{m:%Y_%m}.pdf", f"""
+Funkwerk Mobil GmbH · Wellenweg 5 · 53111 Bonn
+{ADR_A}
+Ihre Rechnung für {MONATE[m.month-1]} {m.year}
+Kundennummer 4711 0815 2  Rechnungsnummer {rn}
+Rechnungsdatum {de(m)}
+FunkMobil M  monatlicher Grundpreis  {eur(42.95)}
+Verbindungen / Roaming                     {eur(amt - 42.95)}
+Rechnungsbetrag (inkl. 19 % USt)           {eur(amt)}
+Der Rechnungsbetrag wird am {de(m + timedelta(days=10))} von Ihrem Konto DE12 3456 7890 1234 5678 90 abgebucht.
+""", kind="Rechnung", amount=round(amt, 2), direction="Ausgabe")
+
 # --- Optional mit dem Kalender mitwandern (Demoserver): DEMO_SHIFT=1 verschiebt alle Daten relativ zu heute
 if os.environ.get("DEMO_SHIFT") == "1":
     sys.path.insert(0, str(Path(__file__).resolve().parent))

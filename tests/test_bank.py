@@ -245,7 +245,8 @@ def test_pocket_transfers_are_not_income(admin):
     s = admin.get("/bank/summary").json()
     cats = {c["name"]: c["cents"] for c in s["categories"]}
     assert s["income"] == 295000                                   # nur das Gehalt, nicht die 186 € aus dem Pocket
-    assert cats == {"Kleidung": 8995, "Nicht einsortiert": -2500}  # Gutschrift von Sam: zum Einsortieren
+    # Gutschrift von Sam: zum Einsortieren, aber keine „negative Ausgabe“ (27.11.2026)
+    assert cats == {"Kleidung": 8995, "Nicht einsortiert": 0} and s["spent"] == 8995
     open_ = admin.get("/bank/to_sort").json()["transactions"]
     assert [t["counterparty"] for t in open_] == ["Sam Muster"]
 
@@ -437,3 +438,45 @@ def test_import_row_and_account_limits(admin, monkeypatch):
     rows = [f"05.11.2026;-1,00 €;A;B;{i}00000000{i};Konto {i}" for i in range(1, 4)]
     r = _imp(admin, ("\n".join([head, *rows]) + "\n").encode(), shares="{}")
     assert r.status_code == 400 and "Konten" in r.json()["detail"]
+
+
+def test_category_sums_all_rows_and_shows_readable_top(admin):
+    """Kategorie-Detail: Summe und Monate über alle Buchungen (Liste höchstens 500), „Am meisten bei“ in der
+    Schreibweise des Gegenübers statt des kleingeschriebenen Händler-Schlüssels (27.11.2026)."""
+    head = "Buchungsdatum;Wertstellung;Zahlungsempfänger;Verwendungszweck;Betrag\n"
+    lines = [f"{(d % 28) + 1:02d}.{(d // 28) % 12 + 1:02d}.{2024 + d // 336};x;REWE Markt;Kartenzahlung {d};-1,00"
+             for d in range(520)]
+    lines.append("01.01.2026;x;Hausverwaltung Kern & Partner;Miete;-900,00")
+    _imp(admin, ("".join(l + "\n" for l in [head.strip(), *lines])).encode("cp1252"), account_name="Giro")
+    s = {c["name"]: c["cents"] for c in admin.get("/bank/summary").json()["categories"]}
+    k = admin.get("/bank/category", params={"name": "Lebensmittel"}).json()
+    assert k["cents"] == s["Lebensmittel"] == 52000 and len(k["transactions"]) == 500 and k["count"] == 520
+    assert sum(m["cents"] for m in k["months"]) == 52000 and k["top"]["name"] == "REWE Markt"
+
+
+def test_open_credit_is_not_negative_spending(admin):
+    """Nicht einsortierte Gutschrift (Überweisung von privat) zieht „ausgegeben“ nicht ins Minus (27.11.2026)."""
+    csv_ = ("Buchungsdatum;Wertstellung;Zahlungsempfänger;Verwendungszweck;Betrag\n"
+            "02.11.2026;x;REWE Markt;Kartenzahlung;-100,00\n"
+            "03.11.2026;x;Flohmarkt Verein;Stand;-20,00\n"
+            "04.11.2026;x;Max Privat;Danke fürs Auslegen;500,00\n").encode("cp1252")
+    _imp(admin, csv_, account_name="Giro")
+    s = admin.get("/bank/summary").json()
+    cats = {c["name"]: c["cents"] for c in s["categories"]}
+    assert s["spent"] == 12000 and cats["Nicht einsortiert"] == 2000
+    k = admin.get("/bank/category", params={"name": "Nicht einsortiert"}).json()
+    assert k["cents"] == 2000 and len(k["transactions"]) == 2
+
+
+def test_same_booking_in_two_accounts_then_single_export(admin):
+    """Gleiche Buchung (0,01 € Zinsen) in zwei Konten einer Datei, später Export nur des zweiten Kontos: nichts doppelt
+    (27.11.2026). Gilt auch für Umsätze, die noch mit der alten Nummerierung über die ganze Datei gespeichert sind."""
+    head = "Transaktionstyp;Buchungsdatum;Betrag;Zahlungsempfänger;Verwendungszweck;Feld 6;Feld 7;Feld 8\n"
+    both = (head + "Gutschrift;30.11.26;0,01 €;Bank;Zinsen;;1000000001;Giro\n"
+                   "Gutschrift;30.11.26;0,01 €;Bank;Zinsen;;2000000002;Urlaub\n").encode()
+    r = _imp(admin, both).json()
+    assert r["new"] == 2
+    urlaub = next(a["id"] for a in admin.get("/bank/accounts").json()["accounts"] if a["name"] == "Urlaub")
+    only_b = ("Buchungsdatum;Betrag;Zahlungsempfänger;Verwendungszweck\n30.11.26;0,01 €;Bank;Zinsen\n").encode()
+    assert _imp(admin, only_b, account_id=urlaub).json()["new"] == 0
+    assert _imp(admin, both).json()["new"] == 0
