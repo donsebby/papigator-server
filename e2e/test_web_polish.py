@@ -276,3 +276,132 @@ def test_today_due_pill_shows_year_outside_current_year(page):
         _drop(page, *ids)
         page.evaluate("localStorage.setItem('bl.mode', 'tiles')")
 
+
+
+def test_back_closes_document_after_double_open(page):
+    """Doppelklick auf eine Frist in „Heute“ öffnete das Dokument zweimal (zwei Verlaufseinträge): „Übersicht“
+    schloss es dann erst beim zweiten Klick (28.11.2026)."""
+    from e2e.test_web import _today
+    doc = _upload(page, "Doppelklick-Test")
+    _patch(page, doc, {"due_date": (dt.date.today() + dt.timedelta(days=4)).isoformat(), "due_note": "Zahlen"})
+    _today(page)
+    page.locator(".t-row", has_text="Doppelklick-Test").locator(".t-open").dblclick()
+    shown(page, "#detail")
+    page.click("#back-btn")
+    hidden(page, "#detail")
+    shown(page, "#todayview")
+    page.evaluate(f"fetch('/documents/{doc}?permanent=true', {{ method: 'DELETE' }})")
+    page.evaluate("localStorage.setItem('bl.mode', 'tiles')")
+
+
+def test_tag_from_suggestions_needs_no_enter(page):
+    """Tag aus der Vorschlagsliste gewählt: gleich übernommen (28.11.2026); getippt wartet er weiter auf Enter."""
+    doc = _upload(page, "Tagwahl-Test")
+    try:
+        page.evaluate(f"openDetail({doc})")
+        shown(page, "#detail")
+        inp = page.locator("#m-tag-input")
+        inp.click()
+        page.keyboard.type("Hau")                                    # getippt: nichts passiert
+        expect(page.locator("#m-tags .chip", has_text="Haus")).to_have_count(0)
+        # so meldet Chrome die Wahl aus der <datalist> (die native Liste lässt sich nicht anklicken)
+        inp.evaluate("(el) => { el.value = 'Haus'; el.dispatchEvent(new InputEvent('input', "
+                     "{ inputType: 'insertReplacementText', bubbles: true })); }")
+        expect(page.locator("#m-tags .chip", has_text="Haus")).to_have_count(1)
+        expect(inp).to_have_value("")
+        expect(page.locator("#save-state")).to_have_text("Gespeichert")
+    finally:
+        page.evaluate(f"fetch('/documents/{doc}?permanent=true', {{ method: 'DELETE' }})")
+
+
+def test_drag_document_into_subfolder(page):
+    """Ordner-Ansicht: Dokument auf einen Unterordner ziehen verschiebt es dorthin – statt die Ablage für neue Dateien
+    zu öffnen (28.11.2026)."""
+    from e2e.test_web import _folders
+    doc = _upload(page, "Umzugskarton-Beleg")
+    _patch(page, doc, {"tags": ["Haus"]})
+    try:
+        _folders(page)
+        page.locator(".folder", has_text="Haus").click()
+        card = page.locator(".card", has_text="Umzugskarton-Beleg")
+        expect(card).to_be_visible()
+        for img in card.locator(".thumb img").all():                    # Vorschaubild zieht nicht selbst (sonst „Datei“)
+            expect(img).to_have_attribute("draggable", "false")
+        page.drag_and_drop('.card:has-text("Umzugskarton-Beleg")', '.folder:has-text("Strom")')
+        expect(page.locator("#toast")).to_contain_text("Nach „Strom“ verschoben")
+        hidden(page, "#dropzone")
+        tags = page.evaluate(f"fetch('/documents/{doc}').then((r) => r.json()).then((d) => d.tags.map((t) => t.name))")
+        assert sorted(tags) == ["Haus", "Strom"], tags                   # Haus bleibt als Oberordner
+        page.locator(".folder", has_text="Strom").click()
+        expect(page.locator(".card", has_text="Umzugskarton-Beleg")).to_be_visible()
+    finally:
+        page.evaluate(f"fetch('/documents/{doc}?permanent=true', {{ method: 'DELETE' }})")
+        page.click('#mode-seg button[data-mode="tiles"]')
+
+
+def test_customize_today_hides_sections(page):
+    """Einstellungen → Heute anpassen: Bereiche aus- und wieder einblenden (je Konto, Server /auth/me)."""
+    from e2e.test_web import _today
+    doc = _upload(page, "Anpassen-Test")
+    _patch(page, doc, {"due_date": (dt.date.today() + dt.timedelta(days=5)).isoformat(), "due_note": "Zahlen"})
+    try:
+        _today(page)
+        expect(page.locator(".t-due")).to_be_visible()
+        page.locator("#todayview [data-act='customize']").click()
+        shown(page, "#settings")
+        expect(page.locator("#s-today-sect")).to_have_attribute("open", "")
+        box = page.locator("#s-today-list input[data-today='due']")
+        expect(box).to_be_checked()
+        box.uncheck()
+        page.wait_for_function("fetch('/auth/me').then((r) => r.json()).then((m) => m.today_hidden.includes('due'))")
+        page.click("#settings-back")
+        shown(page, "#todayview")
+        expect(page.locator(".t-due")).to_have_count(0)
+        expect(page.locator(".t-cols.no-due")).to_have_count(1)
+    finally:
+        page.evaluate("fetch('/auth/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, "
+                      "body: JSON.stringify({ today_hidden: [] }) })")
+        page.evaluate(f"fetch('/documents/{doc}?permanent=true', {{ method: 'DELETE' }})")
+        page.evaluate("localStorage.setItem('bl.mode', 'tiles')")
+
+
+def test_light_theme_native_controls_stay_light(page):
+    """Windows dunkel + Papigator hell: Auswahllisten waren schwarz mit schwarzer Schrift – color-scheme folgt jetzt
+    der Wahl in Darstellung (28.11.2026)."""
+    page.emulate_media(color_scheme="dark")
+    page.evaluate("localStorage.setItem('bl.theme', 'light'); applyTheme()")
+    try:
+        assert page.evaluate("getComputedStyle(document.documentElement).colorScheme") == "light"
+        page.evaluate("localStorage.setItem('bl.theme', 'dark'); applyTheme()")
+        assert page.evaluate("getComputedStyle(document.documentElement).colorScheme") == "dark"
+    finally:
+        page.evaluate("localStorage.removeItem('bl.theme'); applyTheme()")
+        page.emulate_media(color_scheme="light")
+
+
+def test_today_extra_cards_last_seen_and_week(page):
+    """Zusatzkarten auf „Heute“ (28.11.2026): „Zuletzt angesehen“ (nur dieser Browser) und die Wochenzeile;
+    beide lassen sich unter „Heute anpassen“ abschalten."""
+    from e2e.test_web import _today
+    doc = _upload(page, "Zuletzt-Test")
+    try:
+        page.evaluate(f"openDetail({doc})")
+        shown(page, "#detail")
+        page.click("#back-btn")
+        hidden(page, "#detail")
+        _today(page)
+        expect(page.locator(".t-lastseen")).to_contain_text("Zuletzt-Test")
+        expect(page.locator(".t-week")).to_contain_text("Diese Woche")
+        page.evaluate("fetch('/auth/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, "
+                      "body: JSON.stringify({ today_hidden: ['lastseen', 'week'] }) }).then(() => refreshMe())")
+        page.wait_for_function("state.me && state.me.today_hidden.includes('week')")
+        page.reload()
+        shown(page, "#todayview")
+        expect(page.locator(".t-due, .t-new")).not_to_have_count(0)
+        expect(page.locator(".t-lastseen")).to_have_count(0)
+        expect(page.locator(".t-week")).to_have_count(0)
+    finally:
+        page.evaluate("fetch('/auth/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, "
+                      "body: JSON.stringify({ today_hidden: [] }) })")
+        page.evaluate(f"fetch('/documents/{doc}?permanent=true', {{ method: 'DELETE' }})")
+        page.evaluate("localStorage.removeItem('bl.lastseen'); localStorage.setItem('bl.mode', 'tiles')")

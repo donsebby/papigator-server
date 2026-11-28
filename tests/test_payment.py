@@ -194,3 +194,13 @@ def test_amount_source_missing_when_changed_by_hand(admin):
     p = admin.get(f"/documents/{doc}/payment").json()
     assert p["sources"]["amount"] is None and p["sources"]["iban"].startswith("IBAN:")
     assert payment.amount_snippet(1234.5, "Gesamtbetrag 1.234,50 € inkl. USt") == "Gesamtbetrag 1.234,50 € inkl. USt"
+
+
+def test_today_sections_per_account(admin, sam):
+    """„Heute“ anpassen (28.11.2026): ausgeblendete Bereiche je Konto, Unbekanntes fällt weg, [] zeigt wieder alles."""
+    assert admin.get("/auth/me").json()["today_hidden"] == []
+    admin.patch("/auth/me", json={"today_hidden": ["emergency", "money", "quatsch", "money"]})
+    assert admin.get("/auth/me").json()["today_hidden"] == ["money", "emergency"]
+    assert sam.get("/auth/me").json()["today_hidden"] == []
+    admin.patch("/auth/me", json={"today_hidden": []})
+    assert admin.get("/auth/me").json()["today_hidden"] == []

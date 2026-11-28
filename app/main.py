@@ -67,6 +67,8 @@ from . import yearly  # noqa: E402  Jährliche Kosten und Rücklagen-Topf (/bank
 app.include_router(yearly.router)
 from . import avatars  # noqa: E402  Profilbilder für Konten und Personen ohne Konto (25.11.2026)
 app.include_router(avatars.router)
+from . import today as todaymod  # noqa: E402  Zusatzkarten für „Heute“ (/today/extras)
+app.include_router(todaymod.router)
 from . import updates  # noqa: E402  Hinweis auf neue Server-Versionen (25.11.2026)
 app.include_router(updates.router)
 from . import notes  # noqa: E402  Notizen am Dokument (25.11.2026)
@@ -267,18 +269,25 @@ def me(user: User = Depends(current_user)):
                 "WHERE p.from_user=?", (user.id,))
         ]
         needs_setup = con.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
-        pq = con.execute("SELECT pay_qr FROM users WHERE id=?", (user.id,)).fetchone()
+        pq = con.execute("SELECT pay_qr, today_hidden FROM users WHERE id=?", (user.id,)).fetchone()
     return {
         "id": user.id, "username": user.username, "display_name": user.display_name,
         "is_admin": user.is_admin, "show_partner_in_overview": user.show_partner_in_overview,
         "avatar": avatars.version("u", user.id) if user.id else None,
         "shared_with_me": partners_in, "shared_by_me": partners_out, "needs_setup": needs_setup,
         "demo": config.DEMO, "pay_qr": bool(pq and pq["pay_qr"]),
+        "today_hidden": [x for x in ((pq and pq["today_hidden"]) or "").split(",") if x in TODAY_SECTIONS],
     }
+
+
+# Bereiche auf „Heute“, die man ausblenden kann (Web drawToday, App TodayView) – gleiche Schlüssel in beiden
+TODAY_SECTIONS = ("due", "review", "upcoming", "money", "people", "emergency", "recent",
+                  "cancel", "tax", "inbox", "yearago", "lastseen", "week", "system")   # Zusatzkarten: app/today.py
 
 
 class SettingsIn(BaseModel):
     display_name: Optional[str] = None
+    today_hidden: Optional[list[str]] = None   # ausgeblendete Bereiche auf „Heute“ (TODAY_SECTIONS), [] = alles zeigen
     show_partner_in_overview: Optional[bool] = None
     pay_qr: Optional[bool] = None   # Bezahlen per QR anzeigen (app/payment.py), Standard aus
     password: Optional[str] = None
@@ -308,6 +317,9 @@ def update_me(body: SettingsIn, request: Request, user: User = Depends(current_u
             con.execute("UPDATE users SET display_name=? WHERE id=?", (body.display_name.strip(), user.id))
         if body.pay_qr is not None:
             con.execute("UPDATE users SET pay_qr=? WHERE id=?", (int(body.pay_qr), user.id))
+        if body.today_hidden is not None:
+            keep = [k for k in TODAY_SECTIONS if k in set(body.today_hidden)]   # Unbekanntes fällt weg, feste Reihenfolge
+            con.execute("UPDATE users SET today_hidden=? WHERE id=?", (",".join(keep) or None, user.id))
         if body.show_partner_in_overview is not None:
             con.execute("UPDATE users SET show_partner_in_overview=? WHERE id=?",
                         (int(body.show_partner_in_overview), user.id))

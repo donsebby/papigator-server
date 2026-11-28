@@ -461,6 +461,28 @@
           <p id="s-connect-warn" class="warn small hidden"></p>
         </div>
       </details>
+      <details class="sect" id="s-today-sect">
+        <summary>Heute anpassen</summary>
+        <div class="sect-body">
+          <p class="muted small">Was die Startseite „Heute“ zeigt – gilt für dein Konto, in der App und im Web.</p>
+          <div id="s-today-list">
+            <label class="toggle"><input type="checkbox" data-today="due"> Fristen</label>
+            <label class="toggle"><input type="checkbox" data-today="review"> Zum Prüfen</label>
+            <label class="toggle"><input type="checkbox" data-today="upcoming"> Im Blick</label>
+            <label class="toggle"><input type="checkbox" data-today="money"> Geld</label>
+            <label class="toggle"><input type="checkbox" data-today="people"> Familie</label>
+            <label class="toggle"><input type="checkbox" data-today="emergency"> Notfallmappe</label>
+            <label class="toggle"><input type="checkbox" data-today="recent"> Neu</label>
+            <label class="toggle"><input type="checkbox" data-today="week"> Diese Woche (eine Zeile oben)</label>
+            <label class="toggle"><input type="checkbox" data-today="cancel"> Kündigen möglich</label>
+            <label class="toggle"><input type="checkbox" data-today="tax"> Steuerjahr</label>
+            <label class="toggle"><input type="checkbox" data-today="inbox"> Briefkasten</label>
+            <label class="toggle"><input type="checkbox" data-today="yearago"> Vor einem Jahr</label>
+            <label class="toggle"><input type="checkbox" data-today="lastseen"> Zuletzt angesehen (dieser Browser)</label>
+            <label class="toggle"><input type="checkbox" data-today="system"> Systemzustand (nur Admins, nur bei Problemen)</label>
+          </div>
+        </div>
+      </details>
       <details class="sect" id="s-cal-sect">
         <summary>Kalender-Abo</summary>
         <div class="sect-body">
@@ -555,7 +577,7 @@
           <p class="muted small">Scanner per FTP oder SMB auf den Eingangsordner zeigen (<code>inbox/&lt;Benutzername&gt;/</code>). Dateien werden alle paar Sekunden importiert; fehlgeschlagene landen in <code>_fehler/</code>.</p>
         </div>
       </details>
-      <details class="sect">
+      <details class="sect" id="s-export-sect">
         <summary>Export</summary>
         <div class="sect-body">
           <p class="muted small">Alle Dokumente als ZIP: PDFs mit Titel im Dateinamen plus <code>metadata.json</code> (Datum, Absender, Betrag, Tags). Damit kommst du jederzeit ohne Papigator an alles ran.</p>

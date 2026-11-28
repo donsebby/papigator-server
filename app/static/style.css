@@ -19,6 +19,12 @@
   --glow-core: color-mix(in srgb, var(--accent) 28%, transparent); --dot-a: rgba(250,204,21,.16); --dot-b: rgba(56,189,248,.16);
   --radius: 20px;
 }
+/* Eingebaute Teile (Auswahllisten, Scrollbalken, Datumsfelder) folgen sonst dem System: Windows dunkel + Papigator
+   hell gab schwarze Listen mit schwarzer Schrift (28.11.2026). Die Wahl in Darstellung gilt auch für sie. */
+:root { color-scheme: light dark; }
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+select option, select optgroup { background-color: var(--surface-solid); color: var(--text); }
 html[data-theme="light"] {
     --bg: #f3f3f6; --bg-glow: rgba(95,174,125,.10);
     --surface: #fff; --surface-solid: #fff; --surface-border: rgba(0,0,0,.07);
@@ -768,6 +774,10 @@ button.m-pill { cursor: pointer; background: color-mix(in srgb, var(--accent) 14
 .todayview { padding: 16px 20px 28px; display: flex; flex-direction: column; gap: 14px; max-width: 1240px; box-sizing: border-box; }
 .t-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 18px; align-items: start; }
 @media (max-width: 860px) { .t-cols { grid-template-columns: minmax(0, 1fr); } }
+/* Fristen ausgeblendet (Heute anpassen): die übrigen Karten nebeneinander statt einer schmalen rechten Spalte */
+.t-cols.no-due { grid-template-columns: minmax(0, 1fr); }
+.t-cols.no-due .t-side { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; align-items: start; }
+.t-custom { text-align: center; margin: 18px 0 4px; }
 .tcard { background: var(--surface); border: 1px solid var(--surface-border); border-radius: 22px; padding: 14px 16px; box-shadow: var(--card-shadow); min-width: 0; }
 .t-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
 .t-head h2 { margin: 0; flex: 1; font-size: 17px; font-weight: 800; color: var(--text); }
@@ -833,6 +843,15 @@ button.m-pill { cursor: pointer; background: color-mix(in srgb, var(--accent) 14
 .t-review .t-ic { background: var(--surface-solid); color: #ec4899; }
 .t-rv { flex: 1; display: flex; flex-direction: column; gap: 1px; } .t-rv b { font-size: 16px; font-weight: 800; } .t-rv small { font-size: 12px; opacity: .85; }
 .t-review > span:last-child { font-size: 22px; font-weight: 700; }
+/* Zusatzkarten (28.11.2026): Hinweis-Knöpfe wie „Zum Prüfen“, eigene Farbe – Systemzustand bernstein, Briefkasten blau */
+.t-alert { --al: #f59e0b; display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 16px; border: 0; border-radius: 22px;
+  text-align: left; white-space: normal; font: inherit; color: color-mix(in srgb, var(--al) 55%, var(--text));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--al) 20%, transparent), color-mix(in srgb, var(--al) 8%, transparent)); }
+.t-alert.t-inbox { --al: #3b82f6; }
+.t-alert:hover { filter: brightness(1.03); }
+.t-alert .t-ic { background: var(--surface-solid); color: var(--al); }
+.t-alert > span:last-child { font-size: 22px; font-weight: 700; }
+.t-week { margin: 0 0 14px; font-size: 13.5px; color: var(--muted); }
 .t-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; margin-top: 4px; }
 .t-person { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; padding: 12px 4px; border: 0; border-radius: 18px;
   background: var(--chip); color: var(--text); font: inherit; text-align: center; white-space: normal; transition: transform .15s; }

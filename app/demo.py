@@ -30,7 +30,7 @@ def _permanent(request: Request, _body) -> bool:
 
 
 # Beim eigenen Konto nur Anzeige-Einstellungen – Passwort und Name gehören allen, die das Konto benutzen
-ME_FIELDS = {"show_partner_in_overview", "pay_qr"}
+ME_FIELDS = {"show_partner_in_overview", "pay_qr", "today_hidden"}
 
 
 def _me_change(_request: Request, body) -> bool:

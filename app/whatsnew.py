@@ -39,6 +39,16 @@ TOUR = [
 
 # Neueste zuerst
 RELEASES = [
+    {"id": "2026-11-28", "label": {"de": "November 2026", "en": "November 2026"}, "cards": [
+        {"anim": "due", "de": ("Heute nach deinem Geschmack", "Neue Karten auf „Heute“: Kündigen möglich, Steuerjahr, vor einem "
+                               "Jahr, zuletzt angesehen und deine Woche. Was du nicht brauchst, blendest du unter „Heute "
+                               "anpassen“ aus."),
+         "en": ("Today, your way", "New cards on “Today”: time to cancel, tax year, a year ago, recently viewed and your week. "
+                "Hide what you don't need under “Customize Today”.")},
+        {"anim": "search", "only": "web", "de": ("Ziehen und ablegen", "In der Ordner-Ansicht ziehst du ein Dokument einfach "
+                                                 "auf einen anderen Ordner."),
+         "en": ("Drag and drop", "In the folder view, simply drag a document onto another folder.")},
+    ]},
     {"id": "2026-11-27", "label": {"de": "November 2026", "en": "November 2026"}, "cards": [
         {"anim": "kinds", "de": ("Ordentlich auch ohne KI", "Ohne KI übernimmt Papigator Datum und Absender, wenn sie eindeutig "
                               "im Brief stehen, und Tags, die frühere Briefe desselben Absenders hatten."),

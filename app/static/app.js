@@ -1010,22 +1010,30 @@ function renderFolderView() {
     box.querySelector("#folder-rename").onclick = () => renameFolder(cur);
     box.querySelector("#folder-delete").onclick = () => deleteFolder(cur, cur.count || 0, (kids.get(cur.id) || []).length);
   }
-  // Ordner per Drag&Drop in einen anderen ziehen – auf eine Kachel oder einen Brotkrumen („Alle Ordner“ = oberste Ebene)
+  // Ordner per Drag&Drop in einen anderen ziehen (Admins) – auf eine Kachel oder einen Brotkrumen („Alle Ordner“ =
+  // oberste Ebene). Dokumente (alle, die sie bearbeiten dürfen) auf eine Kachel oder einen Brotkrumen mit Ordner.
+  const byName = (n) => (state.tags || []).find((t) => t.name === n);
   if (state.me?.is_admin) {
-    const byName = (n) => (state.tags || []).find((t) => t.name === n);
     for (const el of box.querySelectorAll(".folder[data-folder]")) {
       el.draggable = true;
       el.ondragstart = (e) => { e.dataTransfer.setData("text/folder", el.dataset.folder); e.dataTransfer.effectAllowed = "move"; };
     }
-    for (const el of box.querySelectorAll(".folder[data-folder], .crumbs a[data-folder]")) {
-      el.ondragover = (e) => { if ([...e.dataTransfer.types].includes("text/folder")) { e.preventDefault(); el.classList.add("drop-target"); } };
-      el.ondragleave = () => el.classList.remove("drop-target");
-      el.ondrop = (e) => {
-        if (![...e.dataTransfer.types].includes("text/folder")) return;
-        e.preventDefault(); e.stopPropagation(); el.classList.remove("drop-target");
-        moveFolder(byName(e.dataTransfer.getData("text/folder")), el.dataset.folder ? byName(el.dataset.folder) : null);
-      };
-    }
+  }
+  const dragKind = (e, el) => {
+    const types = [...e.dataTransfer.types];
+    if (types.includes("text/folder") && state.me?.is_admin) return "folder";
+    if (types.includes("text/doc") && el.dataset.folder && el.dataset.folder !== cur?.name) return "doc";
+    return null;
+  };
+  for (const el of box.querySelectorAll(".folder[data-folder], .crumbs a[data-folder]")) {
+    el.ondragover = (e) => { if (dragKind(e, el)) { e.preventDefault(); el.classList.add("drop-target"); } };
+    el.ondragleave = () => el.classList.remove("drop-target");
+    el.ondrop = (e) => {
+      const kind = dragKind(e, el); if (!kind) return;
+      e.preventDefault(); e.stopPropagation(); el.classList.remove("drop-target");
+      if (kind === "folder") moveFolder(byName(e.dataTransfer.getData("text/folder")), el.dataset.folder ? byName(el.dataset.folder) : null);
+      else moveDocToFolder(Number(e.dataTransfer.getData("text/doc")), el.dataset.folder);
+    };
   }
   const up = box.querySelector("#folder-up");
   if (up) up.onclick = () => {
@@ -1191,7 +1199,7 @@ function renderGrid() {
     c.innerHTML = `
       <div class="check">${state.selected.has(d.id) ? "✓" : ""}</div>
       ${d.status !== "done" ? `<span class="badge ${d.status === "error" ? "error" : ""}">${statusLabel(d.status)}</span>` : d.ext_pending ? `<span class="badge warn" title="${esc(d.ext_from || "")}">${esc(tr("von außen"))}</span>` : (d.llm_status === "failed" ? `<span class="badge warn">${esc(tr("ohne Tags"))}</span>` : dueBadge(d))}
-      <div class="thumb">${done ? `<img loading="lazy" src="${d.thumbnail_url}?v=${enc(d.updated_at)}" alt="">${d.page_count ? `<span class="pages">${esc(tr("{n} S.", { n: d.page_count }))}</span>` : ""}` : `<span class="pending">${esc(d.status === "processing" ? tr("OCR läuft …") : tr("Wartet"))}</span>`}${kindTag(d)}</div>
+      <div class="thumb">${done ? `<img loading="lazy" draggable="false" src="${d.thumbnail_url}?v=${enc(d.updated_at)}" alt="">${d.page_count ? `<span class="pages">${esc(tr("{n} S.", { n: d.page_count }))}</span>` : ""}` : `<span class="pending">${esc(d.status === "processing" ? tr("OCR läuft …") : tr("Wartet"))}</span>`}${kindTag(d)}</div>
       <div class="info">
         <div class="title">${esc(d.title)}</div>
         <div class="sub">${state.sort.startsWith("added") ? esc(tr("hinzugefügt {date}", { date: fmtDate(d.created_at) })) : docDateHtml(d)}${d.sender ? " · " + esc(d.sender) : ""}</div>
@@ -1204,8 +1212,26 @@ function renderGrid() {
     c.querySelector(".check").onclick = (e) => { e.stopPropagation(); if (d.can_edit) toggleSelect(d.id); };
     c.onclick = () => { if (state.selected.size || state.trash) { if (d.can_edit) toggleSelect(d.id); } else openDetail(d.id); };
     c.tabIndex = 0; c.setAttribute("role", "button"); c.setAttribute("aria-label", d.title || "");
+    // Im Ordner: Dokument auf einen Unterordner oder Brotkrumen ziehen = dorthin verschieben (28.11.2026). Vorher zog der
+    // Browser das Vorschaubild mit, und die Seite hielt es für eine neue Datei zum Ablegen.
+    if (state.mode === "folders" && state.tag && d.can_edit && !state.trash) {
+      c.draggable = true;
+      c.ondragstart = (e) => { e.dataTransfer.setData("text/doc", String(d.id)); e.dataTransfer.effectAllowed = "move"; };
+    }
     g.appendChild(c);
   }
+}
+// Dokument in einen anderen Ordner: der Ordner, in dem man gerade steht, geht weg, der Zielordner kommt dazu (Oberordner
+// hängt der Server selbst an); andere Tags bleiben
+async function moveDocToFolder(id, target) {
+  const d = state.docs.find((x) => x.id === id); if (!d || !target) return;
+  const names = d.tags.filter((t) => t.source !== "parent" && t.name !== state.tag).map((t) => t.name);
+  if (!names.includes(target)) names.push(target);
+  try {
+    await api(`/documents/${id}`, json("PATCH", { tags: names }));
+    toast(tr("Nach „{name}“ verschoben", { name: target }));
+    await Promise.all([loadDocs(), loadTags()]);
+  } catch (err) { toast(tr("Fehler: {msg}", { msg: err.message })); }
 }
 /// Dokumentart als dezentes Etikett auf der Kachel – nicht bei Rechnungen (sonst stünde es fast überall)
 function kindTag(d) {
@@ -1467,7 +1493,7 @@ async function renderToday() {
   if (today.data && !box.childElementCount) drawToday();
   const seq = ++today.seq;
   const familyOld = Date.now() - today.familyAt > 60000;   // Familie höchstens einmal pro Minute nachzählen
-  const [due, recent, rc, fam, up, onb] = await Promise.all([
+  const [due, recent, rc, fam, up, onb, extra] = await Promise.all([
     api("/documents?scope=all&due=true&limit=50").catch(() => null),
     api("/documents?scope=all&sort=added&dir=desc&limit=12").catch(() => null),
     // Zählen wie die Liste, die der Klick öffnet (Bereich oben: nur meine oder alle)
@@ -1477,11 +1503,12 @@ async function renderToday() {
     api("/upcoming?scope=all").catch(() => ({ items: [] })),
     // „Los geht’s“ (Server: app/onboarding.py) – nur für neue Konten; ältere Server ohne Route: nichts
     today.onboardingOff ? null : api("/onboarding").catch(() => null),
+    api("/today/extras").catch(() => null),   // Zusatzkarten (Server: app/today.py)
   ]);
   if (seq !== today.seq || !todayBrowsing()) return;
   today.onboarding = onb && onb.show && !today.onboardingOff ? onb : null;
   if (fam) { today.family = { persons: fam[0] || [], counts: fam[1], emergency: fam[2] }; today.familyAt = Date.now(); }
-  today.data = { due, recent, review: rc ? rc.count : 0, upcoming: (up && up.items) || [] };
+  today.data = { due, recent, review: rc ? rc.count : 0, upcoming: (up && up.items) || [], extra };
   const key = JSON.stringify([today.data, today.onboarding, today.family]);
   if (key !== today.lastKey || !box.childElementCount) {
     today.lastKey = key;
@@ -1679,13 +1706,69 @@ function onboardingCard() {
     }).join("")}
   </section>`;
 }
+// Zusatzkarten (28.11.2026, Server: app/today.py; „Zuletzt angesehen“ nur in diesem Browser). top: vor „Im Blick“,
+// mid: danach, end: ganz unten; week: eine Zeile über den Spalten
+const T_DOC = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>`;
+function lastSeen() { try { return JSON.parse(localStorage.getItem("bl.lastseen") || "[]"); } catch { return []; } }
+function rememberSeen(d) {
+  const list = [{ id: d.id, title: d.title }, ...lastSeen().filter((x) => x.id !== d.id)].slice(0, 6);
+  try { localStorage.setItem("bl.lastseen", JSON.stringify(list)); } catch {}
+}
+function forgetSeen(id) { try { localStorage.setItem("bl.lastseen", JSON.stringify(lastSeen().filter((x) => x.id !== id))); } catch {} }
+function tCard(cls, icon, title, body, link = "") {
+  return `<section class="tcard ${cls}"><div class="t-head"><span class="t-ic">${icon}</span><h2>${esc(title)}</h2>${link}</div>${body}</section>`;
+}
+function tLine(open, title, sub, pill = "", u = "later") {
+  return `<div class="t-row ${u}"><button class="t-open" data-open="${open}"><span class="t-stripe"></span><span class="t-txt"><span class="t-title">${esc(title)}</span>
+    ${sub ? `<span class="t-sub"><span class="t-note">${esc(sub)}</span></span>` : ""}</span>${pill ? `<span class="t-pill">${esc(pill)}</span>` : ""}</button></div>`;
+}
+function todayExtraCards(x) {
+  const out = { top: "", mid: "", end: "", week: "" };
+  const eur = (v) => Number(v || 0).toLocaleString(LOC, { style: "currency", currency: "EUR" });
+  if (x) {
+    if (x.system?.length && state.me?.is_admin && !todayOff("system")) {
+      const line = (p) => p.kind === "backup" ? tr("Letzte Sicherung ist älter als zwei Tage")
+        : p.kind === "ai" ? trn(p.count, "1 Dokument: KI-Erkennung fehlgeschlagen", "{n} Dokumente: KI-Erkennung fehlgeschlagen")
+        : trn(p.count, "1 Dokument mit Fehler", "{n} Dokumente mit Fehler");
+      out.top += `<button class="t-alert t-system" data-act="system"><span class="t-ic">${T_ALARM}</span><span class="t-rv"><b>${esc(tr("Systemzustand"))}</b><small>${esc(x.system.map(line).join(" · "))}</small></span><span aria-hidden="true">›</span></button>`;
+    }
+    if (x.inbox && !todayOff("inbox")) {
+      out.top += `<button class="t-alert t-inbox" data-act="review"><span class="t-ic">${T_DOC}</span><span class="t-rv"><b>${esc(trn(x.inbox.count, "1 Brief im Briefkasten", "{n} Briefe im Briefkasten"))}</b><small>${esc(x.inbox.from.length ? tr("eingeworfen von {names}", { names: x.inbox.from.join(", ") }) : tr("über einen Briefkasten-Link eingeworfen"))}</small></span><span aria-hidden="true">›</span></button>`;
+    }
+    if (x.cancel?.length && !todayOff("cancel")) {
+      out.mid += tCard("t-cancel", T_ALARM, tr("Kündigen möglich"), x.cancel.map((c) => tLine(c.document_id, c.sender,
+        tr("{amount} im Jahr · kündbar bis {date}", { amount: eur(c.per_year), date: fmtDate(c.date) }),
+        c.in_days <= 0 ? tr("heute") : c.in_days === 1 ? tr("morgen") : tr("in {n} Tagen", { n: c.in_days }), c.in_days <= 14 ? "soon" : "later")).join(""));
+    }
+    if (x.tax && !todayOff("tax")) {
+      const t = x.tax, lines = [];
+      if (t.craft_count) lines.push(`<p class="t-mline">${esc(trn(t.craft_count, "1 Handwerkerrechnung", "{n} Handwerkerrechnungen"))} · ${esc(tr("{amount} Arbeitskosten (§ 35a)", { amount: eur(t.craft_labor) }))}</p>`);
+      if (t.donation_count) lines.push(`<p class="t-mline">${esc(trn(t.donation_count, "1 Spendenquittung", "{n} Spendenquittungen"))} · ${esc(eur(t.donations))}</p>`);
+      out.mid += tCard("t-tax", T_COIN, tr("Steuerjahr {year}", { year: t.year }), lines.join(""),
+        `<button class="t-link" data-act="tax">${esc(tr("Steuer-Paket"))}</button>`);
+    }
+    if (x.year_ago?.length && !todayOff("yearago")) {
+      out.end += tCard("t-yearago", T_REPEAT_BIG, tr("Vor einem Jahr"), x.year_ago.map((d) => tLine(d.id, d.title, d.sender || "", fmtDate(d.date))).join(""));
+    }
+    if (x.week && !todayOff("week") && (x.week.new || x.week.done || x.week.next7)) {
+      const parts = [trn(x.week.new, "1 neues Dokument", "{n} neue Dokumente"), trn(x.week.done, "1 Frist erledigt", "{n} Fristen erledigt"),
+        trn(x.week.next7, "1 Frist in den nächsten 7 Tagen", "{n} Fristen in den nächsten 7 Tagen")];
+      out.week = `<p class="t-week">${esc(tr("Diese Woche"))}: ${parts.map(esc).join(" · ")}</p>`;
+    }
+  }
+  const seen = lastSeen().slice(0, 5);
+  if (seen.length && !todayOff("lastseen")) out.end += tCard("t-lastseen", T_DOC, tr("Zuletzt angesehen"), seen.map((d) => tLine(d.id, d.title, "")).join(""));
+  return out;
+}
+const T_REPEAT_BIG = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>`;
+function todayOff(key) { return (state.me?.today_hidden || []).includes(key); }   // Einstellungen → Heute anpassen
 function drawToday() {
   const box = $("#todayview"), t = today.data;
   if (!t) { box.innerHTML = ""; return; }
   const dues = (t.due || []).filter((d) => d.due_date && !d.due_done);
   const shown = today.showAllDue || today.assigning ? dues : dues.slice(0, TODAY_DUE_SHOWN);
   const editable = dues.filter((d) => d.can_edit);
-  const dueCard = `<section class="tcard t-due" aria-labelledby="t-due-h">
+  const dueCard = todayOff("due") ? "" : `<section class="tcard t-due" aria-labelledby="t-due-h">
     <div class="t-head"><span class="t-ic orange">${T_ALARM}</span><h2 id="t-due-h">${esc(tr("Fristen"))}</h2>${dues.length ? `<span class="t-count">${esc(tr("{n} offen", { n: dues.length }))}</span>` : ""}${
       editable.length > 1 || today.assigning ? `<button class="t-link" data-act="assign" title="${esc(tr("Mehrere Fristen auf einmal jemandem geben"))}">${esc(today.assigning ? tr("Fertig") : tr("Zuweisen"))}</button>` : ""}</div>
     ${today.assigning ? dueAssignBar(editable) : ""}
@@ -1693,14 +1776,14 @@ function drawToday() {
     ${shown.map(todayDueRow).join("")}
     ${dues.length > TODAY_DUE_SHOWN && !today.assigning ? `<button class="t-more" data-act="more">${esc(today.showAllDue ? tr("Weniger zeigen") : tr("Alle {n} Fristen zeigen", { n: dues.length }))}</button>` : ""}
   </section>`;
-  const review = t.review ? `<button class="t-review" data-act="review"><span class="t-ic">${T_CHECK}</span>
+  const review = t.review && !todayOff("review") ? `<button class="t-review" data-act="review"><span class="t-ic">${T_CHECK}</span>
     <span class="t-rv"><b>${esc(trn(t.review, "1 Dokument zum Prüfen", "{n} Dokumente zum Prüfen"))}</b><small>${esc(tr("Kurz drüberschauen – dauert keine Minute"))}</small></span><span aria-hidden="true">›</span></button>` : "";
-  const up = t.upcoming || [];
+  const up = todayOff("upcoming") ? [] : t.upcoming || [];
   const blick = up.length ? `<section class="tcard t-blick" aria-labelledby="t-blick-h">
     <div class="t-head"><span class="t-ic">${T_ALARM}</span><h2 id="t-blick-h">${esc(tr("Im Blick"))}</h2></div>
     ${up.map(blickRow).join("")}
   </section>` : "";
-  const members = todayMembers(), em = today.family?.emergency;
+  const members = todayOff("people") ? [] : todayMembers(), em = todayOff("emergency") ? null : today.family?.emergency;
   const family = members.length > 1 || em ? `<section class="tcard t-family" aria-labelledby="t-fam-h">
     <div class="t-head"><span class="t-ic">${T_PEOPLE}</span><h2 id="t-fam-h">${esc(tr("Familie"))}</h2></div>
     ${members.length > 1 ? `<div class="t-people">${members.map((m) => `<button class="t-person" data-member="${m.key}" title="${esc(tr("Dokumente von {name}", { name: m.name }))}">
@@ -1708,15 +1791,19 @@ function drawToday() {
       <small>${m.count == null ? "&nbsp;" : esc(trn(m.count, "1 Dokument", "{n} Dokumente"))}</small></button>`).join("")}</div>` : ""}
     ${em ? `<button class="t-emerg" data-act="emergency">${T_CROSS}<b>${esc(tr("Notfallmappe"))}</b><small>${esc(em.documents.length ? trn(em.documents.length, "1 Dokument", "{n} Dokumente") : tr("Noch leer"))}</small></button>` : ""}
   </section>` : "";
-  const recent = (t.recent || []).length ? `<div class="t-head t-new-h"><span class="t-ic small">${SMART_SVG}</span><h2>${esc(tr("Neu"))}</h2><button class="t-link" data-act="all">${esc(tr("Alle Dokumente"))}</button></div>
+  const recent = (t.recent || []).length && !todayOff("recent") ? `<div class="t-head t-new-h"><span class="t-ic small">${SMART_SVG}</span><h2>${esc(tr("Neu"))}</h2><button class="t-link" data-act="all">${esc(tr("Alle Dokumente"))}</button></div>
     <div class="t-new">${t.recent.map((d) => {
       const ready = d.status === "done" || d.status === "tagging";
       return `<button class="t-doc" data-open="${d.id}"><span class="t-thumb">${ready ? `<img loading="lazy" src="${d.thumbnail_url}?v=${enc(d.updated_at)}" alt="">` : `<span class="pending">${esc(d.status === "error" ? tr("Fehler") : tr("OCR läuft …"))}</span>`}</span>
         <span class="t-dtitle">${esc(d.title)}</span>${d.tags.length ? pill(d.tags[0]) : `<span class="t-dsub">${docDateHtml(d)}</span>`}</button>`;
     }).join("")}</div>` : "";
-  const moneyCard = todayMoneyCard();
+  const moneyCard = todayOff("money") ? "" : todayMoneyCard();
+  const extraCards = todayExtraCards(t.extra);
   const empty = !dues.length && !t.review && !up.length && !(t.recent || []).length && t.due !== null;
-  box.innerHTML = onboardingCard() + (empty ? "" : `<div class="t-cols"><div class="t-main">${dueCard}</div>${review || blick || moneyCard || family ? `<div class="t-side">${review}${blick}${moneyCard}${family}</div>` : ""}</div>${recent}`);
+  const sideHtml = review + extraCards.top + blick + extraCards.mid + moneyCard + family + extraCards.end;
+  const side = sideHtml ? `<div class="t-side">${sideHtml}</div>` : "";
+  const custom = `<p class="t-custom"><button class="t-link" data-act="customize">${esc(tr("Heute anpassen"))}</button></p>`;
+  box.innerHTML = onboardingCard() + (empty ? "" : extraCards.week) + (empty ? "" : `<div class="t-cols${dueCard ? "" : " no-due"}">${dueCard ? `<div class="t-main">${dueCard}</div>` : ""}${side}</div>${recent}${custom}`);
   if (!empty) balanceToday();
   $("#empty").classList.toggle("hidden", !empty);
   if (empty) { state.docs = []; renderEmpty(); }
@@ -1778,6 +1865,9 @@ async function dueViewClick(e) {
       api("/onboarding/dismiss", { method: "POST" }).catch(() => {});
       break;
     case "money": setMode("money"); break;
+    case "customize": openSettingsSection("s-today-sect"); break;
+    case "tax": openSettingsSection("s-export-sect"); break;
+    case "system": openSettingsSection(today.data?.extra?.system?.some((p) => p.kind === "backup") ? "s-storage" : "s-ai"); break;
   }
 }
 $("#todayview").addEventListener("click", dueViewClick);
@@ -2637,8 +2727,9 @@ const noteDrafts = new Map();   // angefangene Notiz je Dokument – Schließen 
 async function openDetail(id) {
   let d;
   try { d = await api(`/documents/${id}?include_text=true`); }
-  catch (e) { toast(tr("Dokument ließ sich nicht öffnen: {msg}", { msg: e.message || "" }), 4000); return false; }   // z. B. inzwischen gelöscht
+  catch (e) { forgetSeen(id); toast(tr("Dokument ließ sich nicht öffnen: {msg}", { msg: e.message || "" }), 4000); return false; }   // z. B. inzwischen gelöscht
   state.current = d;
+  rememberSeen(d);
   saver.pending.clear(); saver.failed = null;
   show("#detail");
   setDetailPdf(d);
@@ -2652,7 +2743,10 @@ async function openDetail(id) {
   loadAssignees(d);
   $("#m-note-text").value = noteDrafts.get(id) || "";
   renderNotes(d);
-  history.pushState({ id }, "", `#doc-${id}`);
+  // Schon auf einem Dokument-Eintrag (Doppelklick, zweimal schnell getippt, Dokument aus einem Dokument): ersetzen statt
+  // stapeln – sonst brauchte „Übersicht“/Zurück zwei Schritte (28.11.2026)
+  if (history.state && history.state.id) history.replaceState({ id }, "", `#doc-${id}`);
+  else history.pushState({ id }, "", `#doc-${id}`);
 }
 // Breit: PDF links eingebettet. Handy: nur das erste Blatt als Vorschau (antippen öffnet das PDF) – kein iframe laden
 function setDetailPdf(d) {
@@ -3151,6 +3245,19 @@ function renderCalFeed(path) {
   $("#s-cal-ha").value = url.replace(/\.ics$/, "/summary.json");
 }
 $("#s-cal-ha-copy").onclick = (e) => copyText($("#s-cal-ha").value, e.currentTarget);
+// „Heute anpassen“ (Server: /auth/me today_hidden, je Konto – die App liest dasselbe)
+function renderTodaySettings() {
+  for (const c of document.querySelectorAll("#s-today-list input")) c.checked = !(state.me?.today_hidden || []).includes(c.dataset.today);
+}
+$("#s-today-sect").addEventListener("toggle", (e) => { if (e.target.open) renderTodaySettings(); });
+$("#s-today-list").addEventListener("change", async () => {
+  const hidden = [...document.querySelectorAll("#s-today-list input")].filter((c) => !c.checked).map((c) => c.dataset.today);
+  try {
+    await api("/auth/me", json("PATCH", { today_hidden: hidden }));
+    if (state.me) state.me.today_hidden = hidden;
+    today.lastKey = null;   // beim Zurückkehren neu zeichnen
+  } catch (err) { toast(tr("Fehler: {msg}", { msg: err.message })); renderTodaySettings(); }
+});
 $("#s-cal-sect").addEventListener("toggle", async (e) => {
   if (e.target.open) renderCalFeed((await api("/calendar/feed").catch(() => ({}))).path);
 });
@@ -3350,13 +3457,23 @@ function saveTags(names) {
   renderMetaTags(names);   // gleich zeigen; die Antwort des Servers bestätigt
   saveDoc({ tags: names }, ["tags"]).then(() => loadTags());
 }
+function addTypedTag(input) {
+  const v = input.value.trim(); if (!v) return;
+  const names = $("#m-tags")._names || [];
+  input.value = "";
+  if (!names.some((n) => n.toLowerCase() === v.toLowerCase())) saveTags([...names, v]);
+}
 $("#m-tag-input").addEventListener("keydown", (e) => {
   if (e.key !== "Enter" || e.isComposing) return;
   e.preventDefault();
-  const v = e.target.value.trim(); if (!v) return;
-  const names = $("#m-tags")._names || [];
-  e.target.value = "";
-  if (!names.some((n) => n.toLowerCase() === v.toLowerCase())) saveTags([...names, v]);
+  addTypedTag(e.target);
+});
+// Aus der Vorschlagsliste gewählt (Klick/Tipp): gleich übernehmen, ohne Enter (28.11.2026). Der Browser meldet die Wahl
+// als Eingabe ohne Tipp-Art (Firefox) bzw. „insertReplacementText“ (Chrome/Safari); getippte Namen warten auf Enter.
+$("#m-tag-input").addEventListener("input", (e) => {
+  if (e.inputType && e.inputType !== "insertReplacementText") return;
+  const v = e.target.value.trim().toLowerCase();
+  if (v && state.tags.some((t) => t.name.toLowerCase() === v)) addTypedTag(e.target);
 });
 // ---------- Datum im Format der Browsersprache ----------
 // Das native <input type="date"> richtet sich nach der Oberflächensprache des Browsers, nicht nach der

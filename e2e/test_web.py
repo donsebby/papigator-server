@@ -1047,7 +1047,7 @@ def test_today_view_deadlines_family_new_and_back(page):
     _patch(page, doc, {"due_date": (date.today() + timedelta(days=3)).isoformat(), "due_note": "Abbuchung prüfen"})
     page.evaluate("fetch('/persons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Mia' }) })")
     _today(page)
-    row = page.locator(".t-row", has_text="Hundesteuer")
+    row = page.locator(".t-due .t-row", has_text="Hundesteuer")   # nicht „Zuletzt angesehen“ (28.11.2026)
     expect(row).to_be_visible()
     expect(row.locator(".t-pill")).to_have_text("in 3 Tagen")
     hidden(page, "#sort-select")
@@ -1067,7 +1067,7 @@ def test_today_view_deadlines_family_new_and_back(page):
     shown(page, "#todayview")
     # Abhaken: Frist verschwindet nach dem Auffrischen
     row.locator(".t-check").click()
-    expect(page.locator(".t-row", has_text="Hundesteuer")).to_have_count(0)
+    expect(page.locator(".t-due .t-row", has_text="Hundesteuer")).to_have_count(0)
     # „Zum Prüfen“ (Hundesteuer hat kein Datum): die Liste hat so viele Dokumente, wie die Karte verspricht
     card = page.locator(".t-review")
     n = int(re.search(r"(\d+) Dokument", card.inner_text()).group(1))

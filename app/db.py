@@ -468,6 +468,9 @@ CREATE INDEX IF NOT EXISTS idx_demo_uploads ON demo_uploads(user_id, at);
         ucols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
         if "pay_qr" not in ucols:
             con.execute("ALTER TABLE users ADD COLUMN pay_qr INTEGER NOT NULL DEFAULT 0")
+        # „Heute“ anpassen (28.11.2026): ausgeblendete Bereiche, Komma-Liste aus main.TODAY_SECTIONS, NULL = alles zeigen
+        if "today_hidden" not in ucols:
+            con.execute("ALTER TABLE users ADD COLUMN today_hidden TEXT")
         # Willkommen/„Was ist neu“ (25.11.2026, app/whatsnew.py): zuletzt gesehene Ausgabe pro Konto. Beim Einführen
         # bekommen bestehende Konten „0“ – sie kennen die App, sehen also die Neuerungen statt der Tour.
         if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='whatsnew_seen'").fetchone():

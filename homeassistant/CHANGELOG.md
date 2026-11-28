@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.11.28.1
+
+- Customize “Today” per account: hide any section, e.g. the emergency folder (web: Settings → Customize Today)
+- New cards on “Today”: time to cancel (contracts whose notice period ends within 8 weeks, with the yearly cost),
+  tax year (§ 35a labour costs, donations), drop box, a year ago, recently viewed, this week, and a system status
+  for admins (only when something is wrong)
+- Web app: drag a document onto another folder in the folder view; picking a tag from the suggestions adds it
+  without Enter; “Overview” closes a document in one step after a double click; drop-down lists stay readable
+  with a light theme on a dark Windows desktop
+
 ## 2026.11.27.1
 
 - AppArmor profile for the add-on (higher security rating)
